@@ -1,0 +1,7 @@
+nfl-data-py>=0.3.0
+pandas>=2.0.0
+sqlalchemy>=1.4
+psycopg2-binary
+python-dotenv
+schedule
+pytz

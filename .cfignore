@@ -1,0 +1,41 @@
+# Cloudflare Pages deployment ignore file
+
+# Dependencies
+node_modules
+frontend/node_modules
+backend/node_modules
+
+# Build cache and artifacts
+.next/cache
+.next/server
+frontend/.next/cache
+frontend/.next/server
+cache
+.vercel
+.swc
+.turbo
+
+# Version control
+.git
+.gitignore
+
+# Environment files
+.env
+.env.local
+.env*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

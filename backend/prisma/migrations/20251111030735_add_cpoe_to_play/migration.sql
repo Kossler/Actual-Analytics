@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Play" ADD COLUMN     "cpoe" DOUBLE PRECISION;

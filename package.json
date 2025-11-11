@@ -1,0 +1,13 @@
+{
+  "name": "actual-analytics",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NFL Player Analytics Platform",
+  "scripts": {
+    "build": "cd backend && npm install",
+    "start": "cd backend && node src/server.js",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install"
+  }
+}

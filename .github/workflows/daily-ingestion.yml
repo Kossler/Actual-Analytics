@@ -1,0 +1,39 @@
+name: Daily Data Ingestion
+
+on:
+  schedule:
+    # TNF 6:30 AM UTC / 1:30 AM ET
+    - cron:  '30 6 * 1,2,9-12 5'
+    # Early window: 11:00 PM UTC / 6:00 PM ET
+    - cron:  '00 23 * 1,2,9-12 0'
+    # Late window: 1:00 UTC / 9:00 PM ET
+    - cron:  '5 1 * 1,2,9-12 1'
+    # SNF/MNF: 6:30 UTC / 1:30 AM ET
+    - cron:  '30 6 * 1,2,9-12 1'
+    - cron:  '30 6 * 1,2,9-12 2'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  ingest-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          cd ingest
+          pip install -r requirements.txt
+      
+      - name: Run current season data update
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        continue-on-error: true
+        run: |
+          cd ingest
+          echo "yes" | python load_current_season_data.py 2025 || echo "⚠️  Warning: Data update encountered errors (2025 data may not be available yet)"
