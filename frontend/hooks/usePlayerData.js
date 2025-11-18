@@ -194,3 +194,72 @@ export function useBackgroundImage(specialChance = 0.01) {
 
   return backgroundImage;
 }
+
+/**
+ * Custom hook to fetch all players' aggregated stats for a season
+ * @param {string} apiUrl - Base API URL
+ * @param {number} season - Season year
+ * @returns {Object} { allStats: [], loading: boolean, error: string|null }
+ */
+export function useAllPlayerStats(apiUrl, season) {
+  const [allStats, setAllStats] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!apiUrl || !season) return;
+
+    setLoading(true);
+    fetch(`${apiUrl}/api/players/season/${season}/all-stats`)
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to fetch all player stats');
+        return r.json();
+      })
+      .then(data => {
+        setAllStats(data);
+        setError(null);
+      })
+      .catch(err => {
+        console.error('Error fetching all player stats:', err);
+        setError(err.message);
+        setAllStats([]);
+      })
+      .finally(() => setLoading(false));
+  }, [apiUrl, season]);
+
+  return { allStats, loading, error };
+}
+
+/**
+ * Custom hook to fetch available years from the database
+ * @param {string} apiUrl - Base API URL
+ * @returns {Object} { availableYears: [], loading: boolean, error: string|null }
+ */
+export function useAvailableYears(apiUrl) {
+  const [availableYears, setAvailableYears] = useState([2025]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!apiUrl) return;
+
+    setLoading(true);
+    fetch(`${apiUrl}/api/players/available-years`)
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to fetch available years');
+        return r.json();
+      })
+      .then(data => {
+        setAvailableYears(data.length > 0 ? data : [2025]);
+        setError(null);
+      })
+      .catch(err => {
+        console.error('Error fetching available years:', err);
+        setError(err.message);
+        setAvailableYears([2025]);
+      })
+      .finally(() => setLoading(false));
+  }, [apiUrl]);
+
+  return { availableYears, loading, error };
+}

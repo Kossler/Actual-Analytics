@@ -12,6 +12,7 @@ import PlayerInfo from '../components/PlayerInfo';
 import WeeklyStatsTable from '../components/WeeklyStatsTable';
 import YearlyStatsTable from '../components/YearlyStatsTable';
 import AdvancedMetricsTable from '../components/AdvancedMetricsTable';
+import PlayerScatterPlot from '../components/PlayerScatterPlot';
 
 // Custom Hooks
 import {
@@ -20,6 +21,8 @@ import {
   useWeeklyStats,
   useAdvancedMetrics,
   useBackgroundImage,
+  useAllPlayerStats,
+  useAvailableYears,
 } from '../hooks/usePlayerData';
 
 // Utils
@@ -53,6 +56,8 @@ export default function Home() {
     selectedYear
   );
   const { advancedMetrics } = useAdvancedMetrics(selectedPlayer?.id, apiUrl);
+  const { allStats } = useAllPlayerStats(apiUrl, selectedYear);
+  const { availableYears } = useAvailableYears(apiUrl);
 
   // Process stats data
   const playerStats = groupStatsBySeason(rawPlayerStats);
@@ -132,6 +137,18 @@ export default function Home() {
                 position={selectedPlayer.position}
                 playerStats={playerStats}
                 loading={false}
+              />
+
+              {/* Player Comparison Scatter Plot */}
+              <PlayerScatterPlot
+                playerStats={rawPlayerStats}
+                weeklyStats={rawWeeklyStats}
+                advancedMetrics={advancedMetrics}
+                selectedPlayerId={selectedPlayer.id}
+                allPlayerStats={allStats}
+                selectedYear={selectedYear}
+                onYearChange={setSelectedYear}
+                availableYears={availableYears}
               />
             </>
           )}

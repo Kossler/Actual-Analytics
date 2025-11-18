@@ -29,7 +29,58 @@ router.get('/medians', async (req, res) => {
   res.json(mysql);
 });
 
-// 3) Player detail with game logs
+// Get available seasons
+router.get('/available-years', async (req, res) => {
+  const years = await prisma.$queryRaw`
+    SELECT DISTINCT season 
+    FROM "GameStat" 
+    ORDER BY season DESC
+  `;
+  res.json(years.map(y => y.season));
+});
+
+// 3) Get all players' aggregated stats for a season (MUST be before /:id routes)
+router.get('/season/:season/all-stats', async (req, res) => {
+  const season = parseInt(req.params.season);
+  
+  // Get all GameStat aggregated by player + AdvancedMetrics
+  const allStats = await prisma.$queryRawUnsafe(`
+    SELECT 
+      p.id as "playerId",
+      p.name,
+      p.team,
+      p.position,
+      gs.season,
+      CAST(SUM(gs.passing_attempts) AS INTEGER) as "passingAttempts",
+      CAST(SUM(gs.passing_completions) AS INTEGER) as "passingCompletions",
+      CAST(SUM(gs."passingYds") AS INTEGER) as "passingYds",
+      CAST(SUM(gs.passing_tds) AS INTEGER) as "passingTDs",
+      CAST(SUM(gs.passing_interceptions) AS INTEGER) as "interceptions",
+      CAST(SUM(gs.rushing_attempts) AS INTEGER) as "rushingAttempts",
+      CAST(SUM(gs."rushingYds") AS INTEGER) as "rushingYds",
+      CAST(SUM(gs.rushing_tds) AS INTEGER) as "rushingTDs",
+      CAST(SUM(gs.receptions) AS INTEGER) as "receptions",
+      CAST(SUM(gs."receivingYds") AS INTEGER) as "receivingYds",
+      CAST(SUM(gs.receiving_tds) AS INTEGER) as "receivingTDs",
+      CAST(SUM(gs.targets) AS INTEGER) as "targets",
+      CAST(SUM(gs.passing_sacks) AS INTEGER) as "sacks",
+      CAST(SUM(gs.passing_epa) AS DOUBLE PRECISION) as "passingEPA",
+      CAST(SUM(gs.rushing_epa) AS DOUBLE PRECISION) as "rushingEPA",
+      CAST(SUM(gs.receiving_epa) AS DOUBLE PRECISION) as "receivingEPA",
+      CAST(AVG(gs.success_rate) AS DOUBLE PRECISION) as "successRate",
+      CAST(AVG(gs.cpoe) AS DOUBLE PRECISION) as "cpoe",
+      CAST(COUNT(DISTINCT gs.week) AS INTEGER) as "games"
+    FROM "GameStat" gs
+    JOIN "Player" p ON p.id = gs."playerId"
+    WHERE gs.season = ${season}
+    GROUP BY p.id, p.name, p.team, p.position, gs.season
+    ORDER BY p.name
+  `);
+  
+  res.json(allStats);
+});
+
+// 4) Player detail with game logs
 router.get('/:id/stats', async (req, res) => {
   const id = parseInt(req.params.id);
   const season = parseInt(req.query.season) || null;
@@ -41,7 +92,7 @@ router.get('/:id/stats', async (req, res) => {
   res.json(stats);
 });
 
-// 4) Get player median stats by season
+// 5) Get player median stats by season
 router.get('/:id/medians', async (req, res) => {
   const playerId = parseInt(req.params.id);
   const stats = await prisma.playerStats.findMany({
@@ -51,7 +102,7 @@ router.get('/:id/medians', async (req, res) => {
   res.json(stats);
 });
 
-// 5) Get player advanced metrics by season
+// 6) Get player advanced metrics by season
 router.get('/:id/advanced', async (req, res) => {
   const playerId = parseInt(req.params.id);
   const stats = await prisma.advancedMetrics.findMany({

@@ -1,4 +1,4 @@
-import { TableHead, TableBody, TableRow, TableCell, Chip, Select, MenuItem, FormControl } from '@mui/material';
+import { TableHead, TableBody, TableRow, TableCell, Chip, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import StatsTableWrapper from './StatsTableWrapper';
 import {
   displayStat,
@@ -102,6 +102,7 @@ export default function WeeklyStatsTable({
       dataLength={weeklyData.length}
       headerAction={
         <FormControl size="small" sx={{ minWidth: 100 }}>
+          <InputLabel>Year</InputLabel>
           <Select
             value={selectedYear}
             onChange={(e) => onYearChange(e.target.value)}
