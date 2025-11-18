@@ -39,6 +39,7 @@ export default function Home() {
   // Search state
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedYear, setSelectedYear] = useState(2025);
 
   // Data fetching hooks
   const { players: allPlayers } = useAllPlayers(apiUrl);
@@ -49,7 +50,7 @@ export default function Home() {
   const { weeklyStats: rawWeeklyStats } = useWeeklyStats(
     selectedPlayer?.id,
     apiUrl,
-    2025
+    selectedYear
   );
   const { advancedMetrics } = useAdvancedMetrics(selectedPlayer?.id, apiUrl);
 
@@ -113,6 +114,9 @@ export default function Home() {
                 position={selectedPlayer.position}
                 playerStats={playerStats}
                 loading={false}
+                selectedYear={selectedYear}
+                onYearChange={setSelectedYear}
+                availableYears={playerStats.map(s => s.season).sort((a, b) => b - a)}
               />
 
               {/* Yearly Aggregated Stats */}

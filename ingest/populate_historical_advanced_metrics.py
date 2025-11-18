@@ -1,135 +1,141 @@
-import nfl_data_py as nfl
+"""
+Populate AdvancedMetrics table for historical seasons (2016-2024) using GameStat table data.
+
+This script reads weekly EPA data from the GameStat table (populated by calculate_weekly_epa.py)
+and aggregates it into season-level EPA metrics for all positions.
+
+Usage:
+  python populate_historical_advanced_metrics.py           # Process all years 2016-2024
+  python populate_historical_advanced_metrics.py 2024      # Process only 2024
+  python populate_historical_advanced_metrics.py 2016 2024 # Process years 2016-2024
+
+Note: Requires GameStat table to be populated with EPA data first.
+Use load_current_season_data.py to populate GameStat EPA data.
+"""
+
 import psycopg2
 from psycopg2.extras import execute_values
-import pandas as pd
-from collections import defaultdict
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Parse command line arguments for specific years
+if len(sys.argv) > 1:
+    if len(sys.argv) == 2:
+        # Single year specified
+        year_arg = int(sys.argv[1])
+        seasons_to_populate = [year_arg]
+    elif len(sys.argv) == 3:
+        # Year range specified
+        start_year = int(sys.argv[1])
+        end_year = int(sys.argv[2])
+        seasons_to_populate = list(range(start_year, end_year + 1))
+    else:
+        print("Usage: python populate_historical_advanced_metrics.py [year] or [start_year end_year]")
+        sys.exit(1)
+else:
+    # Default: process all historical years
+    seasons_to_populate = list(range(2016, 2025))  # 2016-2024
+
+print(f"Processing seasons: {seasons_to_populate}")
 
 # Database connection
 conn = psycopg2.connect(os.getenv("DATABASE_URL"))
 cur = conn.cursor()
 
-# Get ALL players from Player table (not just QBs)
-cur.execute('SELECT "id", "name", "position", "pfr_id" FROM "Player" ORDER BY "name"')
-player_rows = cur.fetchall()
+# Clear existing AdvancedMetrics for seasons being processed to avoid duplicates
+if seasons_to_populate:
+    print(f"\nClearing existing AdvancedMetrics for seasons: {seasons_to_populate}")
+    for season in seasons_to_populate:
+        cur.execute('DELETE FROM "AdvancedMetrics" WHERE season = %s', (season,))
+    conn.commit()
+    print(f"[OK] Cleared AdvancedMetrics for {len(seasons_to_populate)} seasons\n")
 
-# Create lookup by pfr_id (unique identifier) AND by name (ONLY for players without pfr_id to avoid duplicates)
-players_by_pfr_id = {row[3]: {'id': row[0], 'name': row[1], 'position': row[2]} for row in player_rows if row[3]}
-players_by_name = {row[1]: {'id': row[0], 'position': row[2]} for row in player_rows if not row[3]}  # Only players WITHOUT pfr_id
-
-print(f"Found {len(players_by_pfr_id)} players with pfr_id, {len(players_by_name)} players without pfr_id")
-
-# Fetch play-by-play data for each season
-seasons_to_populate = list(range(2016, 2025))  # 2016-2024 (2025 already done)
+# Aggregate EPA data from GameStat table for each season
 all_metrics = []
 
 for season in seasons_to_populate:
-    print(f"\nFetching data for season {season}...")
+    print(f"\nAggregating EPA data for season {season} from GameStat table...")
     try:
-        # Download all play-by-play data
-        pbp = nfl.import_pbp_data([season])
+        # Aggregate weekly EPA data from GameStat table to get season totals
+        cur.execute('''
+            SELECT 
+                "playerId",
+                SUM("passing_epa") as passing_epa,
+                SUM("rushing_epa") as rushing_epa,
+                SUM("receiving_epa") as receiving_epa,
+                SUM("epa") as total_epa,
+                AVG("passing_epa_per_play") as passing_epa_per_play,
+                AVG("rushing_epa_per_play") as rushing_epa_per_play,
+                AVG("receiving_epa_per_play") as receiving_epa_per_play,
+                AVG("success_rate") as success_rate,
+                AVG("passing_success_rate") as passing_success_rate,
+                AVG("rushing_success_rate") as rushing_success_rate,
+                AVG("receiving_success_rate") as receiving_success_rate,
+                AVG("cpoe") as cpoe
+            FROM "GameStat"
+            WHERE "season" = %s
+              AND "week" IS NOT NULL
+            GROUP BY "playerId"
+        ''', (season,))
         
-        if pbp is None or pbp.empty:
-            print(f"  No data available for {season}")
+        gamestat_rows = cur.fetchall()
+        
+        if not gamestat_rows:
+            print(f"  No GameStat data available for {season}")
             continue
-    except (Exception, NameError) as e:
-        # Handle both actual errors and the nfl-data-py bug where it tries to catch undefined 'Error'
-        print(f"  [ERROR] Error fetching data for {season}: {e}")
-        continue
-    
-    try:
         
-        print(f"  Got {len(pbp)} plays for {season}")
+        print(f"  Got {len(gamestat_rows)} players with EPA data for {season}")
         
-        # Calculate EPA for all player types using pfr_id for unique matching
-        player_epa = {}  # Key: pfr_id, Value: EPA stats
+        # Get player positions
+        cur.execute('SELECT "id", "position" FROM "Player"')
+        player_positions = {row[0]: row[1] for row in cur.fetchall()}
         
-        # 1. PASSING EPA (QB) - use passer_player_id, filter for pass attempts only
-        passing = pbp[(pbp['passer_player_id'].notna()) & (pbp['pass_attempt'] == True)].copy()
-        for passer_id, group in passing.groupby('passer_player_id'):
-            # Only match by pfr_id
-            if passer_id and passer_id in players_by_pfr_id:
-                key = passer_id
-            else:
-                continue
-                
-            if key not in player_epa:
-                player_epa[key] = {'passing_epa': 0, 'rushing_epa': 0, 'receiving_epa': 0,
-                                  'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0}
-            player_epa[key]['passing_epa'] += group['epa'].sum()
-            player_epa[key]['passing_count'] += len(group)
-        
-        # 2. RUSHING EPA (RB, QB, FB) - use rusher_player_id, filter for rush attempts only
-        rushing = pbp[(pbp['rusher_player_id'].notna()) & (pbp['rush_attempt'] == True)].copy()
-        for rusher_id, group in rushing.groupby('rusher_player_id'):
-            # Only match by pfr_id
-            if rusher_id and rusher_id in players_by_pfr_id:
-                key = rusher_id
-            else:
-                continue
-                
-            if key not in player_epa:
-                player_epa[key] = {'passing_epa': 0, 'rushing_epa': 0, 'receiving_epa': 0,
-                                  'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0}
-            player_epa[key]['rushing_epa'] += group['epa'].sum()
-            player_epa[key]['rushing_count'] += len(group)
-        
-        # 3. RECEIVING EPA (WR, TE, RB) - use receiver_player_id, filter for pass attempts only
-        receiving = pbp[(pbp['receiver_player_id'].notna()) & (pbp['pass_attempt'] == True)].copy()
-        for receiver_id, group in receiving.groupby('receiver_player_id'):
-            # Only match by pfr_id
-            if receiver_id and receiver_id in players_by_pfr_id:
-                key = receiver_id
-            else:
-                continue
-                
-            if key not in player_epa:
-                player_epa[key] = {'passing_epa': 0, 'rushing_epa': 0, 'receiving_epa': 0,
-                                  'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0}
-            player_epa[key]['receiving_epa'] += group['epa'].sum()
-            player_epa[key]['receiving_count'] += len(group)
-        
-        # Calculate total EPA and per-play metrics for each player
-        for key, epa_data in player_epa.items():
-            # Get player info from database - key is now always pfr_id
-            pfr_id = key
-            if pfr_id not in players_by_pfr_id:
-                continue
-            player_id = players_by_pfr_id[pfr_id]['id']
-            position = players_by_pfr_id[pfr_id]['position']
+        # Process each player's season stats
+        for row in gamestat_rows:
+            player_id = row[0]
+            position = player_positions.get(player_id, 'Unknown')
             
-            # Calculate total EPA (sum of all play types)
-            total_epa = epa_data['passing_epa'] + epa_data['rushing_epa'] + epa_data['receiving_epa']
-            total_plays = epa_data['passing_count'] + epa_data['rushing_count'] + epa_data['receiving_count']
+            # Calculate EPA per play (weighted average based on total plays)
+            total_epa = row[4]
+            passing_epa = row[1]
+            rushing_epa = row[2]
+            receiving_epa = row[3]
+            
+            # Count non-null EPA values to determine total plays
+            passing_plays = 1 if passing_epa is not None and passing_epa != 0 else 0
+            rushing_plays = 1 if rushing_epa is not None and rushing_epa != 0 else 0
+            receiving_plays = 1 if receiving_epa is not None and receiving_epa != 0 else 0
+            total_plays = passing_plays + rushing_plays + receiving_plays
             
             if total_plays == 0:
                 continue
             
-            # Calculate per-play metrics
-            epa_per_play = total_epa / total_plays if total_plays > 0 else 0
-            passing_epa_per_play = epa_data['passing_epa'] / epa_data['passing_count'] if epa_data['passing_count'] > 0 else None
-            rushing_epa_per_play = epa_data['rushing_epa'] / epa_data['rushing_count'] if epa_data['rushing_count'] > 0 else None
-            receiving_epa_per_play = epa_data['receiving_epa'] / epa_data['receiving_count'] if epa_data['receiving_count'] > 0 else None
+            epa_per_play = total_epa / total_plays if total_epa is not None and total_plays > 0 else None
             
             all_metrics.append({
                 'playerId': player_id,
                 'season': season,
                 'epa': total_epa,
                 'epa_per_play': epa_per_play,
-                'passing_epa': epa_data['passing_epa'] if epa_data['passing_count'] > 0 else None,
-                'rushing_epa': epa_data['rushing_epa'] if epa_data['rushing_count'] > 0 else None,
-                'receiving_epa': epa_data['receiving_epa'] if epa_data['receiving_count'] > 0 else None,
-                'passing_epa_per_play': passing_epa_per_play,
-                'rushing_epa_per_play': rushing_epa_per_play,
-                'receiving_epa_per_play': receiving_epa_per_play,
+                'passing_epa': passing_epa if passing_epa != 0 else None,
+                'rushing_epa': rushing_epa if rushing_epa != 0 else None,
+                'receiving_epa': receiving_epa if receiving_epa != 0 else None,
+                'passing_epa_per_play': row[5],
+                'rushing_epa_per_play': row[6],
+                'receiving_epa_per_play': row[7],
+                'success_rate': row[8],
+                'passing_success_rate': row[9],
+                'rushing_success_rate': row[10],
+                'receiving_success_rate': row[11],
+                'cpoe': row[12],
                 'position': position
             })
         
         # Print sample stats
-        print(f"  [OK] Calculated EPA for {len(player_epa)} players")
+        print(f"  [OK] Processed {len([m for m in all_metrics if m['season'] == season])} players")
         qb_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'QB')
         rb_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'RB')
         wr_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'WR')
@@ -137,7 +143,7 @@ for season in seasons_to_populate:
         print(f"      QB: {qb_count}, RB: {rb_count}, WR: {wr_count}, TE: {te_count}")
         
     except Exception as e:
-        print(f"  [ERROR] Error fetching data for {season}: {e}")
+        print(f"  [ERROR] Error processing data for {season}: {e}")
         import traceback
         traceback.print_exc()
         continue
@@ -152,10 +158,15 @@ if all_metrics:
          float(m['epa_per_play']) if m['epa_per_play'] is not None else None, 
          float(m['passing_epa']) if m['passing_epa'] is not None else None,
          float(m['passing_epa_per_play']) if m['passing_epa_per_play'] is not None else None,
+         float(m.get('passing_success_rate')) if m.get('passing_success_rate') is not None else None,
          float(m['rushing_epa']) if m['rushing_epa'] is not None else None,
          float(m['rushing_epa_per_play']) if m['rushing_epa_per_play'] is not None else None,
+         float(m.get('rushing_success_rate')) if m.get('rushing_success_rate') is not None else None,
          float(m.get('receiving_epa')) if m.get('receiving_epa') is not None else None,
-         float(m.get('receiving_epa_per_play')) if m.get('receiving_epa_per_play') is not None else None)
+         float(m.get('receiving_epa_per_play')) if m.get('receiving_epa_per_play') is not None else None,
+         float(m.get('receiving_success_rate')) if m.get('receiving_success_rate') is not None else None,
+         float(m.get('success_rate')) if m.get('success_rate') is not None else None,
+         float(m.get('cpoe')) if m.get('cpoe') is not None else None)
         for m in all_metrics
     ]
     
@@ -163,19 +174,25 @@ if all_metrics:
     query = """
         INSERT INTO "AdvancedMetrics" 
         ("playerId", "season", "epa", "epa_per_play", 
-         "passing_epa", "passing_epa_per_play",
-         "rushing_epa", "rushing_epa_per_play",
-         "receiving_epa", "receiving_epa_per_play")
+         "passing_epa", "passing_epa_per_play", "passing_success_rate",
+         "rushing_epa", "rushing_epa_per_play", "rushing_success_rate",
+         "receiving_epa", "receiving_epa_per_play", "receiving_success_rate",
+         "success_rate", "cpoe")
         VALUES %s
         ON CONFLICT ("playerId", "season") DO UPDATE SET
             epa = EXCLUDED.epa,
             epa_per_play = EXCLUDED.epa_per_play,
             passing_epa = EXCLUDED.passing_epa,
             passing_epa_per_play = EXCLUDED.passing_epa_per_play,
+            passing_success_rate = EXCLUDED.passing_success_rate,
             rushing_epa = EXCLUDED.rushing_epa,
             rushing_epa_per_play = EXCLUDED.rushing_epa_per_play,
+            rushing_success_rate = EXCLUDED.rushing_success_rate,
             receiving_epa = EXCLUDED.receiving_epa,
-            receiving_epa_per_play = EXCLUDED.receiving_epa_per_play
+            receiving_epa_per_play = EXCLUDED.receiving_epa_per_play,
+            receiving_success_rate = EXCLUDED.receiving_success_rate,
+            success_rate = EXCLUDED.success_rate,
+            cpoe = EXCLUDED.cpoe
     """
     
     execute_values(cur, query, values)

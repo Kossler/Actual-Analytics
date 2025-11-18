@@ -12,6 +12,7 @@ const allowedOrigins = [
   'https://actualnflanalytics.com',
   'https://actual-analytics.pages.dev',
   'http://localhost:3000',
+  'http://localhost:3001',
   'http://localhost:8080'
 ];
 
@@ -19,6 +20,11 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
+    
+    // Allow all localhost origins for development
+    if (origin && origin.startsWith('http://localhost:')) {
+      return callback(null, true);
+    }
     
     // Check if origin is in allowed list or matches Cloudflare Pages preview
     if (allowedOrigins.includes(origin) || origin.endsWith('.pages.dev')) {

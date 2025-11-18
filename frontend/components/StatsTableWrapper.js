@@ -15,19 +15,22 @@ import {
  * @param {boolean} loading - Loading state
  * @param {number} dataLength - Length of data array
  * @param {React.ReactNode} children - Table content
+ * @param {React.ReactNode} headerAction - Optional action component for header (e.g., dropdown)
  */
 export default function StatsTableWrapper({ 
   title, 
   subtitle, 
   loading, 
   dataLength, 
-  children 
+  children,
+  headerAction
 }) {
   return (
     <Card sx={{ mb: 4 }}>
       <CardHeader
         title={title}
         subheader={subtitle}
+        action={headerAction}
         titleTypographyProps={{ variant: 'h6', fontWeight: 600 }}
         subheaderTypographyProps={{ variant: 'body2' }}
       />
@@ -43,9 +46,7 @@ export default function StatsTableWrapper({
         ) : (
           <TableContainer
             sx={{
-              maxHeight: { xs: '500px', md: '700px' },
               overflowX: 'auto',
-              overflowY: 'auto',
               '&::-webkit-scrollbar': {
                 width: '8px',
                 height: '8px',

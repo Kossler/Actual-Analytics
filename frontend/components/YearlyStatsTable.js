@@ -16,6 +16,24 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
   const showRushing = shouldShowRushingColumns(position, playerStats);
   const showReceiving = shouldShowReceivingColumns(position);
 
+  // Calculate career totals
+  const careerTotals = playerStats.reduce((totals, stat) => ({
+    gameCount: (totals.gameCount || 0) + (stat.gameCount || 0),
+    passingYds: (totals.passingYds || 0) + (stat.passingYds || 0),
+    passing_tds: (totals.passing_tds || 0) + (stat.passing_tds || 0),
+    passing_interceptions: (totals.passing_interceptions || 0) + (stat.passing_interceptions || 0),
+    passing_sacks: (totals.passing_sacks || 0) + (stat.passing_sacks || 0),
+    passing_attempts: (totals.passing_attempts || 0) + (stat.passing_attempts || 0),
+    passing_completions: (totals.passing_completions || 0) + (stat.passing_completions || 0),
+    rushingYds: (totals.rushingYds || 0) + (stat.rushingYds || 0),
+    rushing_tds: (totals.rushing_tds || 0) + (stat.rushing_tds || 0),
+    rushing_attempts: (totals.rushing_attempts || 0) + (stat.rushing_attempts || 0),
+    targets: (totals.targets || 0) + (stat.targets || 0),
+    receptions: (totals.receptions || 0) + (stat.receptions || 0),
+    receivingYds: (totals.receivingYds || 0) + (stat.receivingYds || 0),
+    receiving_tds: (totals.receiving_tds || 0) + (stat.receiving_tds || 0),
+  }), {});
+
   return (
     <StatsTableWrapper
       title="Yearly Statistics"
@@ -111,6 +129,63 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
             )}
           </TableRow>
         ))}
+        
+        {/* Career Totals Row */}
+        {playerStats.length > 0 && (
+          <TableRow
+            sx={{
+              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              '& td': {
+                fontWeight: 'bold',
+                borderTop: '2px solid rgba(255, 255, 255, 0.2)',
+                fontSize: '0.95rem',
+              },
+            }}
+          >
+            <TableCell>
+              <Chip
+                label="Career Total"
+                size="medium"
+                variant="outlined"
+                sx={{ 
+                  borderColor: '#ffffff',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  fontSize: '0.875rem',
+                }}
+              />
+            </TableCell>
+            <TableCell align="right">{careerTotals.gameCount}</TableCell>
+            {showPassing && (
+              <>
+                <TableCell align="right">{displayStat(careerTotals.passingYds)}</TableCell>
+                <TableCell align="right">{displayStat(careerTotals.passing_tds)}</TableCell>
+                <TableCell align="right">{displayStat(careerTotals.passing_interceptions)}</TableCell>
+                <TableCell align="right">{displayStat(careerTotals.passing_sacks)}</TableCell>
+                <TableCell align="right">{displayStat(careerTotals.passing_attempts)}</TableCell>
+                <TableCell align="right">{displayStat(careerTotals.passing_completions)}</TableCell>
+                <TableCell align="right">
+                  {calculateCompletionPercentage(careerTotals.passing_completions, careerTotals.passing_attempts)}
+                </TableCell>
+              </>
+            )}
+            {showRushing && (
+              <>
+                <TableCell align="right">{displayStat(careerTotals.rushingYds)}</TableCell>
+                <TableCell align="right">{displayStat(careerTotals.rushing_tds)}</TableCell>
+                <TableCell align="right">{displayStat(careerTotals.rushing_attempts)}</TableCell>
+              </>
+            )}
+            {showReceiving && (
+              <>
+                <TableCell align="right">{displayStat(careerTotals.targets)}</TableCell>
+                <TableCell align="right">{displayStat(careerTotals.receptions)}</TableCell>
+                <TableCell align="right">{displayStat(careerTotals.receivingYds)}</TableCell>
+                <TableCell align="right">{displayStat(careerTotals.receiving_tds)}</TableCell>
+              </>
+            )}
+          </TableRow>
+        )}
       </TableBody>
     </StatsTableWrapper>
   );

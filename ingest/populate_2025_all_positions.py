@@ -64,58 +64,58 @@ if pbp is not None and not pbp.empty:
                 'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0,
                 'passing_success': 0, 'rushing_success': 0, 'receiving_success': 0,
                 'cpoe_sum': 0, 'cpoe_count': 0
-                }
-            player_epa[key]['passing_epa'] += group['epa'].sum()
-            player_epa[key]['passing_count'] += len(group)
-            player_epa[key]['passing_success'] += group['success'].sum()
-            # CPOE calculation for QBs only
-            cpoe_values = group['cpoe'].dropna()
-            if len(cpoe_values) > 0:
-                player_epa[key]['cpoe_sum'] += cpoe_values.sum()
-                player_epa[key]['cpoe_count'] += len(cpoe_values)
-        
-        # 2. RUSHING EPA (RB, QB, FB) - use rusher_player_id, filter for rush attempts only
-        rushing = pbp[(pbp['rusher_player_id'].notna()) & (pbp['rush_attempt'] == True)].copy()
-        for rusher_id, group in rushing.groupby('rusher_player_id'):
-            # Try pfr_id match first, fall back to name match
-            if rusher_id and rusher_id in players_by_pfr_id:
-                key = rusher_id
-            else:
-                continue
-                
-            if key not in player_epa:
-                player_epa[key] = {
-                    'passing_epa': 0, 'rushing_epa': 0, 'receiving_epa': 0,
-                    'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0,
-                    'passing_success': 0, 'rushing_success': 0, 'receiving_success': 0,
-                    'cpoe_sum': 0, 'cpoe_count': 0
-                }
-            player_epa[key]['rushing_epa'] += group['epa'].sum()
-            player_epa[key]['rushing_count'] += len(group)
-            player_epa[key]['rushing_success'] += group['success'].sum()
-        
-        # 3. RECEIVING EPA (WR, TE, RB) - use receiver_player_id, filter for pass attempts only
-        receiving = pbp[(pbp['receiver_player_id'].notna()) & (pbp['pass_attempt'] == True)].copy()
-        for receiver_id, group in receiving.groupby('receiver_player_id'):
-            # Try pfr_id match first
-            if receiver_id and receiver_id in players_by_pfr_id:
-                key = receiver_id
-            else:
-                continue
-                
-            if key not in player_epa:
-                player_epa[key] = {
-                    'passing_epa': 0, 'rushing_epa': 0, 'receiving_epa': 0,
-                    'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0,
-                    'passing_success': 0, 'rushing_success': 0, 'receiving_success': 0,
-                    'cpoe_sum': 0, 'cpoe_count': 0
-                }
-            player_epa[key]['receiving_epa'] += group['epa'].sum()
-            player_epa[key]['receiving_count'] += len(group)
-            player_epa[key]['receiving_success'] += group['success'].sum()
-        
-        # Calculate total EPA and per-play metrics for each player
-        for key, epa_data in player_epa.items():
+            }
+        player_epa[key]['passing_epa'] += group['epa'].sum()
+        player_epa[key]['passing_count'] += len(group)
+        player_epa[key]['passing_success'] += group['success'].sum()
+        # CPOE calculation for QBs only
+        cpoe_values = group['cpoe'].dropna()
+        if len(cpoe_values) > 0:
+            player_epa[key]['cpoe_sum'] += cpoe_values.sum()
+            player_epa[key]['cpoe_count'] += len(cpoe_values)
+    
+    # 2. RUSHING EPA (RB, QB, FB) - use rusher_player_id, filter for rush attempts only
+    rushing = pbp[(pbp['rusher_player_id'].notna()) & (pbp['rush_attempt'] == True)].copy()
+    for rusher_id, group in rushing.groupby('rusher_player_id'):
+        # Try pfr_id match first, fall back to name match
+        if rusher_id and rusher_id in players_by_pfr_id:
+            key = rusher_id
+        else:
+            continue
+            
+        if key not in player_epa:
+            player_epa[key] = {
+                'passing_epa': 0, 'rushing_epa': 0, 'receiving_epa': 0,
+                'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0,
+                'passing_success': 0, 'rushing_success': 0, 'receiving_success': 0,
+                'cpoe_sum': 0, 'cpoe_count': 0
+            }
+        player_epa[key]['rushing_epa'] += group['epa'].sum()
+        player_epa[key]['rushing_count'] += len(group)
+        player_epa[key]['rushing_success'] += group['success'].sum()
+    
+    # 3. RECEIVING EPA (WR, TE, RB) - use receiver_player_id, filter for pass attempts only
+    receiving = pbp[(pbp['receiver_player_id'].notna()) & (pbp['pass_attempt'] == True)].copy()
+    for receiver_id, group in receiving.groupby('receiver_player_id'):
+        # Try pfr_id match first
+        if receiver_id and receiver_id in players_by_pfr_id:
+            key = receiver_id
+        else:
+            continue
+            
+        if key not in player_epa:
+            player_epa[key] = {
+                'passing_epa': 0, 'rushing_epa': 0, 'receiving_epa': 0,
+                'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0,
+                'passing_success': 0, 'rushing_success': 0, 'receiving_success': 0,
+                'cpoe_sum': 0, 'cpoe_count': 0
+            }
+        player_epa[key]['receiving_epa'] += group['epa'].sum()
+        player_epa[key]['receiving_count'] += len(group)
+        player_epa[key]['receiving_success'] += group['success'].sum()
+    
+    # Calculate total EPA and per-play metrics for each player
+    for key, epa_data in player_epa.items():
             # Get player info from database - key is now always pfr_id
             pfr_id = key
             if pfr_id not in players_by_pfr_id:

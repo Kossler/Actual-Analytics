@@ -1,136 +1,219 @@
 """
-Calculate weekly EPA metrics from play-by-play data and update GameStat records.
-This ensures weekly EPA values sum to season EPA.
+Vectorized weekly EPA calculation and batched update to GameStat.
+
+Usage:
+    python calculate_weekly_epa_vectorized.py 2025
 """
 import os
 import sys
 from dotenv import load_dotenv
 import psycopg2
+from psycopg2 import sql
+from psycopg2.extras import execute_batch
 import nfl_data_py as nfl
 import pandas as pd
+import numpy as np
 
 load_dotenv()
 
-def calculate_weekly_epa(year=2025):
-    """Calculate weekly EPA for all players from play-by-play data"""
-    
+def safe_float(x):
+    return float(x) if x is not None and not (pd.isna(x)) else None
+
+def calculate_weekly_epa(year):
     conn = psycopg2.connect(os.getenv("DATABASE_URL"))
     cur = conn.cursor()
-    
-    print(f"\n[INFO] Calculating weekly EPA for {year}...")
-    
-    # Get all players with pfr_id
+
+    print(f"\n[INFO] Calculating weekly EPA for {year} (vectorized)...")
+
+    # --- Load players (pfr -> player id) and existing player-week GameStat rows ---
     cur.execute('SELECT "id", "name", "position", "pfr_id" FROM "Player" WHERE "pfr_id" IS NOT NULL')
     player_rows = cur.fetchall()
-    
-    players_by_pfr_id = {row[3]: {'id': row[0], 'name': row[1], 'position': row[2]} 
-                         for row in player_rows if row[3]}
-    
-    print(f"Found {len(players_by_pfr_id)} players with pfr_id")
-    
-    # Download play-by-play data
+    players_by_pfr = {row[3]: {'id': row[0], 'name': row[1], 'position': row[2]} for row in player_rows if row[3]}
+    print(f"Found {len(players_by_pfr)} players with pfr_id")
+
+    # Fetch current GameStat player-week combinations for the season
+    cur.execute(f"""
+        SELECT DISTINCT gs."playerId", p.pfr_id, gs.week
+        FROM "GameStat" gs
+        JOIN "Player" p ON gs."playerId" = p.id
+        WHERE gs.season = %s AND gs.week IS NOT NULL AND p.pfr_id IS NOT NULL
+        ORDER BY gs."playerId", gs.week
+    """, (year,))
+    player_weeks = cur.fetchall()
+    player_week_set = set((pw[0], pw[2]) for pw in player_weeks)  # (playerId, week)
+    print(f"Processing {len(player_weeks)} player-week combinations (existing GameStat rows)")
+
+    # --- Import play-by-play data ---
     print(f"\nFetching play-by-play data for {year}...")
     try:
         pbp = nfl.import_pbp_data([year])
-    except (Exception, NameError) as e:
-        # Handle both actual errors and the nfl-data-py bug where it tries to catch undefined 'Error'
+    except Exception as e:
         print(f"[ERROR] Error fetching PBP data for {year}: {e}")
         cur.close()
         conn.close()
         return
-    
+
     if pbp is None or pbp.empty:
         print(f"No play-by-play data for {year}")
         cur.close()
         conn.close()
         return
-    
+
     print(f"Got {len(pbp)} plays")
-    
-    # Calculate weekly EPA for each player
-    weekly_updates = []
-    
-    # Get all player-week combinations from GameStat
-    cur.execute(f"""
-        SELECT DISTINCT gs."playerId", p.pfr_id, gs.week
-        FROM "GameStat" gs
-        JOIN "Player" p ON gs."playerId" = p.id
-        WHERE gs.season = {year} AND gs.week IS NOT NULL AND p.pfr_id IS NOT NULL
-        ORDER BY gs."playerId", gs.week
-    """)
-    
-    player_weeks = cur.fetchall()
-    print(f"\nProcessing {len(player_weeks)} player-week combinations...")
-    
-    for player_id, pfr_id, week in player_weeks:
-        # Filter plays for this player and week
-        player_plays = pbp[pbp['week'] == week].copy()
-        
-        # Calculate passing EPA
-        passing_plays = player_plays[(player_plays['passer_player_id'] == pfr_id) & (player_plays['pass_attempt'] == True)]
-        passing_epa = passing_plays['epa'].sum() if len(passing_plays) > 0 else None
-        passing_count = len(passing_plays)
-        passing_epa_per_play = passing_epa / passing_count if passing_count > 0 and passing_epa is not None else None
-        passing_success = passing_plays[passing_plays['success'] == True].shape[0] if len(passing_plays) > 0 else 0
-        passing_success_rate = (passing_success / passing_count * 100) if passing_count > 0 else None
-        
-        # Calculate rushing EPA
-        rushing_plays = player_plays[(player_plays['rusher_player_id'] == pfr_id) & (player_plays['rush_attempt'] == True)]
-        rushing_epa = rushing_plays['epa'].sum() if len(rushing_plays) > 0 else None
-        rushing_count = len(rushing_plays)
-        rushing_epa_per_play = rushing_epa / rushing_count if rushing_count > 0 and rushing_epa is not None else None
-        rushing_success = rushing_plays[rushing_plays['success'] == True].shape[0] if len(rushing_plays) > 0 else 0
-        rushing_success_rate = (rushing_success / rushing_count * 100) if rushing_count > 0 else None
-        
-        # Calculate receiving EPA
-        receiving_plays = player_plays[(player_plays['receiver_player_id'] == pfr_id) & (player_plays['pass_attempt'] == True)]
-        receiving_epa = receiving_plays['epa'].sum() if len(receiving_plays) > 0 else None
-        # Count targets: any pass attempt where this player was the receiver
-        receiving_count = len(receiving_plays)
-        receiving_epa_per_play = receiving_epa / receiving_count if receiving_count > 0 and receiving_epa is not None else None
-        receiving_success = receiving_plays[receiving_plays['success'] == True].shape[0] if len(receiving_plays) > 0 else 0
-        receiving_success_rate = (receiving_success / receiving_count * 100) if receiving_count > 0 else None
-        
-        # Calculate total EPA and success rate
-        total_plays = len(passing_plays) + len(rushing_plays) + len(receiving_plays)
-        if total_plays > 0:
-            total_epa = 0
-            if passing_epa is not None:
-                total_epa += passing_epa
-            if rushing_epa is not None:
-                total_epa += rushing_epa
-            if receiving_epa is not None:
-                total_epa += receiving_epa
-            
-            total_success = passing_success + rushing_success + receiving_success
-            total_success_rate = (total_success / total_plays * 100) if total_plays > 0 else None
-        else:
-            total_epa = None
-            total_success_rate = None
-        
-        weekly_updates.append({
-            'player_id': player_id,
-            'week': week,
-            'year': year,
-            'passing_epa': float(passing_epa) if passing_epa is not None and pd.notna(passing_epa) else None,
-            'passing_epa_per_play': float(passing_epa_per_play) if passing_epa_per_play is not None and pd.notna(passing_epa_per_play) else None,
-            'passing_success_rate': float(passing_success_rate) if passing_success_rate is not None and pd.notna(passing_success_rate) else None,
-            'rushing_epa': float(rushing_epa) if rushing_epa is not None and pd.notna(rushing_epa) else None,
-            'rushing_epa_per_play': float(rushing_epa_per_play) if rushing_epa_per_play is not None and pd.notna(rushing_epa_per_play) else None,
-            'rushing_success_rate': float(rushing_success_rate) if rushing_success_rate is not None and pd.notna(rushing_success_rate) else None,
-            'receiving_epa': float(receiving_epa) if receiving_epa is not None and pd.notna(receiving_epa) else None,
-            'receiving_epa_per_play': float(receiving_epa_per_play) if receiving_epa_per_play is not None and pd.notna(receiving_epa_per_play) else None,
-            'receiving_success_rate': float(receiving_success_rate) if receiving_success_rate is not None and pd.notna(receiving_success_rate) else None,
-            'epa': float(total_epa) if total_epa is not None and pd.notna(total_epa) else None,
-            'success_rate': float(total_success_rate) if total_success_rate is not None and pd.notna(total_success_rate) else None
-        })
-    
-    # Update GameStat records
-    print(f"\nUpdating {len(weekly_updates)} weekly GameStat records with EPA...")
-    
-    update_count = 0
-    for update in weekly_updates:
-        cur.execute("""
+
+    # Ensure relevant columns exist and normalize types
+    for col in ['week', 'epa', 'success', 'pass_attempt', 'rush_attempt',
+                'passer_player_id', 'rusher_player_id', 'receiver_player_id']:
+        if col not in pbp.columns:
+            pbp[col] = np.nan
+
+    # Convert boolean-like columns cleanly
+    # Some datasets use True/False, some 1/0, some NaN. Use .astype('boolean') then to numeric where needed.
+    # For grouping sums, convert 'success' to numeric (0/1)
+    pbp['success'] = pd.to_numeric(pbp['success'], errors='coerce').fillna(0).astype(int)
+    pbp['pass_attempt'] = pbp['pass_attempt'].astype(bool, errors='ignore')
+    pbp['rush_attempt'] = pbp['rush_attempt'].astype(bool, errors='ignore')
+
+    # --- GROUPED AGGREGATIONS (vectorized) ---
+    # Passing (group by passer_player_id, week)
+    passing_mask = pbp['pass_attempt'] == True
+    passing_df = (
+        pbp.loc[passing_mask, ['passer_player_id', 'week', 'epa', 'success']]
+           .groupby(['passer_player_id', 'week'], dropna=False)
+           .agg(
+               passing_epa=('epa', 'sum'),
+               passing_count=('epa', 'size'),
+               passing_success=('success', 'sum')
+           )
+           .reset_index()
+           .rename(columns={'passer_player_id': 'pfr_id'})
+    )
+
+    # Rushing (group by rusher_player_id, week)
+    rushing_mask = pbp['rush_attempt'] == True
+    rushing_df = (
+        pbp.loc[rushing_mask, ['rusher_player_id', 'week', 'epa', 'success']]
+           .groupby(['rusher_player_id', 'week'], dropna=False)
+           .agg(
+               rushing_epa=('epa', 'sum'),
+               rushing_count=('epa', 'size'),
+               rushing_success=('success', 'sum')
+           )
+           .reset_index()
+           .rename(columns={'rusher_player_id': 'pfr_id'})
+    )
+
+    # Receiving (passes where receiver_player_id matches)
+    receiving_mask = pbp['pass_attempt'] == True
+    receiving_df = (
+        pbp.loc[receiving_mask, ['receiver_player_id', 'week', 'epa', 'success']]
+           .groupby(['receiver_player_id', 'week'], dropna=False)
+           .agg(
+               receiving_epa=('epa', 'sum'),
+               receiving_count=('epa', 'size'),
+               receiving_success=('success', 'sum')
+           )
+           .reset_index()
+           .rename(columns={'receiver_player_id': 'pfr_id'})
+    )
+
+    # Merge the three dataframes on (pfr_id, week) using outer join so we capture any role combinations
+    merged = passing_df.merge(rushing_df, on=['pfr_id', 'week'], how='outer') \
+                       .merge(receiving_df, on=['pfr_id', 'week'], how='outer')
+
+    # Clean up index, replace NaNs where counts/success should be zeros (counts/success -> 0, epa -> NaN)
+    count_cols = ['passing_count', 'passing_success', 'rushing_count', 'rushing_success', 'receiving_count', 'receiving_success']
+    for c in count_cols:
+        if c in merged.columns:
+            merged[c] = merged[c].fillna(0).astype(int)
+
+    # Ensure epa columns exist
+    for c in ['passing_epa', 'rushing_epa', 'receiving_epa']:
+        if c not in merged.columns:
+            merged[c] = np.nan
+
+    # Compute per-play and success rate metrics vectorized
+    # per-play: epa / count if count>0 else NaN
+    merged['passing_epa_per_play'] = np.where(merged['passing_count'] > 0,
+                                              merged['passing_epa'] / merged['passing_count'],
+                                              np.nan)
+    merged['rushing_epa_per_play'] = np.where(merged['rushing_count'] > 0,
+                                              merged['rushing_epa'] / merged['rushing_count'],
+                                              np.nan)
+    merged['receiving_epa_per_play'] = np.where(merged['receiving_count'] > 0,
+                                               merged['receiving_epa'] / merged['receiving_count'],
+                                               np.nan)
+
+    merged['passing_success_rate'] = np.where(merged['passing_count'] > 0,
+                                              merged['passing_success'] / merged['passing_count'] * 100,
+                                              np.nan)
+    merged['rushing_success_rate'] = np.where(merged['rushing_count'] > 0,
+                                              merged['rushing_success'] / merged['rushing_count'] * 100,
+                                              np.nan)
+    merged['receiving_success_rate'] = np.where(merged['receiving_count'] > 0,
+                                                merged['receiving_success'] / merged['receiving_count'] * 100,
+                                                np.nan)
+
+    # Total plays/epa/success aggregated
+    merged['total_plays'] = merged['passing_count'] + merged['rushing_count'] + merged['receiving_count']
+
+    # sum EPAs treating NaN as 0 for summation purposes
+    merged['total_epa'] = (
+        merged['passing_epa'].fillna(0) +
+        merged['rushing_epa'].fillna(0) +
+        merged['receiving_epa'].fillna(0)
+    )
+    # If total_plays == 0 set total_epa to NaN (consistent with previous behavior)
+    merged.loc[merged['total_plays'] == 0, 'total_epa'] = np.nan
+
+    merged['total_success'] = merged['passing_success'] + merged['rushing_success'] + merged['receiving_success']
+    merged['success_rate'] = np.where(merged['total_plays'] > 0,
+                                      merged['total_success'] / merged['total_plays'] * 100,
+                                      np.nan)
+
+    # Map pfr_id -> internal playerId (from Player table) so we update GameStat rows
+    # players_by_pfr is mapping pfr -> {id, name, ...}
+    pfr_to_playerid = {pfr: data['id'] for pfr, data in players_by_pfr.items()}
+    merged['player_id'] = merged['pfr_id'].map(pfr_to_playerid)
+
+    # Filter down to only the player/week combinations that actually have GameStat rows for the season
+    # First, drop rows where player_id is null (no matching player in DB)
+    merged = merged[merged['player_id'].notna()].copy()
+    merged['player_id'] = merged['player_id'].astype(int)
+
+    # Keep only rows where (player_id, week) exists in GameStat for this season
+    merged['player_week_tuple'] = list(zip(merged['player_id'], merged['week']))
+    merged = merged[merged['player_week_tuple'].isin(player_week_set)]
+    merged.drop(columns=['player_week_tuple'], inplace=True)
+
+    print(f"\nWill update {len(merged)} player-week EPA rows (after filtering to GameStat rows).")
+
+    # Build update records list
+    def to_update_row(r):
+        return {
+            'player_id': int(r.player_id),
+            'week': int(r.week),
+            'year': int(year),
+            'passing_epa': safe_float(r.passing_epa),
+            'passing_epa_per_play': safe_float(r.passing_epa_per_play),
+            'passing_success_rate': safe_float(r.passing_success_rate),
+            'rushing_epa': safe_float(r.rushing_epa),
+            'rushing_epa_per_play': safe_float(r.rushing_epa_per_play),
+            'rushing_success_rate': safe_float(r.rushing_success_rate),
+            'receiving_epa': safe_float(r.receiving_epa),
+            'receiving_epa_per_play': safe_float(r.receiving_epa_per_play),
+            'receiving_success_rate': safe_float(r.receiving_success_rate),
+            'epa': safe_float(r.total_epa),
+            'success_rate': safe_float(r.success_rate),
+        }
+
+    # Use itertuples for speed when building list of dicts
+    updates = [to_update_row(r) for r in merged.itertuples(index=False)]
+
+    # --- Batch update GameStat rows ---
+    print(f"\nUpdating {len(updates)} weekly GameStat records with EPA (batched)...")
+    if updates:
+        update_sql = """
             UPDATE "GameStat"
             SET 
                 passing_epa = %(passing_epa)s,
@@ -147,15 +230,16 @@ def calculate_weekly_epa(year=2025):
             WHERE "playerId" = %(player_id)s 
               AND season = %(year)s 
               AND week = %(week)s
-        """, update)
-        update_count += cur.rowcount
-    
-    conn.commit()
-    
-    print(f"[OK] Updated {update_count} GameStat records with weekly EPA")
-    
-    # Verify: Check that weekly EPA sums to season EPA
-    print("\n[INFO] Verifying weekly EPA sums match season EPA...")
+        """
+        # execute_batch reduces round trips substantially
+        execute_batch(cur, update_sql, updates, page_size=500)
+        conn.commit()
+        print("[OK] Batch update complete.")
+    else:
+        print("[OK] No updates to write.")
+
+    # --- Verification (same as before) ---
+    print("\n[INFO] Verifying weekly EPA sums match season EPA (sample up to 5 mismatches)...")
     cur.execute(f"""
         SELECT 
             p.name, p.pfr_id,
@@ -166,13 +250,12 @@ def calculate_weekly_epa(year=2025):
         FROM "GameStat" gs
         JOIN "Player" p ON gs."playerId" = p.id
         JOIN "AdvancedMetrics" am ON am."playerId" = p.id AND am.season = gs.season
-        WHERE gs.season = {year} AND gs.week IS NOT NULL
+        WHERE gs.season = %s AND gs.week IS NOT NULL
         GROUP BY p.name, p.pfr_id, am.rushing_epa, am.receiving_epa
         HAVING ABS(COALESCE(am.rushing_epa, 0) - COALESCE(SUM(gs.rushing_epa), 0)) > 0.1
            OR ABS(COALESCE(am.receiving_epa, 0) - COALESCE(SUM(gs.receiving_epa), 0)) > 0.1
         LIMIT 5
-    """)
-    
+    """, (year,))
     mismatches = cur.fetchall()
     if mismatches:
         print(f"[WARNING] Found {len(mismatches)} players with EPA mismatches:")
@@ -185,8 +268,10 @@ def calculate_weekly_epa(year=2025):
             print(f"  {name}: Season Rush EPA={season_rush:.2f} vs Weekly Sum={weekly_rush:.2f}, Season Rec EPA={season_rec:.2f} vs Weekly Sum={weekly_rec:.2f}")
     else:
         print("[OK] All weekly EPA values sum correctly to season EPA!")
-    
+
+    cur.close()
     conn.close()
+
 
 if __name__ == "__main__":
     year = int(sys.argv[1]) if len(sys.argv) > 1 else 2025
