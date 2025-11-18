@@ -6,7 +6,7 @@ This should be run BEFORE fix_2025_gamestat_weeks_fast.py in the update pipeline
 import os
 import sys
 import pandas as pd
-import nfl_data_py as nfl
+import nflreadpy as nfl
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
@@ -22,7 +22,10 @@ print(f"Populating Player table from {year} play-by-play data and rosters...")
 # Step 1: Get roster data for accurate positions
 print(f"Fetching {year} roster data for accurate positions...")
 try:
-    roster_df = nfl.import_seasonal_rosters([year])
+    roster_df = nfl.load_rosters([year])
+    # Convert Polars DataFrame to pandas
+    if hasattr(roster_df, 'to_pandas'):
+        roster_df = roster_df.to_pandas()
     print(f"[OK] Loaded roster data for {len(roster_df)} players")
     
     # Create position lookup dictionary (gsis_id -> position/team/name)

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import psycopg2
 from psycopg2 import sql
 from psycopg2.extras import execute_batch
-import nfl_data_py as nfl
+import nflreadpy as nfl
 import pandas as pd
 import numpy as np
 
@@ -46,7 +46,10 @@ def calculate_weekly_epa(year):
     # --- Import play-by-play data ---
     print(f"\nFetching play-by-play data for {year}...")
     try:
-        pbp = nfl.import_pbp_data([year])
+        pbp = nfl.load_pbp([year])
+        # Convert Polars DataFrame to pandas
+        if hasattr(pbp, 'to_pandas'):
+            pbp = pbp.to_pandas()
     except Exception as e:
         print(f"[ERROR] Error fetching PBP data for {year}: {e}")
         cur.close()

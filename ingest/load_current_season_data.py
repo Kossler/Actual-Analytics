@@ -208,7 +208,8 @@ def run_update(year=None, clear=False):
             cwd=ingest_dir
         )
         if result.returncode != 0:
-            print(f"[WARNING] Weekly CPOE update failed: {result.stderr}")
+            error_msg = result.stderr.strip() if result.stderr.strip() else result.stdout.strip()
+            print(f"[WARNING] Weekly CPOE update failed: {error_msg}")
             # Don't fail the whole pipeline if CPOE update fails
         else:
             print(f"[OK] {result.stdout.strip()}")

@@ -7,7 +7,7 @@ Loads NGS weekly data into PostgreSQL as a temp table and performs a single JOIN
 import os
 import sys
 from datetime import datetime
-import nfl_data_py as nfl
+import nflreadpy as nfl
 import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
@@ -21,9 +21,14 @@ def update_weekly_cpoe(year):
     print(f"Fetching NGS passing data for {year}...")
 
     try:
-        ngs_passing = nfl.import_ngs_data("passing", [year])
+        ngs_passing = nfl.load_nextgen_stats([year], stat_type="passing")
+        # Convert Polars DataFrame to pandas
+        if hasattr(ngs_passing, 'to_pandas'):
+            ngs_passing = ngs_passing.to_pandas()
     except Exception as e:
         print(f"[ERROR] Failed to fetch NGS data: {e}")
+        import traceback
+        traceback.print_exc()
         return 0
 
     if ngs_passing.empty:

@@ -1,7 +1,7 @@
 """
 Populate AdvancedMetrics for 2025 only with ALL positions
 """
-import nfl_data_py as nfl
+import nflreadpy as nfl
 import psycopg2
 from psycopg2.extras import execute_values
 import pandas as pd
@@ -33,13 +33,15 @@ all_metrics = []
 print(f"\nFetching data for season {season}...")
 try:
     # Download all play-by-play data
-    pbp = nfl.import_pbp_data([season])
+    pbp = nfl.load_pbp([season])
+    # Convert Polars DataFrame to pandas
+    if hasattr(pbp, 'to_pandas'):
+        pbp = pbp.to_pandas()
     
     if pbp is None or pbp.empty:
         print(f"  No data available for {season}")
         pbp = None
-except (Exception, NameError) as e:
-    # Handle both actual errors and the nfl-data-py bug where it tries to catch undefined 'Error'
+except Exception as e:
     print(f"  [ERROR] Error fetching data for {season}: {e}")
     pbp = None
 

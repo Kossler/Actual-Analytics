@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   ScatterChart,
   Scatter,
@@ -20,28 +20,31 @@ import {
   InputLabel,
   Grid,
   Box,
+  IconButton,
+  Tooltip as MuiTooltip,
 } from '@mui/material';
+import { Download, ContentCopy } from '@mui/icons-material';
 
 const METRICS = [
   // Passing Stats
   { value: 'passingYds', label: 'Passing Yards', category: 'passing', threshold: 150 },
-  { value: 'passing_tds', label: 'Passing TDs', category: 'passing', threshold: 150 },
-  { value: 'passing_interceptions', label: 'Interceptions', category: 'passing', threshold: 150 },
-  { value: 'passing_attempts', label: 'Pass Attempts', category: 'passing', threshold: 150 },
-  { value: 'passing_completions', label: 'Completions', category: 'passing', threshold: 150 },
+  { value: 'passingTDs', label: 'Passing TDs', category: 'passing', threshold: 150 },
+  { value: 'interceptions', label: 'Interceptions', category: 'passing', threshold: 150 },
+  { value: 'passingAttempts', label: 'Pass Attempts', category: 'passing', threshold: 150 },
+  { value: 'passingCompletions', label: 'Completions', category: 'passing', threshold: 150 },
   { value: 'completionPct', label: 'Completion %', category: 'passing', threshold: 150 },
-  { value: 'passing_sacks', label: 'Sacks Taken', category: 'passing', threshold: 150 },
-  { value: 'passing_epa', label: 'Passing EPA', category: 'passing', threshold: 150 },
+  { value: 'sacks', label: 'Sacks Taken', category: 'passing', threshold: 150 },
+  { value: 'passingEPA', label: 'Passing EPA', category: 'passing', threshold: 150 },
   { value: 'passing_epa_per_play', label: 'Passing EPA/Play', category: 'passing', threshold: 150 },
   { value: 'passing_success_rate', label: 'Pass Success Rate %', category: 'passing', threshold: 150 },
   { value: 'cpoe', label: 'CPOE %', category: 'passing', threshold: 150 },
   
   // Rushing Stats
   { value: 'rushingYds', label: 'Rushing Yards', category: 'rushing', threshold: 120 },
-  { value: 'rushing_attempts', label: 'Rush Attempts', category: 'rushing', threshold: 120 },
-  { value: 'rushing_tds', label: 'Rushing TDs', category: 'rushing', threshold: 120 },
+  { value: 'rushingAttempts', label: 'Rush Attempts', category: 'rushing', threshold: 120 },
+  { value: 'rushingTDs', label: 'Rushing TDs', category: 'rushing', threshold: 120 },
   { value: 'yardsPerRushAttempt', label: 'Yards/Rush', category: 'rushing', threshold: 120 },
-  { value: 'rushing_epa', label: 'Rushing EPA', category: 'rushing', threshold: 120 },
+  { value: 'rushingEPA', label: 'Rushing EPA', category: 'rushing', threshold: 120 },
   { value: 'rushing_epa_per_play', label: 'Rushing EPA/Play', category: 'rushing', threshold: 120 },
   { value: 'rushing_success_rate', label: 'Rush Success Rate %', category: 'rushing', threshold: 120 },
   
@@ -49,16 +52,16 @@ const METRICS = [
   { value: 'receivingYds', label: 'Receiving Yards', category: 'receiving', threshold: 40 },
   { value: 'receptions', label: 'Receptions', category: 'receiving', threshold: 40 },
   { value: 'targets', label: 'Targets', category: 'receiving', threshold: 40 },
-  { value: 'receiving_tds', label: 'Receiving TDs', category: 'receiving', threshold: 40 },
+  { value: 'receivingTDs', label: 'Receiving TDs', category: 'receiving', threshold: 40 },
   { value: 'yardsPerReception', label: 'Yards/Reception', category: 'receiving', threshold: 40 },
   { value: 'catchPct', label: 'Catch %', category: 'receiving', threshold: 40 },
-  { value: 'receiving_epa', label: 'Receiving EPA', category: 'receiving', threshold: 40 },
+  { value: 'receivingEPA', label: 'Receiving EPA', category: 'receiving', threshold: 40 },
   { value: 'receiving_epa_per_play', label: 'Receiving EPA/Play', category: 'receiving', threshold: 40 },
   { value: 'receiving_success_rate', label: 'Rec Success Rate %', category: 'receiving', threshold: 40 },
   
   // Overall Stats
   { value: 'epa', label: 'Total EPA', category: 'overall', threshold: 0 },
-  { value: 'success_rate', label: 'Overall Success Rate %', category: 'overall', threshold: 0 },
+  { value: 'successRate', label: 'Overall Success Rate %', category: 'overall', threshold: 0 },
 ];
 
 export default function PlayerScatterPlot({ 
@@ -91,19 +94,204 @@ export default function PlayerScatterPlot({
     }
   };
 
-  const defaultAxes = useMemo(() => 
-    getDefaultAxes(selectedPlayer?.position), 
-    [selectedPlayer?.position]
-  );
+  // Always use a valid metric for defaults
+  const defaultAxes = useMemo(() => {
+    const axes = getDefaultAxes(selectedPlayer?.position);
+    // Validate x
+    const validX = METRICS.some(m => m.value === axes.x) ? axes.x : METRICS[0].value;
+    // Validate y
+    const validY = METRICS.some(m => m.value === axes.y) ? axes.y : METRICS[0].value;
+    return { x: validX, y: validY };
+  }, [selectedPlayer?.position]);
 
   const [xAxis, setXAxis] = useState(defaultAxes.x);
   const [yAxis, setYAxis] = useState(defaultAxes.y);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const chartRef = useRef(null);
 
   // Update axes when selected player position changes
   useEffect(() => {
     setXAxis(defaultAxes.x);
     setYAxis(defaultAxes.y);
   }, [defaultAxes.x, defaultAxes.y]);
+
+  // Function to capture chart as image using canvas
+  const captureChart = async () => {
+    if (!chartRef.current) return null;
+
+    try {
+      // Get the SVG element from Recharts
+      const svgElement = chartRef.current.querySelector('svg');
+      if (!svgElement) return null;
+
+      // Get card element for dimensions and text
+      const cardElement = chartRef.current.closest('.MuiCard-root');
+      if (!cardElement) return null;
+
+      // Get the title and subtitle text
+      const titleElement = cardElement.querySelector('.MuiCardHeader-title');
+      const title = titleElement ? titleElement.textContent : 'Player Comparison';
+      const subtitle = `${selectedYear} - Top 32 players (min ${xThreshold}+ qualifying stat)`;
+
+      // Get actual SVG dimensions
+      const svgRect = svgElement.getBoundingClientRect();
+      
+      // High resolution multiplier for crisp text
+      const scale = 2;
+      
+      // Create canvas with matching padding on sides and bottom
+      const imageWidth = 1920;
+      const sidePadding = 70;
+      const topPadding = 30;
+      const headerHeight = 50;
+      
+      // Calculate height based on width-scaled chart to maintain aspect ratio
+      const chartScaleFactor = (imageWidth - sidePadding * 2) / svgRect.width;
+      const chartWidth = svgRect.width * chartScaleFactor;
+      const chartHeight = svgRect.height * chartScaleFactor;
+      
+      // Image height = top padding + header + chart + bottom padding (equal to side padding)
+      const imageHeight = topPadding + headerHeight + chartHeight + sidePadding;
+      
+      const padding = { top: topPadding, right: sidePadding, bottom: sidePadding, left: sidePadding };
+      
+      const canvasWidth = imageWidth * scale;
+      const canvasHeight = imageHeight * scale;
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      const ctx = canvas.getContext('2d');
+      
+      // Scale context for high resolution
+      ctx.scale(scale, scale);
+
+      // Load and draw background image
+      const bgImage = new Image();
+      bgImage.crossOrigin = 'anonymous';
+      
+      return new Promise((resolve, reject) => {
+        bgImage.onload = () => {
+          // Draw background gradient to cover entire canvas
+          ctx.drawImage(bgImage, 0, 0, imageWidth, imageHeight);
+
+          // Add darkened blue overlay for text readability and cohesive branding
+          ctx.fillStyle = 'rgba(21, 27, 45, 0.85)'; // Dark blue overlay
+          ctx.fillRect(0, 0, imageWidth, imageHeight);
+
+          // Draw title
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 24px Roboto, Arial, sans-serif';
+          ctx.textBaseline = 'top';
+          ctx.fillText(title, padding.left, padding.top);
+          
+          // Draw subtitle
+          ctx.font = '14px Roboto, Arial, sans-serif';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.fillText(subtitle, padding.left, padding.top + 32);
+
+          // Clone and modify SVG to increase font sizes
+          const svgClone = svgElement.cloneNode(true);
+          
+          // Update all text elements to use Roboto font and larger sizes
+          const textElements = svgClone.querySelectorAll('text');
+          textElements.forEach(text => {
+            text.style.fontFamily = 'Roboto, Arial, sans-serif';
+            
+            // Get current font size and increase it
+            const currentSize = parseFloat(window.getComputedStyle(svgElement.querySelector('text')).fontSize) || 12;
+            const newSize = currentSize * 1.4; // Increase by 40%
+            text.style.fontSize = `${newSize}px`;
+            text.setAttribute('font-size', newSize);
+          });
+          
+          // Convert modified SVG to image
+          const svgData = new XMLSerializer().serializeToString(svgClone);
+          const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+          const svgUrl = URL.createObjectURL(svgBlob);
+          
+          const img = new Image();
+          img.onload = () => {
+            // Draw the chart SVG stretched to fill available space
+            const yOffset = padding.top + headerHeight;
+            ctx.drawImage(img, padding.left, yOffset, chartWidth, chartHeight);
+            
+            // Convert canvas to data URL
+            const dataUrl = canvas.toDataURL('image/png', 1.0);
+            
+            // Cleanup
+            URL.revokeObjectURL(svgUrl);
+            
+            resolve(dataUrl);
+          };
+          
+          img.onerror = () => {
+            URL.revokeObjectURL(svgUrl);
+            reject(new Error('Failed to load SVG image'));
+          };
+          
+          img.src = svgUrl;
+        };
+        
+        bgImage.onerror = () => {
+          reject(new Error('Failed to load background image'));
+        };
+        
+        bgImage.src = '/Background.webp';
+      });
+      
+      return dataUrl;
+    } catch (error) {
+      console.error('Error capturing chart:', error);
+      return null;
+    }
+  };
+
+  // Download chart as JPEG
+  const handleDownload = async () => {
+    const dataUrl = await captureChart();
+    if (dataUrl) {
+      const link = document.createElement('a');
+      link.download = `player-comparison-${selectedYear}.png`;
+      link.href = dataUrl;
+      link.click();
+    }
+  };
+
+  // Copy chart to clipboard
+  const handleCopy = async () => {
+    setCopySuccess(false);
+    
+    try {
+      const dataUrl = await captureChart();
+      if (!dataUrl) {
+        console.error('Failed to capture chart');
+        return;
+      }
+      
+      console.log('Chart captured, data URL length:', dataUrl.length);
+      
+      // Convert PNG data URL to blob
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      
+      console.log('Blob created, size:', blob.size, 'type:', blob.type);
+      
+      // Write to clipboard with PNG type (more compatible)
+      await navigator.clipboard.write([
+        new ClipboardItem({ 
+          'image/png': blob
+        })
+      ]);
+      
+      console.log('Successfully copied to clipboard');
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (error) {
+      console.error('Error copying to clipboard:', error);
+      alert('Failed to copy image to clipboard. Error: ' + error.message);
+    }
+  };
 
   // Combine all data sources for selected year
   const combinedData = useMemo(() => {
@@ -279,22 +467,42 @@ export default function PlayerScatterPlot({
         titleTypographyProps={{ variant: 'h6', fontWeight: 600 }}
         subheaderTypographyProps={{ variant: 'body2' }}
         action={
-          <FormControl size="small" sx={{ minWidth: 100 }}>
-            <InputLabel>Year</InputLabel>
-            <Select
-              value={selectedYear}
-              onChange={(e) => onYearChange(e.target.value)}
-              label="Year"
-            >
-              {availableYears.map(year => (
-                <MenuItem key={year} value={year}>{year}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <MuiTooltip title={copySuccess ? "Copied!" : "Copy as image"}>
+              <IconButton 
+                onClick={handleCopy} 
+                size="small" 
+                sx={{ 
+                  color: copySuccess ? '#4caf50' : 'white',
+                  transition: 'color 0.3s'
+                }}
+              >
+                <ContentCopy fontSize="small" />
+              </IconButton>
+            </MuiTooltip>
+            <MuiTooltip title="Download as PNG">
+              <IconButton onClick={handleDownload} size="small" sx={{ color: 'white' }}>
+                <Download fontSize="small" />
+              </IconButton>
+            </MuiTooltip>
+            <FormControl size="small" sx={{ minWidth: 100 }}>
+              <InputLabel>Year</InputLabel>
+              <Select
+                value={selectedYear}
+                onChange={(e) => onYearChange(e.target.value)}
+                label="Year"
+              >
+                {availableYears.map(year => (
+                  <MenuItem key={year} value={year}>{year}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
         }
       />
       <CardContent>
-        <Grid container spacing={2} sx={{ mb: 3 }}>
+        {/* Control dropdowns - will be hidden in capture */}
+        <Grid container spacing={2} sx={{ mb: 3 }} className="chart-controls">
           <Grid item xs={12} md={6}>
             <FormControl fullWidth size="small">
               <InputLabel>X-Axis</InputLabel>
@@ -303,25 +511,25 @@ export default function PlayerScatterPlot({
                 onChange={(e) => setXAxis(e.target.value)}
                 label="X-Axis"
               >
-                <MenuItem disabled sx={{ fontWeight: 600, color: 'primary.main' }}>
+                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1 }}>
                   Passing Stats
                 </MenuItem>
                 {METRICS.filter(m => m.category === 'passing').map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 600, color: 'primary.main', mt: 1 }}>
+                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
                   Rushing Stats
                 </MenuItem>
                 {METRICS.filter(m => m.category === 'rushing').map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 600, color: 'primary.main', mt: 1 }}>
+                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
                   Receiving Stats
                 </MenuItem>
                 {METRICS.filter(m => m.category === 'receiving').map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 600, color: 'primary.main', mt: 1 }}>
+                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
                   Overall Stats
                 </MenuItem>
                 {METRICS.filter(m => m.category === 'overall').map(m => (
@@ -338,25 +546,25 @@ export default function PlayerScatterPlot({
                 onChange={(e) => setYAxis(e.target.value)}
                 label="Y-Axis"
               >
-                <MenuItem disabled sx={{ fontWeight: 600, color: 'primary.main' }}>
+                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1 }}>
                   Passing Stats
                 </MenuItem>
                 {METRICS.filter(m => m.category === 'passing').map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 600, color: 'primary.main', mt: 1 }}>
+                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
                   Rushing Stats
                 </MenuItem>
                 {METRICS.filter(m => m.category === 'rushing').map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 600, color: 'primary.main', mt: 1 }}>
+                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
                   Receiving Stats
                 </MenuItem>
                 {METRICS.filter(m => m.category === 'receiving').map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 600, color: 'primary.main', mt: 1 }}>
+                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
                   Overall Stats
                 </MenuItem>
                 {METRICS.filter(m => m.category === 'overall').map(m => (
@@ -367,12 +575,14 @@ export default function PlayerScatterPlot({
           </Grid>
         </Grid>
 
-        {chartData.length === 0 ? (
-          <Box sx={{ textAlign: 'center', p: 4, color: 'text.secondary' }}>
-            No players meet the threshold criteria
-          </Box>
-        ) : (
-          <ResponsiveContainer width="100%" height={500}>
+        {/* Chart container */}
+        <Box ref={chartRef}>
+          {chartData.length === 0 ? (
+            <Box sx={{ textAlign: 'center', p: 4, color: 'text.secondary' }}>
+              No players meet the threshold criteria
+            </Box>
+          ) : (
+            <ResponsiveContainer width="100%" height={500}>
             <ScatterChart margin={{ top: 20, right: 20, bottom: 60, left: 80 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
               <XAxis
@@ -456,7 +666,8 @@ export default function PlayerScatterPlot({
               </Scatter>
             </ScatterChart>
           </ResponsiveContainer>
-        )}
+          )}
+        </Box>
       </CardContent>
     </Card>
   );

@@ -1,14 +1,14 @@
 """
 Ultra-fast NFL play-by-play loader using PostgreSQL COPY protocol.
 ~25k rows load in under a second; full-season loads in a few seconds.
-Requires: pip install psycopg2-binary nfl_data_py python-dotenv sqlalchemy pandas
+Requires: pip install psycopg2-binary nflreadpy python-dotenv sqlalchemy pandas polars
 """
 
 import os
 import sys
 from io import StringIO
 import pandas as pd
-import nfl_data_py as nfl
+import nflreadpy as nfl
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
@@ -25,9 +25,10 @@ def load_pbp_season(season: int) -> int:
     print(f"Fetching PBP data for {season}...")
 
     try:
-        pbp = nfl.import_pbp_data([season])
-    except (Exception, NameError) as e:
-        # Handle both actual errors and the nfl-data-py bug where it tries to catch undefined 'Error'
+        pbp = nfl.load_pbp([season])
+        # nflreadpy returns Polars DataFrame, convert to pandas
+        pbp = pbp.to_pandas()
+    except Exception as e:
         print(f"[ERROR] Error fetching PBP data for {season}: {e}")
         return 0
 
