@@ -37,27 +37,33 @@ try:
     
     if pbp is None or pbp.empty:
         print(f"  No data available for {season}")
-    else:
-        print(f"  Got {len(pbp)} plays for {season}")
-        
-        # Calculate EPA for all player types using pfr_id for unique matching
-        player_epa = {}  # Key: pfr_id or ('name', player_name), Value: EPA stats
-        
-        # 1. PASSING EPA (QB) - use passer_player_id, filter for pass attempts only
-        passing = pbp[(pbp['passer_player_id'].notna()) & (pbp['pass_attempt'] == True)].copy()
-        for passer_id, group in passing.groupby('passer_player_id'):
-            # Try pfr_id match first
-            if passer_id and passer_id in players_by_pfr_id:
-                key = passer_id  # Use just the pfr_id as key
-            else:
-                continue
-                
-            if key not in player_epa:
-                player_epa[key] = {
-                    'passing_epa': 0, 'rushing_epa': 0, 'receiving_epa': 0,
-                    'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0,
-                    'passing_success': 0, 'rushing_success': 0, 'receiving_success': 0,
-                    'cpoe_sum': 0, 'cpoe_count': 0
+        pbp = None
+except (Exception, NameError) as e:
+    # Handle both actual errors and the nfl-data-py bug where it tries to catch undefined 'Error'
+    print(f"  [ERROR] Error fetching data for {season}: {e}")
+    pbp = None
+
+if pbp is not None and not pbp.empty:
+    print(f"  Got {len(pbp)} plays for {season}")
+    
+    # Calculate EPA for all player types using pfr_id for unique matching
+    player_epa = {}  # Key: pfr_id or ('name', player_name), Value: EPA stats
+    
+    # 1. PASSING EPA (QB) - use passer_player_id, filter for pass attempts only
+    passing = pbp[(pbp['passer_player_id'].notna()) & (pbp['pass_attempt'] == True)].copy()
+    for passer_id, group in passing.groupby('passer_player_id'):
+        # Try pfr_id match first
+        if passer_id and passer_id in players_by_pfr_id:
+            key = passer_id  # Use just the pfr_id as key
+        else:
+            continue
+            
+        if key not in player_epa:
+            player_epa[key] = {
+                'passing_epa': 0, 'rushing_epa': 0, 'receiving_epa': 0,
+                'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0,
+                'passing_success': 0, 'rushing_success': 0, 'receiving_success': 0,
+                'cpoe_sum': 0, 'cpoe_count': 0
                 }
             player_epa[key]['passing_epa'] += group['epa'].sum()
             player_epa[key]['passing_count'] += len(group)
@@ -161,18 +167,13 @@ try:
                 'position': position
             })
         
-        # Print sample stats
-        print(f"  [OK] Calculated EPA for {len(player_epa)} players")
-        qb_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'QB')
-        rb_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'RB')
-        wr_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'WR')
-        te_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'TE')
-        print(f"      QB: {qb_count}, RB: {rb_count}, WR: {wr_count}, TE: {te_count}")
-        
-except Exception as e:
-    print(f"  [ERROR] Error fetching data for {season}: {e}")
-    import traceback
-    traceback.print_exc()
+    # Print sample stats
+    print(f"  [OK] Calculated EPA for {len(player_epa)} players")
+    qb_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'QB')
+    rb_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'RB')
+    wr_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'WR')
+    te_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'TE')
+    print(f"      QB: {qb_count}, RB: {rb_count}, WR: {wr_count}, TE: {te_count}")
 
 # Insert into database
 if all_metrics:

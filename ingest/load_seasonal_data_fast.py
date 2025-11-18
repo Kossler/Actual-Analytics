@@ -102,6 +102,12 @@ def load_seasonal_year(year: int, clear: bool = False) -> int:
     try:
         # Fetch full PBP data (column filtering causes issues with some years)
         pbp = nfl.import_pbp_data([year])
+    except (Exception, NameError) as e:
+        # Handle both actual errors and the nfl-data-py bug where it tries to catch undefined 'Error'
+        print(f"[ERROR] Error fetching PBP data for {year}: {e}")
+        pbp = pd.DataFrame()
+    
+    try:
         
         if not pbp.empty and 'epa' in pbp.columns:
             # Calculate success rates for passers (EPA > 0)

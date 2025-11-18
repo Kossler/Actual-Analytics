@@ -30,10 +30,19 @@ def calculate_weekly_epa(year=2025):
     
     # Download play-by-play data
     print(f"\nFetching play-by-play data for {year}...")
-    pbp = nfl.import_pbp_data([year])
+    try:
+        pbp = nfl.import_pbp_data([year])
+    except (Exception, NameError) as e:
+        # Handle both actual errors and the nfl-data-py bug where it tries to catch undefined 'Error'
+        print(f"[ERROR] Error fetching PBP data for {year}: {e}")
+        cur.close()
+        conn.close()
+        return
     
     if pbp is None or pbp.empty:
         print(f"No play-by-play data for {year}")
+        cur.close()
+        conn.close()
         return
     
     print(f"Got {len(pbp)} plays")

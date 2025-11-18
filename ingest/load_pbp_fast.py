@@ -26,7 +26,8 @@ def load_pbp_season(season: int) -> int:
 
     try:
         pbp = nfl.import_pbp_data([season])
-    except Exception as e:
+    except (Exception, NameError) as e:
+        # Handle both actual errors and the nfl-data-py bug where it tries to catch undefined 'Error'
         print(f"[ERROR] Error fetching PBP data for {season}: {e}")
         return 0
 

@@ -35,6 +35,12 @@ for season in seasons_to_populate:
         if pbp is None or pbp.empty:
             print(f"  No data available for {season}")
             continue
+    except (Exception, NameError) as e:
+        # Handle both actual errors and the nfl-data-py bug where it tries to catch undefined 'Error'
+        print(f"  [ERROR] Error fetching data for {season}: {e}")
+        continue
+    
+    try:
         
         print(f"  Got {len(pbp)} plays for {season}")
         
