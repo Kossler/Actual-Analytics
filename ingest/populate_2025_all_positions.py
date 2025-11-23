@@ -1,11 +1,11 @@
 """
-Populate AdvancedMetrics for 2025 only with ALL positions
+Populate AdvancedMetrics for 2025 only with ALL positions (polars-native).
+This script is now fully polars-native: all data processing uses polars DataFrames (no pandas dependency remains).
 """
 import nflreadpy as nfl
+import polars as pl
 import psycopg2
 from psycopg2.extras import execute_values
-import pandas as pd
-from collections import defaultdict
 import os
 from dotenv import load_dotenv
 
@@ -19,12 +19,10 @@ cur = conn.cursor()
 cur.execute('SELECT "id", "name", "position", "pfr_id" FROM "Player" ORDER BY "name"')
 player_rows = cur.fetchall()
 
-# Create lookup by pfr_id (unique identifier) AND by name (ONLY for players without pfr_id to avoid duplicates)
+# Create lookup by pfr_id (unique identifier)
 players_by_pfr_id = {row[3]: {'id': row[0], 'name': row[1], 'position': row[2]} for row in player_rows if row[3]}
-players_by_name = {row[1]: {'id': row[0], 'position': row[2]} for row in player_rows if not row[3]}  # Only players WITHOUT pfr_id
 
-print(f"Found {len(players_by_pfr_id)} players with pfr_id, {len(players_by_name)} players without pfr_id")
-print(f"Found {len(players_by_pfr_id)} players with pfr_id, {len(players_by_name)} total players")
+print(f"Found {len(players_by_pfr_id)} players with pfr_id")
 
 # Populate 2025
 season = 2025
@@ -32,35 +30,101 @@ all_metrics = []
 
 print(f"\nFetching data for season {season}...")
 try:
-    # Download all play-by-play data
-    pbp = nfl.load_pbp([season])
-    # Convert Polars DataFrame to pandas
-    if hasattr(pbp, 'to_pandas'):
-        pbp = pbp.to_pandas()
-    
-    if pbp is None or pbp.empty:
+    pbp = nfl.load_pbp(season)
+    if pbp is None or pbp.height == 0:
         print(f"  No data available for {season}")
         pbp = None
 except Exception as e:
     print(f"  [ERROR] Error fetching data for {season}: {e}")
     pbp = None
 
-if pbp is not None and not pbp.empty:
-    print(f"  Got {len(pbp)} plays for {season}")
-    
+if pbp is not None and pbp.height > 0:
+    print(f"  Got {pbp.height} plays for {season}")
     # Calculate EPA for all player types using pfr_id for unique matching
-    player_epa = {}  # Key: pfr_id or ('name', player_name), Value: EPA stats
-    
+    player_epa = {}
     # 1. PASSING EPA (QB) - use passer_player_id, filter for pass attempts only
-    passing = pbp[(pbp['passer_player_id'].notna()) & (pbp['pass_attempt'] == True)].copy()
-    for passer_id, group in passing.groupby('passer_player_id'):
-        # Try pfr_id match first
-        if passer_id and passer_id in players_by_pfr_id:
-            key = passer_id  # Use just the pfr_id as key
-        else:
-            continue
-            
-        if key not in player_epa:
+    passing = pbp.filter((pl.col('passer_player_id').is_not_null()) & (pl.col('pass_attempt') == True))
+    passing_agg = passing.groupby('passer_player_id').agg([
+        pl.col('epa').sum().alias('passing_epa'),
+        pl.col('epa').count().alias('passing_count'),
+        pl.col('success').sum().alias('passing_success'),
+        pl.col('cpoe').drop_nulls().sum().alias('cpoe_sum'),
+        pl.col('cpoe').drop_nulls().count().alias('cpoe_count')
+    ])
+    # 2. RUSHING EPA (RB, QB, FB) - use rusher_player_id, filter for rush attempts only
+    rushing = pbp.filter((pl.col('rusher_player_id').is_not_null()) & (pl.col('rush_attempt') == True))
+    rushing_agg = rushing.groupby('rusher_player_id').agg([
+        pl.col('epa').sum().alias('rushing_epa'),
+        pl.col('epa').count().alias('rushing_count'),
+        pl.col('success').sum().alias('rushing_success')
+    ])
+    # 3. RECEIVING EPA (WR, TE, RB) - use receiver_player_id, filter for pass attempts only
+    receiving = pbp.filter((pl.col('receiver_player_id').is_not_null()) & (pl.col('pass_attempt') == True))
+    receiving_agg = receiving.groupby('receiver_player_id').agg([
+        pl.col('epa').sum().alias('receiving_epa'),
+        pl.col('epa').count().alias('receiving_count'),
+        pl.col('success').sum().alias('receiving_success')
+    ])
+    # Merge all player metrics into a single DataFrame
+    passing_agg = passing_agg.rename({'passer_player_id': 'pfr_id'})
+    rushing_agg = rushing_agg.rename({'rusher_player_id': 'pfr_id'})
+    receiving_agg = receiving_agg.rename({'receiver_player_id': 'pfr_id'})
+    metrics_df = passing_agg.join(rushing_agg, on='pfr_id', how='outer').join(receiving_agg, on='pfr_id', how='outer')
+    metrics_df = metrics_df.with_columns([
+        (pl.col('passing_epa').fill_null(0) + pl.col('rushing_epa').fill_null(0) + pl.col('receiving_epa').fill_null(0)).alias('epa'),
+        (pl.col('passing_count').fill_null(0) + pl.col('rushing_count').fill_null(0) + pl.col('receiving_count').fill_null(0)).alias('total_plays'),
+        (pl.col('passing_success').fill_null(0) + pl.col('rushing_success').fill_null(0) + pl.col('receiving_success').fill_null(0)).alias('total_success'),
+        (pl.col('epa') / pl.col('total_plays')).alias('epa_per_play'),
+        (pl.col('passing_epa') / pl.col('passing_count')).alias('passing_epa_per_play'),
+        (pl.col('rushing_epa') / pl.col('rushing_count')).alias('rushing_epa_per_play'),
+        (pl.col('receiving_epa') / pl.col('receiving_count')).alias('receiving_epa_per_play'),
+        (pl.col('passing_success') / pl.col('passing_count') * 100).alias('passing_success_rate'),
+        (pl.col('rushing_success') / pl.col('rushing_count') * 100).alias('rushing_success_rate'),
+        (pl.col('receiving_success') / pl.col('receiving_count') * 100).alias('receiving_success_rate'),
+        (pl.col('total_success') / pl.col('total_plays') * 100).alias('success_rate'),
+        (pl.col('cpoe_sum') / pl.col('cpoe_count')).alias('cpoe')
+    ])
+    # Join with player info
+    player_info_df = pl.DataFrame([
+        {'pfr_id': k, 'playerId': v['id'], 'position': v['position']} for k, v in players_by_pfr_id.items()
+    ])
+    metrics_df = metrics_df.join(player_info_df, on='pfr_id', how='inner')
+    metrics_df = metrics_df.with_columns([
+        pl.lit(season).alias('season')
+    ])
+    # Convert to dicts for bulk upsert
+    all_metrics = metrics_df.to_dicts()
+    # Bulk insert into AdvancedMetrics
+    if all_metrics:
+        columns = [
+            'playerId', 'season', 'epa', 'epa_per_play', 'cpoe', 'success_rate',
+            'passing_epa', 'passing_epa_per_play', 'passing_success_rate',
+            'rushing_epa', 'rushing_epa_per_play', 'rushing_success_rate',
+            'receiving_epa', 'receiving_epa_per_play', 'receiving_success_rate'
+        ]
+        values = [[m.get(col) for col in columns] for m in all_metrics]
+        execute_values(cur, f'''
+            INSERT INTO "AdvancedMetrics" ({', '.join(columns)})
+            VALUES %s
+            ON CONFLICT ("playerId", season) DO UPDATE SET
+                epa = EXCLUDED.epa,
+                epa_per_play = EXCLUDED.epa_per_play,
+                cpoe = EXCLUDED.cpoe,
+                success_rate = EXCLUDED.success_rate,
+                passing_epa = EXCLUDED.passing_epa,
+                passing_epa_per_play = EXCLUDED.passing_epa_per_play,
+                passing_success_rate = EXCLUDED.passing_success_rate,
+                rushing_epa = EXCLUDED.rushing_epa,
+                rushing_epa_per_play = EXCLUDED.rushing_epa_per_play,
+                rushing_success_rate = EXCLUDED.rushing_success_rate,
+                receiving_epa = EXCLUDED.receiving_epa,
+                receiving_epa_per_play = EXCLUDED.receiving_epa_per_play,
+                receiving_success_rate = EXCLUDED.receiving_success_rate
+        ''', values)
+        conn.commit()
+        print(f"[OK] Inserted/updated {len(all_metrics)} AdvancedMetrics records for {season}")
+    else:
+        print(f"[WARNING] No AdvancedMetrics records to insert for {season}")
             player_epa[key] = {
                 'passing_epa': 0, 'rushing_epa': 0, 'receiving_epa': 0,
                 'passing_count': 0, 'rushing_count': 0, 'receiving_count': 0,

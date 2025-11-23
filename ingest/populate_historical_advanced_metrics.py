@@ -13,6 +13,8 @@ Note: Requires GameStat table to be populated with EPA data first.
 Use load_current_season_data.py to populate GameStat EPA data.
 """
 
+import os
+os.environ["POLARS_MAX_THREADS"] = str(os.cpu_count())
 import psycopg2
 from psycopg2.extras import execute_values
 import os
@@ -56,11 +58,12 @@ if seasons_to_populate:
 # Aggregate EPA data from GameStat table for each season
 all_metrics = []
 
-for season in seasons_to_populate:
-    print(f"\nAggregating EPA data for season {season} from GameStat table...")
+from concurrent.futures import ThreadPoolExecutor, as_completed
+def process_season(season):
     try:
-        # Aggregate weekly EPA data from GameStat table to get season totals
-        cur.execute('''
+        conn_local = psycopg2.connect(os.getenv("DATABASE_URL"))
+        cur_local = conn_local.cursor()
+        cur_local.execute('''
             SELECT 
                 "playerId",
                 SUM("passing_epa") as passing_epa,
@@ -80,42 +83,29 @@ for season in seasons_to_populate:
               AND "week" IS NOT NULL
             GROUP BY "playerId"
         ''', (season,))
-        
-        gamestat_rows = cur.fetchall()
-        
+        gamestat_rows = cur_local.fetchall()
         if not gamestat_rows:
             print(f"  No GameStat data available for {season}")
-            continue
-        
+            return []
         print(f"  Got {len(gamestat_rows)} players with EPA data for {season}")
-        
-        # Get player positions
-        cur.execute('SELECT "id", "position" FROM "Player"')
-        player_positions = {row[0]: row[1] for row in cur.fetchall()}
-        
-        # Process each player's season stats
+        cur_local.execute('SELECT "id", "position" FROM "Player"')
+        player_positions = {row[0]: row[1] for row in cur_local.fetchall()}
+        metrics = []
         for row in gamestat_rows:
             player_id = row[0]
             position = player_positions.get(player_id, 'Unknown')
-            
-            # Calculate EPA per play (weighted average based on total plays)
             total_epa = row[4]
             passing_epa = row[1]
             rushing_epa = row[2]
             receiving_epa = row[3]
-            
-            # Count non-null EPA values to determine total plays
             passing_plays = 1 if passing_epa is not None and passing_epa != 0 else 0
             rushing_plays = 1 if rushing_epa is not None and rushing_epa != 0 else 0
             receiving_plays = 1 if receiving_epa is not None and receiving_epa != 0 else 0
             total_plays = passing_plays + rushing_plays + receiving_plays
-            
             if total_plays == 0:
                 continue
-            
             epa_per_play = total_epa / total_plays if total_epa is not None and total_plays > 0 else None
-            
-            all_metrics.append({
+            metrics.append({
                 'playerId': player_id,
                 'season': season,
                 'epa': total_epa,
@@ -133,20 +123,23 @@ for season in seasons_to_populate:
                 'cpoe': row[12],
                 'position': position
             })
-        
-        # Print sample stats
-        print(f"  [OK] Processed {len([m for m in all_metrics if m['season'] == season])} players")
-        qb_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'QB')
-        rb_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'RB')
-        wr_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'WR')
-        te_count = sum(1 for m in all_metrics if m['season'] == season and m['position'] == 'TE')
-        print(f"      QB: {qb_count}, RB: {rb_count}, WR: {wr_count}, TE: {te_count}")
-        
+        print(f"  [OK] Processed {len(metrics)} players for season {season}")
+        cur_local.close()
+        conn_local.close()
+        return metrics
     except Exception as e:
         print(f"  [ERROR] Error processing data for {season}: {e}")
         import traceback
         traceback.print_exc()
-        continue
+        return []
+
+all_metrics = []
+with ThreadPoolExecutor(max_workers=min(8, len(seasons_to_populate))) as executor:
+    future_to_season = {executor.submit(process_season, season): season for season in seasons_to_populate}
+    for future in as_completed(future_to_season):
+        season = future_to_season[future]
+        metrics = future.result()
+        all_metrics.extend(metrics)
 
 # Insert into database
 if all_metrics:

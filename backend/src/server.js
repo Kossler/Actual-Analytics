@@ -1,11 +1,14 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const app = express();
+const compression = require('compression');
+const cluster = require('cluster');
+const os = require('os');
 const playersRouter = require('./routes/players');
 
 // Disable X-Powered-By header for security
 app.disable('x-powered-by');
+app.use(compression());
 
 // Configure CORS to allow requests from Cloudflare Pages
 const allowedOrigins = [
@@ -45,5 +48,18 @@ app.get('/health', (req, res) => {
 
 app.use('/api/players', playersRouter);
 
+
 const port = process.env.PORT || 4000;
-app.listen(port, () => console.log(`Backend listening on ${port}`));
+if (cluster.isMaster) {
+  const numCPUs = os.cpus().length;
+  console.log(`Master process running. Forking ${numCPUs} workers...`);
+  for (let i = 0; i < numCPUs; i++) {
+    cluster.fork();
+  }
+  cluster.on('exit', (worker, code, signal) => {
+    console.log(`Worker ${worker.process.pid} died. Forking a new worker...`);
+    cluster.fork();
+  });
+} else {
+  app.listen(port, () => console.log(`Worker ${process.pid} listening on ${port}`));
+}

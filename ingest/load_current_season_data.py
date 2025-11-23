@@ -1,27 +1,29 @@
 """
 Current season data loader and updater for historical and current season statistics.
 
+This pipeline is now fully polars-native: all ingest and calculation scripts use polars DataFrames for all data processing (no pandas dependency remains).
+
 Supports running for any year from 2016-2025, or loading all years at once.
 
 Usage:
-  python load_current_season_data.py              # Loads ALL years (2016 to current year)
-  python load_current_season_data.py 2024         # Updates specific year only
-  python load_current_season_data.py 2016         # Loads historical data for 2016
-  python load_current_season_data.py --clear      # Clear and reload ALL years
-  python load_current_season_data.py 2024 --clear # Clear and reload 2024 only
+    python load_current_season_data.py              # Loads ALL years (2016 to current year)
+    python load_current_season_data.py 2024         # Updates specific year only
+    python load_current_season_data.py 2016         # Loads historical data for 2016
+    python load_current_season_data.py --clear      # Clear and reload ALL years
+    python load_current_season_data.py 2024 --clear # Clear and reload 2024 only
 
 For restoring ALL historical data (2016-2024), use:
-  python restore_historical_data.py
+    python restore_historical_data.py
 
 This script performs 8 steps for each year:
-  1. Load play-by-play data
-  2. Calculate player statistics (medians/averages)
-  3. Populate Player table from play-by-play
-  4. Aggregate weekly GameStat records
-  5. Populate sacks and interceptions
-  6. Calculate season-level EPA for AdvancedMetrics
-  7. Calculate weekly EPA for GameStat records
-  8. Update weekly CPOE from NGS data
+    1. Load play-by-play data (polars)
+    2. Calculate player statistics (medians/averages, polars)
+    3. Populate Player table from play-by-play (polars)
+    4. Aggregate weekly GameStat records (polars/SQL)
+    5. Populate sacks and interceptions (polars/SQL)
+    6. Calculate season-level EPA for AdvancedMetrics (polars)
+    7. Calculate weekly EPA for GameStat records (polars)
+    8. Update weekly CPOE from NGS data (polars)
 """
 
 import os
@@ -30,6 +32,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import subprocess
 from sqlalchemy import create_engine, text
+os.environ["POLARS_MAX_THREADS"] = str(os.cpu_count() or 8)
 
 load_dotenv()
 
@@ -270,17 +273,23 @@ if __name__ == "__main__":
         successful_years = []
         failed_years = []
         
-        for year in years_to_load:
-            print(f"\n{'='*70}")
-            print(f"[{datetime.now().isoformat()}] Loading data for {year}...")
-            print(f"{'='*70}\n")
-            
-            success = run_update(year, clear=clear)
-            
-            if success:
-                successful_years.append(year)
-            else:
-                failed_years.append(year)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=min(8, len(years_to_load))) as executor:
+            future_to_year = {executor.submit(run_update, year, clear=clear): year for year in years_to_load}
+            for future in as_completed(future_to_year):
+                year = future_to_year[future]
+                print(f"\n{'='*70}")
+                print(f"[{datetime.now().isoformat()}] Finished data load for {year}")
+                print(f"{'='*70}\n")
+                try:
+                    success = future.result()
+                except Exception as exc:
+                    print(f"[ERROR] Year {year} generated an exception: {exc}")
+                    success = False
+                if success:
+                    successful_years.append(year)
+                else:
+                    failed_years.append(year)
         
         # After all years loaded, run batch AdvancedMetrics calculation for historical years
         historical_years = [y for y in successful_years if y < 2025]

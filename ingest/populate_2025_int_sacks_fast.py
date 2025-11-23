@@ -5,6 +5,7 @@ Supports any season from 2016-2025.
 Usage: python populate_2025_int_sacks_fast.py [year]
 """
 import os
+os.environ["POLARS_MAX_THREADS"] = str(os.cpu_count())
 import sys
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text

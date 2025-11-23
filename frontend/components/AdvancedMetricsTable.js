@@ -18,7 +18,7 @@ export default function AdvancedMetricsTable({ advancedMetrics, position, player
   return (
     <StatsTableWrapper
       title="Advanced Metrics"
-      subtitle="EPA, EPA per play, CPOE, and success rates"
+      subtitle="EPA, EPA per play, EPA/$, CPOE, and success rates"
       loading={loading}
       dataLength={advancedMetrics.length}
     >
@@ -26,6 +26,7 @@ export default function AdvancedMetricsTable({ advancedMetrics, position, player
         <TableRow>
           <TableCell>Season</TableCell>
           <TableCell align="right">EPA</TableCell>
+          <TableCell align="right">EPA/$</TableCell>
           {showPassing && (
             <>
               <TableCell align="right">Pass EPA</TableCell>
@@ -70,6 +71,7 @@ export default function AdvancedMetricsTable({ advancedMetrics, position, player
               )}
             </TableCell>
             <TableCell align="right">{formatNumber(metric.epa)}</TableCell>
+            <TableCell align="right">{formatNumber(metric.epa && metric.apyCapPct ? metric.epa / metric.apyCapPct : null, 3)}</TableCell>
             {showPassing && (
               <>
                 <TableCell align="right">{formatNumber(metric.passing_epa)}</TableCell>

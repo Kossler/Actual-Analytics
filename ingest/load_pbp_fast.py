@@ -7,7 +7,7 @@ Requires: pip install psycopg2-binary nflreadpy python-dotenv sqlalchemy pandas 
 import os
 import sys
 from io import StringIO
-import pandas as pd
+import polars as pl
 import nflreadpy as nfl
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
@@ -25,20 +25,19 @@ def load_pbp_season(season: int) -> int:
     print(f"Fetching PBP data for {season}...")
 
     try:
-        pbp = nfl.load_pbp([season])
-        # nflreadpy returns Polars DataFrame, convert to pandas
-        pbp = pbp.to_pandas()
+        pbp = nfl.load_pbp(season)
+        # Already a polars DataFrame
     except Exception as e:
         print(f"[ERROR] Error fetching PBP data for {season}: {e}")
         return 0
 
     # Keep only regular season
-    pbp = pbp[pbp["season_type"] == "REG"]
-    if pbp.empty:
+    pbp = pbp.filter(pl.col("season_type") == "REG")
+    if pbp.height == 0:
         print(f"No regular season data for {season}")
         return 0
 
-    print(f"Processing {len(pbp):,} plays for {season}...")
+    print(f"Processing {pbp.height:,} plays for {season}...")
 
     # Get existing play IDs from database to filter duplicates
     try:
@@ -55,17 +54,16 @@ def load_pbp_season(season: int) -> int:
         existing_plays = set()
 
     # Filter out duplicates - convert to strings for comparison
-    pbp_before = len(pbp)
-    pbp['game_id'] = pbp['game_id'].astype(str)
-    pbp['play_id'] = pbp['play_id'].astype(str)
-    
-    pbp = pbp[~pbp.apply(lambda row: (row['game_id'], row['play_id']) in existing_plays, axis=1)]
-    duplicates_skipped = pbp_before - len(pbp)
-    
+    pbp_before = pbp.height
+    pbp = pbp.with_columns([
+        pl.col('game_id').cast(pl.Utf8),
+        pl.col('play_id').cast(pl.Utf8)
+    ])
+    pbp = pbp.filter(~pl.struct(['game_id', 'play_id']).is_in([{'game_id': gid, 'play_id': pid} for gid, pid in existing_plays]))
+    duplicates_skipped = pbp_before - pbp.height
     if duplicates_skipped > 0:
-        print(f"[INFO] Skipped {duplicates_skipped:,} duplicate plays, will insert {len(pbp):,} new plays")
-    
-    if pbp.empty:
+        print(f"[INFO] Skipped {duplicates_skipped:,} duplicate plays, will insert {pbp.height:,} new plays")
+    if pbp.height == 0:
         if duplicates_skipped > 0:
             print(f"[INFO] All plays for {season} already in database")
         return 0
@@ -82,7 +80,7 @@ def load_pbp_season(season: int) -> int:
         "posteam", "defteam", "down", "ydstogo", "yardline_100", "qtr"
     ]
 
-    pbp = pbp.reindex(columns=cols)
+    pbp = pbp.select(cols)
 
     # ----------------------------------------------------------------------
     # Vectorized cleaning and type conversion
@@ -97,13 +95,13 @@ def load_pbp_season(season: int) -> int:
         "passing_yards", "rushing_yards", "receiving_yards",
         "yards_after_catch", "air_yards"
     ]
-
-    pbp[bool_cols] = pbp[bool_cols].fillna(False).astype(bool)
-    pbp[int_cols] = pbp[int_cols].apply(pd.to_numeric, errors="coerce").astype("Int64")
-    pbp["game_date"] = pd.to_datetime(pbp["game_date"], errors="coerce")
-    pbp = pbp.dropna(subset=["game_id", "play_id"])
-
-    if pbp.empty:
+    for col in bool_cols:
+        pbp = pbp.with_columns(pl.col(col).fill_null(False).cast(pl.Boolean))
+    for col in int_cols:
+        pbp = pbp.with_columns(pl.col(col).cast(pl.Int64))
+    pbp = pbp.with_columns(pl.col("game_date").str.strptime(pl.Date, strict=False))
+    pbp = pbp.drop_nulls(["game_id", "play_id"])
+    if pbp.height == 0:
         print(f"[WARNING] No valid rows left after cleaning for {season}")
         return 0
 
@@ -113,7 +111,7 @@ def load_pbp_season(season: int) -> int:
     try:
         # Convert DataFrame to a tab-delimited buffer
         buffer = StringIO()
-        pbp.to_csv(buffer, sep="\t", header=False, index=False, na_rep="\\N")
+        buffer.write(pbp.write_csv(separator="\t", include_header=False))
         buffer.seek(0)
 
         # Use raw psycopg2 connection under SQLAlchemy engine
@@ -133,8 +131,8 @@ def load_pbp_season(season: int) -> int:
         finally:
             raw_conn.close()
 
-        print(f"[OK] Inserted {len(pbp):,} plays for {season}")
-        return len(pbp)
+        print(f"[OK] Inserted {pbp.height:,} plays for {season}")
+        return pbp.height
 
     except Exception as e:
         print(f"[ERROR] COPY failed for {season}: {e}")

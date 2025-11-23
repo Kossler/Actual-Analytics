@@ -3,20 +3,23 @@ Ultra-fast seasonal data loader using PostgreSQL COPY protocol.
 Loads season-level statistics for historical years (2016-2024).
 ~500 records load in under 1 second using bulk COPY.
 
+This script is now fully polars-native: all data processing uses polars DataFrames (no pandas dependency remains).
+
 Usage: python load_seasonal_data_fast.py [year] [--clear]
-  python load_seasonal_data_fast.py 2023         # Load single year
-  python load_seasonal_data_fast.py              # Load all years 2016-2024
-  python load_seasonal_data_fast.py --clear      # Clear existing, load all years
-  python load_seasonal_data_fast.py 2023 --clear # Clear 2023, reload it
+    python load_seasonal_data_fast.py 2023         # Load single year
+    python load_seasonal_data_fast.py              # Load all years 2016-2024
+    python load_seasonal_data_fast.py --clear      # Clear existing, load all years
+    python load_seasonal_data_fast.py 2023 --clear # Clear 2023, reload it
 """
 
 import os
 import sys
 from io import StringIO
-import pandas as pd
-import nfl_data_py as nfl
+import polars as pl
+import nflreadpy as nfl
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
+os.environ["POLARS_MAX_THREADS"] = str(os.cpu_count() or 8)
 
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -66,100 +69,129 @@ def load_seasonal_year(year: int, clear: bool = False) -> int:
             print(f"[SKIP] Year {year} already has {existing} season records")
             return 0
     
-    print(f"Fetching seasonal data for {year}...")
+    print(f"Fetching player season stats for {year} using nflreadpy.load_player_stats...")
     try:
-        seasonal_data = nfl.import_seasonal_data([year], s_type='REG')
+        seasonal_data = nfl.load_player_stats(seasons=year, summary_level="reg")
     except Exception as e:
         print(f"[ERROR] Failed to fetch data for {year}: {e}")
         return 0
-    
-    if seasonal_data.empty:
+    if seasonal_data is None or seasonal_data.height == 0:
         print(f"[WARNING] No seasonal data for {year}")
         return 0
-    
-    # Fetch NGS data for CPOE
-    print(f"Fetching NGS passing data for CPOE for {year}...")
+
+    # Fetch NGS data for CPOE (polars-native)
+    print(f"Fetching NGS passing data for CPOE for {year} using nflreadpy...")
     try:
-        ngs_passing = nfl.import_ngs_data('passing', [year])
-        # Create CPOE lookup by player_gsis_id (maps to pfr_id)
+        ngs_passing = nfl.load_nextgen_stats(year, stat_type="passing")
+        if not isinstance(ngs_passing, pl.DataFrame):
+            ngs_passing = pl.DataFrame(ngs_passing)
         cpoe_lookup = {}
-        if not ngs_passing.empty and 'player_gsis_id' in ngs_passing.columns and 'completion_percentage_above_expectation' in ngs_passing.columns:
-            for _, ngs_row in ngs_passing.iterrows():
-                gsis_id = ngs_row.get('player_gsis_id')
-                cpoe_val = ngs_row.get('completion_percentage_above_expectation')
-                if pd.notna(gsis_id) and pd.notna(cpoe_val):
-                    cpoe_lookup[gsis_id] = float(cpoe_val)
+        if ngs_passing.height > 0 and 'player_gsis_id' in ngs_passing.columns and 'completion_percentage_above_expectation' in ngs_passing.columns:
+            ngs_valid = ngs_passing.filter(
+                ngs_passing['player_gsis_id'].is_not_null() & ngs_passing['completion_percentage_above_expectation'].is_not_null()
+            )
+            for row in ngs_valid.iter_rows(named=True):
+                gsis_id = row['player_gsis_id']
+                cpoe_val = row['completion_percentage_above_expectation']
+                cpoe_lookup[gsis_id] = float(cpoe_val)
             print(f"[OK] Found CPOE data for {len(cpoe_lookup)} players")
         else:
             print(f"[WARNING] No CPOE data available for {year}")
     except Exception as e:
         print(f"[WARNING] Failed to fetch NGS data for {year}: {e}")
         cpoe_lookup = {}
-    
-    # Fetch play-by-play data for success rate calculations
-    print(f"Fetching play-by-play data for success rates for {year}...")
+
+    # Fetch play-by-play data for success rate calculations (polars-native)
+    print(f"Fetching play-by-play data for success rates for {year} using nflreadpy...")
     success_rate_lookup = {}
+    import pandas as pd
     try:
-        # Fetch full PBP data (column filtering causes issues with some years)
-        pbp = nfl.import_pbp_data([year])
+        pbp = nfl.load_pbp(year)
+        # Robust conversion to polars DataFrame
+        if isinstance(pbp, pl.DataFrame):
+            pass
+        elif 'DataFrame' in str(type(pbp)) and hasattr(pbp, 'to_dict'):
+            # Likely pandas DataFrame
+            pbp = pl.from_pandas(pbp)
+        elif isinstance(pbp, dict) or isinstance(pbp, list):
+            pbp = pl.DataFrame(pbp)
+        else:
+            pbp = pl.DataFrame([])
+        print(f"[DEBUG] pbp type after conversion: {type(pbp)}")
     except (Exception, NameError) as e:
-        # Handle both actual errors and the nfl-data-py bug where it tries to catch undefined 'Error'
         print(f"[ERROR] Error fetching PBP data for {year}: {e}")
-        pbp = pd.DataFrame()
-    
+        pbp = pl.DataFrame([])
+
     try:
-        
-        if not pbp.empty and 'epa' in pbp.columns:
+        if pbp.height > 0 and 'epa' in pbp.columns:
             # Calculate success rates for passers (EPA > 0)
-            passing = pbp[pbp['passer_player_id'].notna()].copy()
-            if not passing.empty:
-                for player_id, group in passing.groupby('passer_player_id'):
-                    success_count = (group['epa'] > 0).sum()
-                    total_plays = len(group)
+            passing = pbp.filter(pbp['passer_player_id'].is_not_null())
+            print(f"[DEBUG] passing type: {type(passing)}")
+            if passing.height > 0:
+                passing_success = passing.with_columns([
+                    (pl.col('epa') > 0).alias('success')
+                ]).group_by('passer_player_id').agg([
+                    pl.col('success').sum().alias('passing_success'),
+                    pl.col('success').count().alias('passing_plays')
+                ])
+                for row in passing_success.iter_rows(named=True):
+                    player_id = row['passer_player_id']
                     if player_id not in success_rate_lookup:
                         success_rate_lookup[player_id] = {
                             'passing_success': 0, 'passing_plays': 0,
                             'rushing_success': 0, 'rushing_plays': 0,
                             'receiving_success': 0, 'receiving_plays': 0
                         }
-                    success_rate_lookup[player_id]['passing_success'] = success_count
-                    success_rate_lookup[player_id]['passing_plays'] = total_plays
-            
-            # Calculate success rates for rushers (EPA > 0)
-            rushing = pbp[pbp['rusher_player_id'].notna()].copy()
-            if not rushing.empty:
-                for player_id, group in rushing.groupby('rusher_player_id'):
-                    success_count = (group['epa'] > 0).sum()
-                    total_plays = len(group)
+                    success_rate_lookup[player_id]['passing_success'] = int(row['passing_success'])
+                    success_rate_lookup[player_id]['passing_plays'] = int(row['passing_plays'])
+
+            rushing = pbp.filter(pbp['rusher_player_id'].is_not_null())
+            print(f"[DEBUG] rushing type: {type(rushing)}")
+            if rushing.height > 0:
+                rushing_success = rushing.with_columns([
+                    (pl.col('epa') > 0).alias('success')
+                ]).group_by('rusher_player_id').agg([
+                    pl.col('success').sum().alias('rushing_success'),
+                    pl.col('success').count().alias('rushing_plays')
+                ])
+                for row in rushing_success.iter_rows(named=True):
+                    player_id = row['rusher_player_id']
                     if player_id not in success_rate_lookup:
                         success_rate_lookup[player_id] = {
                             'passing_success': 0, 'passing_plays': 0,
                             'rushing_success': 0, 'rushing_plays': 0,
                             'receiving_success': 0, 'receiving_plays': 0
                         }
-                    success_rate_lookup[player_id]['rushing_success'] = success_count
-                    success_rate_lookup[player_id]['rushing_plays'] = total_plays
-            
-            # Calculate success rates for receivers (EPA > 0)
-            receiving = pbp[pbp['receiver_player_id'].notna()].copy()
-            if not receiving.empty:
-                for player_id, group in receiving.groupby('receiver_player_id'):
-                    success_count = (group['epa'] > 0).sum()
-                    total_plays = len(group)
+                    success_rate_lookup[player_id]['rushing_success'] = int(row['rushing_success'])
+                    success_rate_lookup[player_id]['rushing_plays'] = int(row['rushing_plays'])
+
+            receiving = pbp.filter(pbp['receiver_player_id'].is_not_null())
+            print(f"[DEBUG] receiving type: {type(receiving)}")
+            if receiving.height > 0:
+                receiving_success = receiving.with_columns([
+                    (pl.col('epa') > 0).alias('success')
+                ]).group_by('receiver_player_id').agg([
+                    pl.col('success').sum().alias('receiving_success'),
+                    pl.col('success').count().alias('receiving_plays')
+                ])
+                for row in receiving_success.iter_rows(named=True):
+                    player_id = row['receiver_player_id']
                     if player_id not in success_rate_lookup:
                         success_rate_lookup[player_id] = {
                             'passing_success': 0, 'passing_plays': 0,
                             'rushing_success': 0, 'rushing_plays': 0,
                             'receiving_success': 0, 'receiving_plays': 0
                         }
-                    success_rate_lookup[player_id]['receiving_success'] = success_count
-                    success_rate_lookup[player_id]['receiving_plays'] = total_plays
-            
+                    success_rate_lookup[player_id]['receiving_success'] = int(row['receiving_success'])
+                    success_rate_lookup[player_id]['receiving_plays'] = int(row['receiving_plays'])
+
             print(f"[OK] Calculated success rates for {len(success_rate_lookup)} players")
         else:
             print(f"[WARNING] No play-by-play data available for {year}")
     except Exception as e:
+        import traceback
         print(f"[WARNING] Failed to fetch play-by-play data for {year}: {e}")
+        traceback.print_exc()
     
     print(f"Processing {len(seasonal_data):,} player-season records...")
     
@@ -171,50 +203,58 @@ def load_seasonal_year(year: int, clear: bool = False) -> int:
     pfr_id_lookup = {}  # Map GSIS ID to PFR ID
     
     try:
-        roster_df = nfl.import_seasonal_rosters([year])
-        print(f"[OK] Loaded roster data for {len(roster_df)} players")
-        
-        for _, row in roster_df.iterrows():
-            gsis_id = row.get('player_id')  # GSIS ID used in seasonal_data
-            pfr_id = row.get('pfr_id')      # PFR ID for our database
+        roster_df = nfl.load_rosters(year)
+        if not isinstance(roster_df, pl.DataFrame):
+            roster_df = pl.DataFrame(roster_df)
+        print(f"[OK] Loaded roster data for {roster_df.height} players")
+        for row in roster_df.iter_rows(named=True):
+            gsis_id = row.get('gsis_id') or row.get('player_id')
+            pfr_id = row.get('pfr_id')
             position = row.get('position')
-            team = row.get('team')
-            player_name = row.get('player_name')
-            
-            if pd.notna(gsis_id):
-                if pd.notna(position):
+            team = row.get('team') or row.get('latest_team')
+            player_name = row.get('display_name') or row.get('name') or row.get('player_name')
+            if gsis_id is not None:
+                if position is not None:
                     position_lookup[gsis_id] = position
-                if pd.notna(team):
+                if team is not None:
                     team_lookup[gsis_id] = team
-                if pd.notna(player_name):
+                if player_name is not None:
                     name_lookup[gsis_id] = player_name
-                if pd.notna(pfr_id):
+                if pfr_id is not None:
                     pfr_id_lookup[gsis_id] = pfr_id
-        
         print(f"[OK] Position data available for {len(position_lookup)} players")
         print(f"[OK] PFR ID mappings available for {len(pfr_id_lookup)} players")
     except Exception as e:
         print(f"[WARNING] Could not fetch roster data: {e}")
         print(f"[WARNING] Will use stats-based position inference")
+        roster_df = pl.DataFrame([])
     
-    # First, ensure all players exist in Player table
+    # First, ensure all players exist in Player table with all columns
     player_records = []
     missing_position_count = 0
-    
-    for _, row in seasonal_data.iterrows():
-        player_id = row.get('player_id')  # GSIS ID from seasonal_data
-        if pd.isna(player_id):
+    for row in seasonal_data.iter_rows(named=True):
+        player_id = row.get('player_id')
+        if player_id is None:
             continue
-        
-        # Get position from roster data first
-        position = position_lookup.get(player_id)
-        
-        # If no roster position, infer from stats
+        # Get roster info if available
+        roster_info = None
+        if 'player_id' in roster_df.columns and roster_df.height > 0:
+            matches = roster_df.filter(pl.col('player_id') == player_id)
+            if matches.height > 0:
+                roster_info = matches.row(0, named=True)
+        def get_field_roster(*fields, default=None):
+            if roster_info is not None:
+                for f in fields:
+                    val = roster_info.get(f) if hasattr(roster_info, 'get') else roster_info[f] if f in roster_info else None
+                    if val is not None:
+                        return val
+            return default
+        # Compose all columns for Player table
+        position = get_field_roster('position')
         if not position:
             passing_att = int(row.get('attempts', 0) or 0)
             carries = int(row.get('carries', 0) or 0)
             targets_val = int(row.get('targets', 0) or 0)
-            
             if passing_att > 0:
                 position = 'QB'
             elif carries > targets_val:
@@ -222,68 +262,68 @@ def load_seasonal_year(year: int, clear: bool = False) -> int:
             else:
                 position = 'WR'
             missing_position_count += 1
-        
-        # Get name from roster data or use player_id
-        player_name = name_lookup.get(player_id, str(player_id))
-        team = team_lookup.get(player_id)
-        
-        # ALWAYS use GSIS ID (player_id) as pfr_id
-        # This is what the Play table uses, so GameStat joins will work correctly
-        pfr_id = player_id
-        
         player_record = {
-            'pfr_id': pfr_id,
-            'name': player_name,
-            'position': position
+            'gsis_id': player_id,
+            'pfr_id': get_field_roster('pfr_id', default=player_id),
+            'name': get_field_roster('display_name', 'name', 'player_name', default=str(player_id)),
+            'position': position,
+            'team': get_field_roster('latest_team', 'team'),
+            'status': get_field_roster('status'),
+            'birth_date': get_field_roster('birth_date'),
+            'height': get_field_roster('height'),
+            'weight': get_field_roster('weight'),
+            'college': get_field_roster('college_name', 'college'),
+            'draft_year': get_field_roster('draft_year'),
+            'draft_round': get_field_roster('draft_round'),
+            'draft_pick': get_field_roster('draft_pick'),
+            'draft_team': get_field_roster('draft_team'),
         }
-        
-        if team:
-            player_record['team'] = team
-        
         player_records.append(player_record)
-    
     if missing_position_count > 0:
         print(f"[INFO] {missing_position_count} players used stats-based position inference (no roster data)")
-    
-    # Deduplicate player records by pfr_id before inserting
+    # Deduplicate by both pfr_id and gsis_id
     seen_pfr_ids = set()
+    seen_gsis_ids = set()
     unique_player_records = []
     duplicate_count = 0
-    
     for player in player_records:
         pfr_id = player['pfr_id']
-        if pfr_id not in seen_pfr_ids:
+        gsis_id = player['gsis_id']
+        if pfr_id not in seen_pfr_ids and gsis_id not in seen_gsis_ids:
             seen_pfr_ids.add(pfr_id)
+            seen_gsis_ids.add(gsis_id)
             unique_player_records.append(player)
         else:
             duplicate_count += 1
-    
     if duplicate_count > 0:
-        print(f"[INFO] Removed {duplicate_count} duplicate pfr_id entries")
-    
+        print(f"[INFO] Removed {duplicate_count} duplicate pfr_id/gsis_id entries")
     # Bulk upsert players using SQL
     if unique_player_records:
         with engine.connect() as conn:
             for player in unique_player_records:
-                if 'team' in player:
-                    conn.execute(text("""
-                        INSERT INTO "Player" (pfr_id, name, position, team)
-                        VALUES (:pfr_id, :name, :position, :team)
-                        ON CONFLICT (pfr_id) DO UPDATE SET
-                            name = EXCLUDED.name,
-                            position = EXCLUDED.position,
-                            team = EXCLUDED.team
-                    """), player)
-                else:
-                    conn.execute(text("""
-                        INSERT INTO "Player" (pfr_id, name, position)
-                        VALUES (:pfr_id, :name, :position)
-                        ON CONFLICT (pfr_id) DO UPDATE SET
-                            name = EXCLUDED.name,
-                            position = EXCLUDED.position
-                    """), player)
+                conn.execute(text("""
+                    INSERT INTO "Player" (
+                        gsis_id, pfr_id, name, position, team, status, birth_date, height, weight, college, draft_year, draft_round, draft_pick, draft_team
+                    ) VALUES (
+                        :gsis_id, :pfr_id, :name, :position, :team, :status, :birth_date, :height, :weight, :college, :draft_year, :draft_round, :draft_pick, :draft_team
+                    )
+                    ON CONFLICT (pfr_id) DO UPDATE SET
+                        gsis_id = EXCLUDED.gsis_id,
+                        name = EXCLUDED.name,
+                        position = EXCLUDED.position,
+                        team = EXCLUDED.team,
+                        status = EXCLUDED.status,
+                        birth_date = EXCLUDED.birth_date,
+                        height = EXCLUDED.height,
+                        weight = EXCLUDED.weight,
+                        college = EXCLUDED.college,
+                        draft_year = EXCLUDED.draft_year,
+                        draft_round = EXCLUDED.draft_round,
+                        draft_pick = EXCLUDED.draft_pick,
+                        draft_team = EXCLUDED.draft_team
+                """), player)
             conn.commit()
-        print(f"[OK] Upserted {len(unique_player_records)} players with roster-accurate data")
+        print(f"[OK] Upserted {len(unique_player_records)} players with full details")
     
     # Get player ID mappings
     with engine.connect() as conn:
@@ -292,13 +332,15 @@ def load_seasonal_year(year: int, clear: bool = False) -> int:
     
     # Prepare GameStat records
     gamestat_records = []
-    for _, row in seasonal_data.iterrows():
+    unmapped_player_ids = set()
+    mapped_player_ids = set()
+    for row in seasonal_data.iter_rows(named=True):
         player_id = row.get('player_id')
         if pd.isna(player_id) or player_id not in player_id_map:
+            unmapped_player_ids.add(player_id)
             continue
-        
+        mapped_player_ids.add(player_id)
         player_pk = player_id_map[player_id]
-        
         # Extract stats
         passing_yds = int(row.get('passing_yards', 0) or 0)
         passing_tds = int(row.get('passing_tds', 0) or 0)
@@ -306,20 +348,16 @@ def load_seasonal_year(year: int, clear: bool = False) -> int:
         passing_att = int(row.get('attempts', 0) or 0)
         passing_cmp = int(row.get('completions', 0) or 0)
         passing_sacks = int(row.get('sacks', 0) or 0)
-        
         rushing_yds = int(row.get('rushing_yards', 0) or 0)
         rushing_att = int(row.get('carries', 0) or 0)
         rushing_tds = int(row.get('rushing_tds', 0) or 0)
-        
         receiving_yds = int(row.get('receiving_yards', 0) or 0)
         receiving_tds = int(row.get('receiving_tds', 0) or 0)
         targets = int(row.get('targets', 0) or 0)
         receptions = int(row.get('receptions', 0) or 0)
         games = int(row.get('games', 0) or 0)
-        
         # Get CPOE from NGS data if available
         cpoe = cpoe_lookup.get(player_id)
-        
         # Only include if player has some stats
         if (passing_yds > 0 or rushing_yds > 0 or receiving_yds > 0):
             gamestat_records.append({
@@ -342,6 +380,10 @@ def load_seasonal_year(year: int, clear: bool = False) -> int:
                 'receptions': receptions,
                 'cpoe': cpoe
             })
+    if unmapped_player_ids:
+        print(f"[DEBUG] Unmapped player_ids (not in Player table): {list(unmapped_player_ids)[:10]} ... total: {len(unmapped_player_ids)}")
+    if mapped_player_ids:
+        print(f"[DEBUG] Sample mapped player_ids: {list(mapped_player_ids)[:10]}")
     
     if not gamestat_records:
         print(f"[WARNING] No valid stats to insert for {year}")
@@ -389,7 +431,7 @@ def load_seasonal_year(year: int, clear: bool = False) -> int:
         # Now populate PlayerStats (per-attempt metrics)
         print(f"Calculating PlayerStats (per-attempt metrics) for {year}...")
         playerstats_records = []
-        for _, row in seasonal_data.iterrows():
+        for row in seasonal_data.iter_rows(named=True):
             player_id = row.get('player_id')
             if pd.isna(player_id) or player_id not in player_id_map:
                 continue
@@ -448,7 +490,7 @@ def load_seasonal_year(year: int, clear: bool = False) -> int:
         # Now populate AdvancedMetrics (EPA data from seasonal_data)
         print(f"Calculating AdvancedMetrics (EPA, success rates) for {year}...")
         advancedmetrics_records = []
-        for _, row in seasonal_data.iterrows():
+        for row in seasonal_data.iter_rows(named=True):
             player_id = row.get('player_id')
             if pd.isna(player_id) or player_id not in player_id_map:
                 continue
@@ -581,8 +623,17 @@ if __name__ == "__main__":
         year = int(args[0])
         total_inserted = load_seasonal_year(year, clear=clear)
     else:
-        # Load all historical years
-        for year in range(2016, 2025):  # 2016-2024
-            total_inserted += load_seasonal_year(year, clear=clear)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        years = list(range(2016, 2025))
+        with ThreadPoolExecutor(max_workers=min(8, len(years))) as executor:
+            future_to_year = {executor.submit(load_seasonal_year, year, clear=clear): year for year in years}
+            for future in as_completed(future_to_year):
+                year = future_to_year[future]
+                try:
+                    inserted = future.result()
+                except Exception as exc:
+                    print(f"[ERROR] Year {year} generated an exception: {exc}")
+                    inserted = 0
+                total_inserted += inserted
     
     print(f"\nTotal season records loaded: {total_inserted:,}")

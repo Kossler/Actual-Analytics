@@ -2,16 +2,23 @@ name: Daily Data Ingestion
 
 on:
   schedule:
-    # TNF 6:30 AM UTC / 1:30 AM ET
-    - cron:  '30 6 * 1,2,9-12 5'
-    # Early window: 11:00 PM UTC / 6:00 PM ET
-    - cron:  '00 23 * 1,2,9-12 0'
-    # Late window: 1:00 UTC / 9:00 PM ET
-    - cron:  '5 1 * 1,2,9-12 1'
-    # SNF/MNF: 6:30 UTC / 1:30 AM ET
-    - cron:  '30 6 * 1,2,9-12 1'
-    - cron:  '30 6 * 1,2,9-12 2'
-  workflow_dispatch: # Allow manual trigger
+    # TNF (Friday AM UTC after TNF game)
+    - cron: "30 6 * 1,2,9-12 5"
+
+    # Early Window (Sunday)
+    - cron: "0 23 * 1,2,9-12 0"
+
+    # Late Window (Sunday)
+    - cron: "5 1 * 1,2,9-12 0"
+
+    # SNF (Monday AM UTC)
+    - cron: "30 6 * 1,2,9-12 1"
+
+    # MNF (Tuesday AM UTC)
+    - cron: "30 6 * 1,2,9-12 2"
+
+  workflow_dispatch:
+
 
 jobs:
   ingest-data:

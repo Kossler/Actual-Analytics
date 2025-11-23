@@ -31,35 +31,46 @@ def restore_historical_data():
     print()
     ingest_dir = os.path.dirname(os.path.abspath(__file__))
     
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     successful_years = []
     failed_years = []
-    
-    for year in years_to_load:
+
+    def load_year(year):
         print(f"\n{'='*70}")
         print(f"[{datetime.now().isoformat()}] Loading data for {year}...")
         print(f"{'='*70}\n")
-        
         try:
-            # Run load_current_season_data.py for this year
             result = subprocess.run(
                 [sys.executable, os.path.join(ingest_dir, "load_current_season_data.py"), str(year)],
-                input="yes\n",  # Auto-confirm
+                input="yes\n",
                 capture_output=True,
                 text=True,
                 cwd=ingest_dir
             )
-            
             if result.returncode == 0:
                 print(f"[SUCCESS] {year} data loaded successfully!")
-                successful_years.append(year)
+                return (year, True, None)
             else:
                 print(f"[ERROR] {year} data load failed!")
                 print(f"Error output:\n{result.stderr}")
-                failed_years.append(year)
-                
+                return (year, False, result.stderr)
         except Exception as e:
             print(f"[ERROR] Failed to load {year}: {e}")
-            failed_years.append(year)
+            return (year, False, str(e))
+
+    with ThreadPoolExecutor(max_workers=min(8, len(years_to_load))) as executor:
+        future_to_year = {executor.submit(load_year, year): year for year in years_to_load}
+        for future in as_completed(future_to_year):
+            year = future_to_year[future]
+            try:
+                y, success, err = future.result()
+                if success:
+                    successful_years.append(y)
+                else:
+                    failed_years.append(y)
+            except Exception as exc:
+                print(f"[ERROR] Exception for year {year}: {exc}")
+                failed_years.append(year)
     
     # Summary
     print(f"\n{'='*70}")

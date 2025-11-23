@@ -10,10 +10,20 @@ datasource db {
 
 model Player {
   id         Int      @id @default(autoincrement())
+  gsis_id    String?  // NFL GSIS ID (nullable, for ingest compatibility)
   pfr_id     String?  @unique // optional Pro-Football-Reference ID
   name       String   // abbreviated name like "D.Jones"
   team       String?
   position   String?
+  status     String?
+  birth_date String?
+  height     String?
+  weight     String?
+  college    String?
+  draft_year Int?
+  draft_round Int?
+  draft_pick Int?
+  draft_team String?
   GameStats  GameStat[]
   PlayerStats PlayerStats[]
   AdvancedMetrics AdvancedMetrics[]

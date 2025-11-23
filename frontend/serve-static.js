@@ -10,11 +10,16 @@
  */
 
 const http = require('http');
+const https = require('https');
+const { Semaphore } = require('async-mutex');
 const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.PORT || 8080;
 const OUT_DIR = path.join(__dirname, 'out');
+const USE_HTTPS = process.env.HTTPS_CERT && process.env.HTTPS_KEY;
+const MAX_CONCURRENT_READS = 50;
+const fileReadSemaphore = new Semaphore(MAX_CONCURRENT_READS);
 
 // Simple rate limiting: track requests per IP
 const requestCounts = new Map();
@@ -50,7 +55,7 @@ const MIME_TYPES = {
   '.eot': 'application/vnd.ms-fontobject'
 };
 
-const server = http.createServer((req, res) => {
+const requestHandler = (req, res) => {
   // Basic rate limiting
   const clientIP = req.socket.remoteAddress;
   const now = Date.now();
@@ -97,34 +102,50 @@ const server = http.createServer((req, res) => {
   const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
 
   // Try to read and serve the file
-  fs.readFile(filePath, (err, content) => {
-    if (err) {
-      // Try 404.html for not found pages
-      const notFoundPath = path.join(OUT_DIR, '404.html');
-      fs.readFile(notFoundPath, (err2, notFoundContent) => {
-        res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(notFoundContent || 'Not Found');
-      });
-      return;
-    }
+  fileReadSemaphore.acquire().then(([value, release]) => {
+    fs.readFile(filePath, (err, content) => {
+      release();
+      if (err) {
+        // Try 404.html for not found pages
+        const notFoundPath = path.join(OUT_DIR, '404.html');
+        fs.readFile(notFoundPath, (err2, notFoundContent) => {
+          res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(notFoundContent || 'Not Found');
+        });
+        return;
+      }
 
-    // Set caching headers
-    if (ext === '.html') {
-      // Don't cache HTML files (they change on rebuild)
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
-    } else if (ext.startsWith('.')) {
-      // Cache static assets for 1 year
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    }
+      // Set caching headers
+      if (ext === '.html') {
+        // Don't cache HTML files (they change on rebuild)
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      } else if (ext.startsWith('.')) {
+        // Cache static assets for 1 year
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
 
-    res.writeHead(200, { 'Content-Type': mimeType });
-    res.end(content);
+      res.writeHead(200, { 'Content-Type': mimeType });
+      res.end(content);
+    });
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`✓ Static server listening on http://localhost:${PORT}`);
-  console.log(`✓ Serving files from: ${OUT_DIR}`);
-});
+if (USE_HTTPS) {
+  const fs = require('fs');
+  const cert = fs.readFileSync(process.env.HTTPS_CERT);
+  const key = fs.readFileSync(process.env.HTTPS_KEY);
+  const server = https.createServer({ key, cert }, requestHandler);
+  server.listen(PORT, () => {
+    console.log(`✓ Static server listening on https://localhost:${PORT}`);
+    console.log(`✓ Serving files from: ${OUT_DIR}`);
+  });
+} else {
+  const server = http.createServer(requestHandler);
+  server.listen(PORT, () => {
+    console.warn('⚠️  Static server running in HTTP mode. Use HTTPS in production!');
+    console.log(`✓ Static server listening on http://localhost:${PORT}`);
+    console.log(`✓ Serving files from: ${OUT_DIR}`);
+  });
+}

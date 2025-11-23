@@ -4,8 +4,15 @@ const prisma = require('../db');
 
 // 1) List players (simple)
 router.get('/', async (req, res) => {
-  const players = await prisma.player.findMany({ 
-    select: { id: true, name: true, team: true, position: true } 
+  // Pagination support
+  const page = parseInt(req.query.page) || 1;
+  const pageSize = Math.min(parseInt(req.query.pageSize) || 100, 500);
+  const skip = (page - 1) * pageSize;
+  const players = await prisma.player.findMany({
+    select: { id: true, name: true, team: true, position: true },
+    skip,
+    take: pageSize,
+    orderBy: { name: 'asc' }
   });
   res.json(players);
 });
@@ -13,8 +20,8 @@ router.get('/', async (req, res) => {
 // 2) Player medians endpoint: medians of rushing/receiving/passing yards per player in a season
 router.get('/medians', async (req, res) => {
   const season = parseInt(req.query.season) || new Date().getFullYear();
-  // We will use a raw SQL query to compute median using percentile_cont
-  const mysql = await prisma.$queryRawUnsafe(`
+  // Use parameterized query for security and performance
+  const mysql = await prisma.$queryRaw`
     SELECT p.id as player_id, p.name,
       percentile_cont(0.5) WITHIN GROUP (ORDER BY gs."rushingYds") as median_rushing,
       percentile_cont(0.5) WITHIN GROUP (ORDER BY gs."receivingYds") as median_receiving,
@@ -25,7 +32,7 @@ router.get('/medians', async (req, res) => {
     GROUP BY p.id, p.name
     ORDER BY p.name
     LIMIT 1000;
-  `);
+  `;
   res.json(mysql);
 });
 
@@ -42,9 +49,12 @@ router.get('/available-years', async (req, res) => {
 // 3) Get all players' aggregated stats for a season (MUST be before /:id routes)
 router.get('/season/:season/all-stats', async (req, res) => {
   const season = parseInt(req.params.season);
-  
-  // Get all GameStat aggregated by player + AdvancedMetrics
-  const allStats = await prisma.$queryRawUnsafe(`
+  // Pagination support
+  const page = parseInt(req.query.page) || 1;
+  const pageSize = Math.min(parseInt(req.query.pageSize) || 100, 500);
+  const offset = (page - 1) * pageSize;
+  // Use parameterized query for security and performance
+  const allStats = await prisma.$queryRaw`
     SELECT 
       p.id as "playerId",
       p.name,
@@ -69,14 +79,16 @@ router.get('/season/:season/all-stats', async (req, res) => {
       CAST(SUM(gs.receiving_epa) AS DOUBLE PRECISION) as "receivingEPA",
       CAST(AVG(gs.success_rate) AS DOUBLE PRECISION) as "successRate",
       CAST(AVG(gs.cpoe) AS DOUBLE PRECISION) as "cpoe",
-      CAST(COUNT(DISTINCT gs.week) AS INTEGER) as "games"
+      CAST(COUNT(DISTINCT gs.week) AS INTEGER) as "games",
+      c.apy_cap_pct as "apyCapPct"
     FROM "GameStat" gs
     JOIN "Player" p ON p.id = gs."playerId"
+    LEFT JOIN contracts c ON c.gsis_id = p.pfr_id AND c.year_signed = gs.season
     WHERE gs.season = ${season}
-    GROUP BY p.id, p.name, p.team, p.position, gs.season
+    GROUP BY p.id, p.name, p.team, p.position, gs.season, c.apy_cap_pct
     ORDER BY p.name
-  `);
-  
+    OFFSET ${offset} LIMIT ${pageSize};
+  `;
   res.json(allStats);
 });
 

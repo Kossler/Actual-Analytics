@@ -9,6 +9,8 @@ import os
 import sys
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+from concurrent.futures import ThreadPoolExecutor, as_completed
+os.environ["POLARS_MAX_THREADS"] = str(os.cpu_count() or 8)
 
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -132,6 +134,16 @@ if __name__ == "__main__":
         seasons = list(range(2016, 2025))
 
     print(f"Computing vectorized medians for {len(seasons)} season(s)...\n")
-    for s in seasons:
-        calculate_medians_for_season(s)
+    if len(seasons) > 1:
+        with ThreadPoolExecutor(max_workers=min(8, len(seasons))) as executor:
+            future_to_season = {executor.submit(calculate_medians_for_season, s): s for s in seasons}
+            for future in as_completed(future_to_season):
+                season = future_to_season[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    print(f"[ERROR] Season {season} generated an exception: {exc}")
+    else:
+        for s in seasons:
+            calculate_medians_for_season(s)
     print("\nDone!")

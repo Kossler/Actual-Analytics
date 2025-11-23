@@ -30,8 +30,7 @@ console.log('[Migration] Migration exit code:', result.status);
 
 if (result.status !== 0 && result.status !== null) {
   console.error('[Migration] Migration failed with exit code:', result.status);
-  // Don't exit - try to start server anyway
-  console.warn('[Migration] Attempting to start server anyway...');
+  process.exit(result.status);
 }
 
 console.log('[Migration] Migrations check complete');
