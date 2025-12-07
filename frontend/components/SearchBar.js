@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Card, CardContent, Box, TextField, Autocomplete, Typography } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import { formatPlayerLabel } from '../utils/statsUtils';
@@ -17,6 +18,12 @@ export default function SearchBar({
   searchQuery, 
   onSearchChange 
 }) {
+  // Focus input on mount for better UX
+  useEffect(() => {
+    const input = document.querySelector('input[placeholder="Search for a player..."]');
+    if (input) input.focus();
+  }, []);
+
   return (
     <Card sx={{ mb: 4 }}>
       <CardContent>
@@ -24,18 +31,14 @@ export default function SearchBar({
           <Autocomplete
             options={players}
             getOptionLabel={formatPlayerLabel}
-            filterOptions={(options, state) => {
-              if (!state.inputValue) return [];
-              return options
-                .filter(option =>
-                  option.name.toLowerCase().includes(state.inputValue.toLowerCase())
-                )
-                .slice(0, 10);
-            }}
-            value={selectedPlayer}
+            filterOptions={(options, state) => options}
+            value={null}
             onChange={(event, newValue) => {
-              if (newValue) {
-                onSelectPlayer(newValue);
+              if (newValue && newValue.gsis_id) {
+                window.location.href = `/players/${newValue.gsis_id}`;
+                onSearchChange('');
+              } else if (newValue) {
+                console.warn('Selected player is missing a gsis_id:', newValue);
               }
             }}
             inputValue={searchQuery}
@@ -54,31 +57,27 @@ export default function SearchBar({
                 }}
               />
             )}
-            renderOption={(props, option) => (
-              <Box
-                {...props}
-                component="li"
-                sx={{
-                  py: 1.5,
-                  px: 2,
-                  borderBottom: '1px solid',
-                  borderColor: 'divider',
-                  '&:last-child': {
-                    borderBottom: 'none',
-                  },
-                }}
-              >
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                    {option.name}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                    {option.position} • {option.team}
-                  </Typography>
+            renderOption={(props, option) => {
+              // Extract key from props and pass it directly
+              const { key, ...rest } = props;
+              return (
+                <Box
+                  key={key}
+                  {...rest}
+                  component="li"
+                >
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {option.display_name}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                      {option.position} • {option.team_name || option.latest_team}
+                    </Typography>
+                  </Box>
                 </Box>
-              </Box>
-            )}
-            noOptionsText="No players found"
+              );
+            }}
+            noOptionsText={searchQuery ? "No players found" : "Type to search players"}
             sx={{
               '& .MuiOutlinedInput-root': {
                 backgroundColor: 'rgba(255, 255, 255, 0.02)',

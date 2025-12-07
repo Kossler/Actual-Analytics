@@ -46,8 +46,8 @@ This guide covers deploying the Actual-Analytics application across Cloudflare P
 1. **Cloudflare Pages** is already connected to your GitHub repo
 
 2. **Update Cloudflare Pages settings**:
-   - **Build command**: `npm run build`
-   - **Build output directory**: `.next`
+   - **Build command**: `sh build.sh`
+   - **Build output directory**: `.vercel/output/static`
    - **Root directory**: `frontend`
    - **Environment variables**:
      - `NEXT_PUBLIC_API_URL`: Your Railway backend URL (e.g., `https://actual-analytics-api.up.railway.app`)
@@ -130,3 +130,4 @@ NEXT_PUBLIC_API_URL=https://your-railway-backend.up.railway.app
 - Check build logs in Cloudflare Pages
 - Verify root directory is set to `frontend`
 - Run `npm run build` locally to test
+- Ensure the build logs include `@cloudflare/next-on-pages` output and that `.vercel/output` is produced

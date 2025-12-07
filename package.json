@@ -6,8 +6,14 @@
   "scripts": {
     "build": "cd backend && npm install",
     "start": "cd backend && node src/server.js",
-    "dev:frontend": "cd frontend && npm run dev",
+    "dev:frontend": "cd frontend && next dev",
+    "build:frontend": "cd frontend && next build",
     "dev:backend": "cd backend && npm run dev",
-    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install"
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/next-on-pages": "^1.13.16"
   }
 }

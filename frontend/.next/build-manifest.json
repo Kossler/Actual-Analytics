@@ -1,31 +1,44 @@
 {
   "polyfillFiles": [
-    "static/chunks/polyfills.js"
+    "static/chunks/polyfills-42372ed130431b0a.js"
   ],
-  "devFiles": [
-    "static/chunks/react-refresh.js"
-  ],
+  "devFiles": [],
   "ampDevFiles": [],
   "lowPriorityFiles": [
-    "static/development/_buildManifest.js",
-    "static/development/_ssgManifest.js"
+    "static/x1I3-aeVIGXtkQw5E2Aly/_buildManifest.js",
+    "static/x1I3-aeVIGXtkQw5E2Aly/_ssgManifest.js"
   ],
   "rootMainFiles": [],
+  "rootMainFilesTree": {},
   "pages": {
     "/": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/index.js"
+      "static/chunks/webpack-6224d37324e372cb.js",
+      "static/chunks/framework-a6e0b7e30f98059a.js",
+      "static/chunks/main-569e101c24d92517.js",
+      "static/chunks/868-211d0fb4655429c9.js",
+      "static/chunks/18-176410872cfbabd7.js",
+      "static/chunks/pages/index-a17a80dd9931eb4b.js"
     ],
     "/_app": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/_app.js"
+      "static/chunks/webpack-6224d37324e372cb.js",
+      "static/chunks/framework-a6e0b7e30f98059a.js",
+      "static/chunks/main-569e101c24d92517.js",
+      "static/css/fcd046f04c0a9ebf.css",
+      "static/chunks/pages/_app-efe11c1a02138e22.js"
     ],
     "/_error": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/_error.js"
+      "static/chunks/webpack-6224d37324e372cb.js",
+      "static/chunks/framework-a6e0b7e30f98059a.js",
+      "static/chunks/main-569e101c24d92517.js",
+      "static/chunks/pages/_error-5366f00fee9a89ba.js"
+    ],
+    "/players/[id]": [
+      "static/chunks/webpack-6224d37324e372cb.js",
+      "static/chunks/framework-a6e0b7e30f98059a.js",
+      "static/chunks/main-569e101c24d92517.js",
+      "static/chunks/868-211d0fb4655429c9.js",
+      "static/chunks/18-176410872cfbabd7.js",
+      "static/chunks/pages/players/[id]-b5bfc51c768881a4.js"
     ]
   },
   "ampFirstPages": []

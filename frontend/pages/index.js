@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Container, Box } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
 
@@ -19,11 +19,13 @@ import {
   useAllPlayers,
   usePlayerStats,
   useWeeklyStats,
+  useAllWeeklyStats,
   useAdvancedMetrics,
   useBackgroundImage,
   useAllPlayerStats,
   useAvailableYears,
 } from '../hooks/usePlayerData';
+import { usePlayerSearch } from '../hooks/usePlayerSearch';
 
 // Utils
 import { groupStatsBySeason, sortWeeklyStats } from '../utils/statsUtils';
@@ -41,31 +43,69 @@ export default function Home() {
 
   // Search state
   const [selectedPlayer, setSelectedPlayer] = useState(null);
+    // ...existing code...
+
+    // (moved below allPlayers declaration)
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState(2025);
 
   // Data fetching hooks
+  const { players: searchPlayers, loading: searchLoading } = usePlayerSearch(apiUrl, searchQuery);
   const { players: allPlayers } = useAllPlayers(apiUrl);
+
+  // No player is selected by default. Only setSelectedPlayer when a player is searched/selected.
   const { stats: rawPlayerStats, loading: statsLoading } = usePlayerStats(
-    selectedPlayer?.id,
+    selectedPlayer?.gsis_id,
     apiUrl
   );
   const { weeklyStats: rawWeeklyStats } = useWeeklyStats(
-    selectedPlayer?.id,
+    selectedPlayer?.gsis_id,
     apiUrl,
     selectedYear
+  );
+  const { allWeeklyStats } = useAllWeeklyStats(
+    selectedPlayer?.gsis_id,
+    apiUrl
   );
   const { advancedMetrics } = useAdvancedMetrics(selectedPlayer?.id, apiUrl);
   const { allStats } = useAllPlayerStats(apiUrl, selectedYear);
   const { availableYears } = useAvailableYears(apiUrl);
 
+  // Update selectedYear when player changes to most recent available year
+  useEffect(() => {
+    if (selectedPlayer && allWeeklyStats.length > 0) {
+      const years = [...new Set(allWeeklyStats.map(s => s.season))].sort((a, b) => b - a);
+      if (years.length > 0) {
+        setSelectedYear(years[0]);
+      }
+    }
+  }, [selectedPlayer, allWeeklyStats]);
   // Process stats data
   const playerStats = groupStatsBySeason(rawPlayerStats);
   const weeklyStats = sortWeeklyStats(rawWeeklyStats);
 
+  // Helper to normalize player object for UI compatibility
+  function normalizePlayer(player) {
+    if (!player) return null;
+    return {
+      ...player,
+      id: player.gsis_id, // Use gsis_id for navigation and API
+      name: player.display_name,
+      team: player.latest_team,
+      gsis_id: player.gsis_id,
+    };
+  }
+
+  // Normalize player arrays for SearchBar
+  const normalizedSearchPlayers = searchPlayers.map(normalizePlayer);
+  const normalizedAllPlayers = allPlayers.map(normalizePlayer);
+
   // Handle player selection
   const handleSelectPlayer = (player) => {
-    setSelectedPlayer(player);
+    console.log('[handleSelectPlayer] raw player:', player);
+    const normalized = normalizePlayer(player);
+    console.log('[handleSelectPlayer] normalized player:', normalized);
+    setSelectedPlayer(normalized);
     setSearchQuery('');
   };
 
@@ -100,7 +140,7 @@ export default function Home() {
 
           {/* Search Bar */}
           <SearchBar
-            players={allPlayers}
+            players={searchQuery ? normalizedSearchPlayers : normalizedAllPlayers}
             selectedPlayer={selectedPlayer}
             onSelectPlayer={handleSelectPlayer}
             searchQuery={searchQuery}
@@ -121,7 +161,7 @@ export default function Home() {
                 loading={false}
                 selectedYear={selectedYear}
                 onYearChange={setSelectedYear}
-                availableYears={playerStats.map(s => s.season).sort((a, b) => b - a)}
+                availableYears={allWeeklyStats.length > 0 ? [...new Set(allWeeklyStats.map(s => s.season))].sort((a, b) => b - a) : []}
               />
 
               {/* Yearly Aggregated Stats */}
@@ -144,7 +184,7 @@ export default function Home() {
                 playerStats={rawPlayerStats}
                 weeklyStats={rawWeeklyStats}
                 advancedMetrics={advancedMetrics}
-                selectedPlayerId={selectedPlayer.id}
+                selectedPlayerId={selectedPlayer.gsis_id}
                 allPlayerStats={allStats}
                 selectedYear={selectedYear}
                 onYearChange={setSelectedYear}

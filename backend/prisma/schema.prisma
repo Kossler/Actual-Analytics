@@ -8,154 +8,1354 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Player {
-  id         Int      @id @default(autoincrement())
-  gsis_id    String?  // NFL GSIS ID (nullable, for ingest compatibility)
-  pfr_id     String?  @unique // optional Pro-Football-Reference ID
-  name       String   // abbreviated name like "D.Jones"
-  team       String?
-  position   String?
-  status     String?
-  birth_date String?
-  height     String?
-  weight     String?
-  college    String?
-  draft_year Int?
-  draft_round Int?
-  draft_pick Int?
-  draft_team String?
-  GameStats  GameStat[]
-  PlayerStats PlayerStats[]
-  AdvancedMetrics AdvancedMetrics[]
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model contracts {
+  player              String?
+  position            String?
+  team                String?
+  is_active           Boolean?
+  year_signed         BigInt?
+  years               BigInt?
+  value               Float?
+  apy                 Float?
+  guaranteed          Float?
+  apy_cap_pct         Float?
+  inflated_value      Float?
+  inflated_apy        Float?
+  inflated_guaranteed Float?
+  player_page         String?
+  otc_id              String?
+  gsis_id             String?
+  date_of_birth       String?
+  height              String?
+  weight              String?
+  college             String?
+  draft_year          BigInt?
+  draft_round         BigInt?
+  draft_overall       BigInt?
+  draft_team          String?
+  cols                String?
+  id                  Int      @id @default(autoincrement())
+
+  @@unique([otc_id, gsis_id], map: "contracts_unique")
 }
 
-model GameStat {
-  id                  Int     @id @default(autoincrement())
-  playerId            Int
-  season              Int
-  week                Int?
-  games               Int?    // Number of games played (season-level only)
-  gameDate            DateTime?
-  passingYds          Int?
-  passing_tds         Int?
-  passing_interceptions Int?
-  passing_attempts    Int?
-  passing_completions Int?
-  passing_sacks       Int?
-  rushingYds          Int?
-  rushing_attempts    Int?
-  rushing_tds         Int?
-  receivingYds        Int?
-  receiving_tds       Int?
-  targets             Int?
-  receptions          Int?
-  // EPA metrics (week-by-week and yearly)
-  passing_epa         Float?
-  passing_epa_per_play Float?
-  passing_success_rate Float?
-  rushing_epa         Float?
-  rushing_epa_per_play Float?
-  rushing_success_rate Float?
-  receiving_epa       Float?
-  receiving_epa_per_play Float?
-  receiving_success_rate Float?
-  epa                 Float?
-  success_rate        Float?
-  cpoe                Float?
-  // deprecated: attempts (was ambiguous), use passing_attempts or rushing_attempts
-  Player      Player  @relation(fields: [playerId], references: [id])
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model combine {
+  season      BigInt?
+  draft_year  Float?
+  draft_team  String?
+  draft_round Float?
+  draft_ovr   Float?
+  pfr_id      String? @unique(map: "combine_unique")
+  cfb_id      String?
+  player_name String?
+  pos         String?
+  school      String?
+  ht          String?
+  wt          Float?
+  forty       Float?
+  bench       Float?
+  vertical    Float?
+  broad_jump  Float?
+  cone        Float?
+  shuttle     Float?
+  id          Int     @id @default(autoincrement())
 
-  @@index([playerId])
-  @@index([season])
 }
 
-model Play {
-  id                    Int     @id @default(autoincrement())
-  game_id               String
-  play_id               String
-  season                Int
-  week                  Int?
-  game_date             DateTime?
-  play_type             String?
-  // Passer info
-  passer_player_id      String?
-  passer_player_name    String?
-  passing_yards         Int?
-  pass_attempt          Boolean?
-  complete_pass         Boolean?
-  sack                  Boolean?
-  interception          Boolean?
-  cpoe                  Float?  // Completion Percentage Over Expected
-  // Rusher info
-  rusher_player_id      String?
-  rusher_player_name    String?
-  rushing_yards         Int?
-  rush_attempt          Boolean?
-  // Receiver info
-  receiver_player_id    String?
-  receiver_player_name  String?
-  receiving_yards       Int?
-  yards_after_catch     Int?
-  air_yards             Int?
-  reception             Boolean?
-  target                Boolean?
-  // Scoring
-  pass_touchdown        Boolean?
-  rush_touchdown        Boolean?
-  receiving_touchdown   Boolean?
-  // Game context
-  posteam               String?
-  defteam               String?
-  down                  Int?
-  ydstogo               Int?
-  yardline_100          Int?
-  qtr                   Int?
-  
-  @@index([passer_player_id])
-  @@index([rusher_player_id])
-  @@index([receiver_player_id])
-  @@index([season])
-  @@index([game_id])
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model depth_charts {
+  dt             String?
+  team           String?
+  player_name    String?
+  espn_id        String?
+  gsis_id        String?
+  pos_grp_id     String?
+  pos_grp        String?
+  pos_id         String?
+  pos_name       String?
+  pos_abb        String?
+  pos_slot       BigInt?
+  pos_rank       BigInt?
+  season         BigInt?
+  club_code      String?
+  week           BigInt?
+  game_type      String?
+  depth_team     String?
+  last_name      String?
+  first_name     String?
+  football_name  String?
+  formation      String?
+  jersey_number  String?
+  position       String?
+  elias_id       String?
+  depth_position String?
+  full_name      String?
+  id             Int     @id @default(autoincrement())
+
+  @@unique([gsis_id, season, week, elias_id], map: "depth_charts_unique")
 }
 
-model PlayerStats {
-  id                      Int     @id @default(autoincrement())
-  playerId                Int
-  season                  Int
-  median_yards_per_pass_attempt   Float?
-  average_yards_per_pass_attempt  Float?
-  median_yards_per_rushing_attempt Float?
-  average_yards_per_rushing_attempt Float?
-  median_yards_per_reception       Float?
-  average_yards_per_reception      Float?
-  
-  Player      Player  @relation(fields: [playerId], references: [id])
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model draft_picks {
+  season           BigInt?
+  round            BigInt?
+  pick             BigInt?
+  team             String?
+  gsis_id          String?
+  pfr_player_id    String?
+  cfb_player_id    String?
+  pfr_player_name  String?
+  hof              Boolean?
+  position         String?
+  category         String?
+  side             String?
+  college          String?
+  age              BigInt?
+  to               BigInt?
+  allpro           BigInt?
+  probowls         BigInt?
+  seasons_started  BigInt?
+  w_av             BigInt?
+  car_av           Boolean?
+  dr_av            BigInt?
+  games            BigInt?
+  pass_completions BigInt?
+  pass_attempts    BigInt?
+  pass_yards       BigInt?
+  pass_tds         BigInt?
+  pass_ints        BigInt?
+  rush_atts        BigInt?
+  rush_yards       BigInt?
+  rush_tds         BigInt?
+  receptions       BigInt?
+  rec_yards        BigInt?
+  rec_tds          BigInt?
+  def_solo_tackles BigInt?
+  def_ints         BigInt?
+  def_sacks        Float?
+  id               Int      @id @default(autoincrement())
 
-  @@unique([playerId, season])
-  @@index([playerId])
+  @@unique([season, round, pick, pfr_player_id], map: "draft_picks_unique")
 }
 
-model AdvancedMetrics {
-  id                      Int     @id @default(autoincrement())
-  playerId                Int
-  season                  Int
-  epa                     Float?  // Total EPA for the season
-  epa_per_play            Float?  // EPA per play
-  cpoe                    Float?  // Completion Percentage Over Expected
-  success_rate            Float?  // Percentage of plays with EPA > 0
-  passing_epa             Float?  // EPA on dropback/passing plays
-  passing_epa_per_play    Float?  // EPA per passing play
-  passing_success_rate    Float?  // % of passing plays with EPA > 0
-  rushing_epa             Float?  // EPA on rushing plays
-  rushing_epa_per_play    Float?  // EPA per rushing play
-  rushing_success_rate    Float?  // % of rushing plays with EPA > 0
-  receiving_epa           Float?  // EPA on receiving plays
-  receiving_epa_per_play  Float?  // EPA per receiving play
-  receiving_success_rate  Float?  // % of receiving plays with EPA > 0
-  
-  Player      Player  @relation(fields: [playerId], references: [id])
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model ff_opportunity {
+  season                         String?
+  posteam                        String?
+  week                           Float?
+  game_id                        String?
+  player_id                      String?
+  full_name                      String?
+  position                       String?
+  pass_attempt                   Float?
+  rec_attempt                    Float?
+  rush_attempt                   Float?
+  pass_air_yards                 Float?
+  rec_air_yards                  Float?
+  pass_completions               Float?
+  receptions                     Float?
+  pass_completions_exp           Float?
+  receptions_exp                 Float?
+  pass_yards_gained              Float?
+  rec_yards_gained               Float?
+  rush_yards_gained              Float?
+  pass_yards_gained_exp          Float?
+  rec_yards_gained_exp           Float?
+  rush_yards_gained_exp          Float?
+  pass_touchdown                 Float?
+  rec_touchdown                  Float?
+  rush_touchdown                 Float?
+  pass_touchdown_exp             Float?
+  rec_touchdown_exp              Float?
+  rush_touchdown_exp             Float?
+  pass_two_point_conv            Float?
+  rec_two_point_conv             Float?
+  rush_two_point_conv            Float?
+  pass_two_point_conv_exp        Float?
+  rec_two_point_conv_exp         Float?
+  rush_two_point_conv_exp        Float?
+  pass_first_down                Float?
+  rec_first_down                 Float?
+  rush_first_down                Float?
+  pass_first_down_exp            Float?
+  rec_first_down_exp             Float?
+  rush_first_down_exp            Float?
+  pass_interception              Float?
+  rec_interception               Float?
+  pass_interception_exp          Float?
+  rec_interception_exp           Float?
+  rec_fumble_lost                Float?
+  rush_fumble_lost               Float?
+  pass_fantasy_points_exp        Float?
+  rec_fantasy_points_exp         Float?
+  rush_fantasy_points_exp        Float?
+  pass_fantasy_points            Float?
+  rec_fantasy_points             Float?
+  rush_fantasy_points            Float?
+  total_yards_gained             Float?
+  total_yards_gained_exp         Float?
+  total_touchdown                Float?
+  total_touchdown_exp            Float?
+  total_first_down               Float?
+  total_first_down_exp           Float?
+  total_fantasy_points           Float?
+  total_fantasy_points_exp       Float?
+  pass_completions_diff          Float?
+  receptions_diff                Float?
+  pass_yards_gained_diff         Float?
+  rec_yards_gained_diff          Float?
+  rush_yards_gained_diff         Float?
+  pass_touchdown_diff            Float?
+  rec_touchdown_diff             Float?
+  rush_touchdown_diff            Float?
+  pass_two_point_conv_diff       Float?
+  rec_two_point_conv_diff        Float?
+  rush_two_point_conv_diff       Float?
+  pass_first_down_diff           Float?
+  rec_first_down_diff            Float?
+  rush_first_down_diff           Float?
+  pass_interception_diff         Float?
+  rec_interception_diff          Float?
+  pass_fantasy_points_diff       Float?
+  rec_fantasy_points_diff        Float?
+  rush_fantasy_points_diff       Float?
+  total_yards_gained_diff        Float?
+  total_touchdown_diff           Float?
+  total_first_down_diff          Float?
+  total_fantasy_points_diff      Float?
+  pass_attempt_team              Float?
+  rec_attempt_team               Float?
+  rush_attempt_team              Float?
+  pass_air_yards_team            Float?
+  rec_air_yards_team             Float?
+  pass_completions_team          Float?
+  receptions_team                Float?
+  pass_completions_exp_team      Float?
+  receptions_exp_team            Float?
+  pass_yards_gained_team         Float?
+  rec_yards_gained_team          Float?
+  rush_yards_gained_team         Float?
+  pass_yards_gained_exp_team     Float?
+  rec_yards_gained_exp_team      Float?
+  rush_yards_gained_exp_team     Float?
+  pass_touchdown_team            Float?
+  rec_touchdown_team             Float?
+  rush_touchdown_team            Float?
+  pass_touchdown_exp_team        Float?
+  rec_touchdown_exp_team         Float?
+  rush_touchdown_exp_team        Float?
+  pass_two_point_conv_team       Float?
+  rec_two_point_conv_team        Float?
+  rush_two_point_conv_team       Float?
+  pass_two_point_conv_exp_team   Float?
+  rec_two_point_conv_exp_team    Float?
+  rush_two_point_conv_exp_team   Float?
+  pass_first_down_team           Float?
+  rec_first_down_team            Float?
+  rush_first_down_team           Float?
+  pass_first_down_exp_team       Float?
+  rec_first_down_exp_team        Float?
+  rush_first_down_exp_team       Float?
+  pass_interception_team         Float?
+  rec_interception_team          Float?
+  pass_interception_exp_team     Float?
+  rec_interception_exp_team      Float?
+  rec_fumble_lost_team           Float?
+  rush_fumble_lost_team          Float?
+  pass_fantasy_points_exp_team   Float?
+  rec_fantasy_points_exp_team    Float?
+  rush_fantasy_points_exp_team   Float?
+  pass_fantasy_points_team       Float?
+  rec_fantasy_points_team        Float?
+  rush_fantasy_points_team       Float?
+  pass_completions_diff_team     Float?
+  receptions_diff_team           Float?
+  pass_yards_gained_diff_team    Float?
+  rec_yards_gained_diff_team     Float?
+  rush_yards_gained_diff_team    Float?
+  pass_touchdown_diff_team       Float?
+  rec_touchdown_diff_team        Float?
+  rush_touchdown_diff_team       Float?
+  pass_two_point_conv_diff_team  Float?
+  rec_two_point_conv_diff_team   Float?
+  rush_two_point_conv_diff_team  Float?
+  pass_first_down_diff_team      Float?
+  rec_first_down_diff_team       Float?
+  rush_first_down_diff_team      Float?
+  pass_interception_diff_team    Float?
+  rec_interception_diff_team     Float?
+  pass_fantasy_points_diff_team  Float?
+  rec_fantasy_points_diff_team   Float?
+  rush_fantasy_points_diff_team  Float?
+  total_yards_gained_team        Float?
+  total_yards_gained_exp_team    Float?
+  total_yards_gained_diff_team   Float?
+  total_touchdown_team           Float?
+  total_touchdown_exp_team       Float?
+  total_touchdown_diff_team      Float?
+  total_first_down_team          Float?
+  total_first_down_exp_team      Float?
+  total_first_down_diff_team     Float?
+  total_fantasy_points_team      Float?
+  total_fantasy_points_exp_team  Float?
+  total_fantasy_points_diff_team Float?
+  id                             Int     @id @default(autoincrement())
 
-  @@unique([playerId, season])
-  @@index([playerId])
+  @@unique([game_id, player_id], map: "ff_opportunity_unique")
 }
 
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model ff_playerids {
+  mfl_id           BigInt?
+  sportradar_id    String?
+  fantasypros_id   BigInt?
+  gsis_id          String?
+  pff_id           BigInt?
+  sleeper_id       BigInt?
+  nfl_id           BigInt?
+  espn_id          BigInt?
+  yahoo_id         String?
+  fleaflicker_id   String?
+  cbs_id           BigInt?
+  pfr_id           String?
+  cfbref_id        String?
+  rotowire_id      BigInt?
+  rotoworld_id     String?
+  ktc_id           BigInt?
+  stats_id         BigInt?
+  stats_global_id  BigInt?
+  fantasy_data_id  BigInt?
+  swish_id         String?
+  name             String?
+  merge_name       String?
+  position         String?
+  team             String?
+  birthdate        String?
+  age              Float?
+  draft_year       BigInt?
+  draft_round      BigInt?
+  draft_pick       BigInt?
+  draft_ovr        BigInt?
+  twitter_username String?
+  height           BigInt?
+  weight           BigInt?
+  college          String?
+  db_season        BigInt?
+  id               Int     @id @default(autoincrement())
+
+  @@unique([mfl_id, sportradar_id, fantasypros_id, gsis_id, pff_id, sleeper_id, nfl_id, pfr_id], map: "ff_playerids_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model ff_rankings {
+  fp_page                 String
+  page_type               String?
+  ecr_type                String?
+  player                  String?
+  id                      BigInt
+  pos                     String?
+  team                    String?
+  ecr                     Float?
+  sd                      Float?
+  best                    BigInt?
+  worst                   BigInt?
+  sportsdata_id           String?
+  player_filename         String?
+  yahoo_id                String?
+  cbs_id                  String?
+  player_owned_avg        Float?
+  player_owned_espn       String?
+  player_owned_yahoo      String?
+  player_image_url        String?
+  player_square_image_url String?
+  rank_delta              String?
+  bye                     BigInt?
+  mergename               String?
+  scrape_date             String
+  tm                      String?
+
+  @@id([fp_page, id, scrape_date])
+  @@unique([id, sportsdata_id, yahoo_id, cbs_id], map: "ff_rankings_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model ftn_charting {
+  ftn_game_id            BigInt?
+  nflverse_game_id       String?
+  season                 BigInt?
+  week                   BigInt?
+  ftn_play_id            BigInt?
+  nflverse_play_id       BigInt?
+  starting_hash          String?
+  qb_location            String?
+  n_offense_backfield    BigInt?
+  n_defense_box          BigInt?
+  is_no_huddle           Boolean?
+  is_motion              Boolean?
+  is_play_action         Boolean?
+  is_screen_pass         Boolean?
+  is_rpo                 Boolean?
+  is_trick_play          Boolean?
+  is_qb_out_of_pocket    Boolean?
+  is_interception_worthy Boolean?
+  is_throw_away          Boolean?
+  read_thrown            String?
+  is_catchable_ball      Boolean?
+  is_contested_ball      Boolean?
+  is_created_reception   Boolean?
+  is_drop                Boolean?
+  is_qb_sneak            Boolean?
+  n_blitzers             BigInt?
+  n_pass_rushers         BigInt?
+  is_qb_fault_sack       Boolean?
+  date_pulled            DateTime? @db.Timestamp(6)
+  id                     Int       @id @default(autoincrement())
+
+  @@unique([nflverse_game_id, nflverse_play_id], map: "ftn_charting_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model nextgen_stats {
+  season                                  BigInt?
+  season_type                             String?
+  week                                    BigInt?
+  player_display_name                     String?
+  player_position                         String?
+  team_abbr                               String?
+  avg_time_to_throw                       Float?
+  avg_completed_air_yards                 Float?
+  avg_intended_air_yards                  Float?
+  avg_air_yards_differential              Float?
+  aggressiveness                          Float?
+  max_completed_air_distance              Float?
+  avg_air_yards_to_sticks                 Float?
+  attempts                                BigInt?
+  pass_yards                              BigInt?
+  pass_touchdowns                         BigInt?
+  interceptions                           BigInt?
+  passer_rating                           Float?
+  completions                             BigInt?
+  completion_percentage                   Float?
+  expected_completion_percentage          Float?
+  completion_percentage_above_expectation Float?
+  avg_air_distance                        Float?
+  max_air_distance                        Float?
+  player_gsis_id                          String?
+  player_first_name                       String?
+  player_last_name                        String?
+  player_jersey_number                    BigInt?
+  player_short_name                       String?
+  id                                      Int     @id @default(autoincrement())
+
+  @@unique([season, week, player_gsis_id], map: "nextgen_stats_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model officials {
+  game_id       String?
+  game_key      String?
+  official_name String?
+  position      String?
+  jersey_number BigInt?
+  official_id   String?
+  season        BigInt?
+  season_type   String?
+  week          BigInt?
+  id            Int     @id @default(autoincrement())
+
+  @@unique([game_id, official_id], map: "officials_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model participation {
+  nflverse_game_id       String?
+  old_game_id            String?
+  play_id                Float?
+  possession_team        String?
+  offense_formation      String?
+  offense_personnel      String?
+  defenders_in_box       BigInt?
+  defense_personnel      String?
+  number_of_pass_rushers BigInt?
+  players_on_play        String?
+  offense_players        String?
+  defense_players        String?
+  n_offense              BigInt?
+  n_defense              BigInt?
+  ngs_air_yards          Float?
+  time_to_throw          Float?
+  was_pressure           Boolean?
+  route                  String?
+  defense_man_zone_type  String?
+  defense_coverage_type  String?
+  offense_names          String?
+  defense_names          String?
+  offense_positions      String?
+  defense_positions      String?
+  offense_numbers        String?
+  defense_numbers        String?
+  id                     Int      @id @default(autoincrement())
+
+  @@unique([nflverse_game_id, play_id], map: "participation_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model pbp {
+  play_id                              Float
+  game_id                              String
+  old_game_id                          String?
+  home_team                            String?
+  away_team                            String?
+  season_type                          String?
+  week                                 BigInt?
+  posteam                              String?
+  posteam_type                         String?
+  defteam                              String?
+  side_of_field                        String?
+  yardline_100                         Float?
+  game_date                            String?
+  quarter_seconds_remaining            Float?
+  half_seconds_remaining               Float?
+  game_seconds_remaining               Float?
+  game_half                            String?
+  quarter_end                          Float?
+  drive                                Float?
+  sp                                   Float?
+  qtr                                  Float?
+  down                                 Float?
+  goal_to_go                           BigInt?
+  time                                 String?
+  yrdln                                String?
+  ydstogo                              Float?
+  ydsnet                               Float?
+  desc                                 String?
+  play_type                            String?
+  yards_gained                         Float?
+  shotgun                              Float?
+  no_huddle                            Float?
+  qb_dropback                          Float?
+  qb_kneel                             Float?
+  qb_spike                             Float?
+  qb_scramble                          Float?
+  pass_length                          String?
+  pass_location                        String?
+  air_yards                            Float?
+  yards_after_catch                    Float?
+  run_location                         String?
+  run_gap                              String?
+  field_goal_result                    String?
+  kick_distance                        Float?
+  extra_point_result                   String?
+  two_point_conv_result                String?
+  home_timeouts_remaining              Float?
+  away_timeouts_remaining              Float?
+  timeout                              Float?
+  timeout_team                         String?
+  td_team                              String?
+  td_player_name                       String?
+  td_player_id                         String?
+  posteam_timeouts_remaining           Float?
+  defteam_timeouts_remaining           Float?
+  total_home_score                     Float?
+  total_away_score                     Float?
+  posteam_score                        Float?
+  defteam_score                        Float?
+  score_differential                   Float?
+  posteam_score_post                   Float?
+  defteam_score_post                   Float?
+  score_differential_post              Float?
+  no_score_prob                        Float?
+  opp_fg_prob                          Float?
+  opp_safety_prob                      Float?
+  opp_td_prob                          Float?
+  fg_prob                              Float?
+  safety_prob                          Float?
+  td_prob                              Float?
+  extra_point_prob                     Float?
+  two_point_conversion_prob            Float?
+  ep                                   Float?
+  epa                                  Float?
+  total_home_epa                       Float?
+  total_away_epa                       Float?
+  total_home_rush_epa                  Float?
+  total_away_rush_epa                  Float?
+  total_home_pass_epa                  Float?
+  total_away_pass_epa                  Float?
+  air_epa                              Float?
+  yac_epa                              Float?
+  comp_air_epa                         Float?
+  comp_yac_epa                         Float?
+  total_home_comp_air_epa              Float?
+  total_away_comp_air_epa              Float?
+  total_home_comp_yac_epa              Float?
+  total_away_comp_yac_epa              Float?
+  total_home_raw_air_epa               Float?
+  total_away_raw_air_epa               Float?
+  total_home_raw_yac_epa               Float?
+  total_away_raw_yac_epa               Float?
+  wp                                   Float?
+  def_wp                               Float?
+  home_wp                              Float?
+  away_wp                              Float?
+  wpa                                  Float?
+  vegas_wpa                            Float?
+  vegas_home_wpa                       Float?
+  home_wp_post                         Float?
+  away_wp_post                         Float?
+  vegas_wp                             Float?
+  vegas_home_wp                        Float?
+  total_home_rush_wpa                  Float?
+  total_away_rush_wpa                  Float?
+  total_home_pass_wpa                  Float?
+  total_away_pass_wpa                  Float?
+  air_wpa                              Float?
+  yac_wpa                              Float?
+  comp_air_wpa                         Float?
+  comp_yac_wpa                         Float?
+  total_home_comp_air_wpa              Float?
+  total_away_comp_air_wpa              Float?
+  total_home_comp_yac_wpa              Float?
+  total_away_comp_yac_wpa              Float?
+  total_home_raw_air_wpa               Float?
+  total_away_raw_air_wpa               Float?
+  total_home_raw_yac_wpa               Float?
+  total_away_raw_yac_wpa               Float?
+  punt_blocked                         Float?
+  first_down_rush                      Float?
+  first_down_pass                      Float?
+  first_down_penalty                   Float?
+  third_down_converted                 Float?
+  third_down_failed                    Float?
+  fourth_down_converted                Float?
+  fourth_down_failed                   Float?
+  incomplete_pass                      Float?
+  touchback                            Float?
+  interception                         Float?
+  punt_inside_twenty                   Float?
+  punt_in_endzone                      Float?
+  punt_out_of_bounds                   Float?
+  punt_downed                          Float?
+  punt_fair_catch                      Float?
+  kickoff_inside_twenty                Float?
+  kickoff_in_endzone                   Float?
+  kickoff_out_of_bounds                Float?
+  kickoff_downed                       Float?
+  kickoff_fair_catch                   Float?
+  fumble_forced                        Float?
+  fumble_not_forced                    Float?
+  fumble_out_of_bounds                 Float?
+  solo_tackle                          Float?
+  safety                               Float?
+  penalty                              Float?
+  tackled_for_loss                     Float?
+  fumble_lost                          Float?
+  own_kickoff_recovery                 Float?
+  own_kickoff_recovery_td              Float?
+  qb_hit                               Float?
+  rush_attempt                         Float?
+  pass_attempt                         Float?
+  sack                                 Float?
+  touchdown                            Float?
+  pass_touchdown                       Float?
+  rush_touchdown                       Float?
+  return_touchdown                     Float?
+  extra_point_attempt                  Float?
+  two_point_attempt                    Float?
+  field_goal_attempt                   Float?
+  kickoff_attempt                      Float?
+  punt_attempt                         Float?
+  fumble                               Float?
+  complete_pass                        Float?
+  assist_tackle                        Float?
+  lateral_reception                    Float?
+  lateral_rush                         Float?
+  lateral_return                       Float?
+  lateral_recovery                     Float?
+  passer_player_id                     String?
+  passer_player_name                   String?
+  passing_yards                        Float?
+  receiver_player_id                   String?
+  receiver_player_name                 String?
+  receiving_yards                      Float?
+  rusher_player_id                     String?
+  rusher_player_name                   String?
+  rushing_yards                        Float?
+  lateral_receiver_player_id           String?
+  lateral_receiver_player_name         String?
+  lateral_receiving_yards              Float?
+  lateral_rusher_player_id             String?
+  lateral_rusher_player_name           String?
+  lateral_rushing_yards                Float?
+  lateral_sack_player_id               String?
+  lateral_sack_player_name             String?
+  interception_player_id               String?
+  interception_player_name             String?
+  lateral_interception_player_id       String?
+  lateral_interception_player_name     String?
+  punt_returner_player_id              String?
+  punt_returner_player_name            String?
+  lateral_punt_returner_player_id      String?
+  lateral_punt_returner_player_name    String?
+  kickoff_returner_player_name         String?
+  kickoff_returner_player_id           String?
+  lateral_kickoff_returner_player_id   String?
+  lateral_kickoff_returner_player_name String?
+  punter_player_id                     String?
+  punter_player_name                   String?
+  kicker_player_name                   String?
+  kicker_player_id                     String?
+  own_kickoff_recovery_player_id       String?
+  own_kickoff_recovery_player_name     String?
+  blocked_player_id                    String?
+  blocked_player_name                  String?
+  tackle_for_loss_1_player_id          String?
+  tackle_for_loss_1_player_name        String?
+  tackle_for_loss_2_player_id          String?
+  tackle_for_loss_2_player_name        String?
+  qb_hit_1_player_id                   String?
+  qb_hit_1_player_name                 String?
+  qb_hit_2_player_id                   String?
+  qb_hit_2_player_name                 String?
+  forced_fumble_player_1_team          String?
+  forced_fumble_player_1_player_id     String?
+  forced_fumble_player_1_player_name   String?
+  forced_fumble_player_2_team          String?
+  forced_fumble_player_2_player_id     String?
+  forced_fumble_player_2_player_name   String?
+  solo_tackle_1_team                   String?
+  solo_tackle_2_team                   String?
+  solo_tackle_1_player_id              String?
+  solo_tackle_2_player_id              String?
+  solo_tackle_1_player_name            String?
+  solo_tackle_2_player_name            String?
+  assist_tackle_1_player_id            String?
+  assist_tackle_1_player_name          String?
+  assist_tackle_1_team                 String?
+  assist_tackle_2_player_id            String?
+  assist_tackle_2_player_name          String?
+  assist_tackle_2_team                 String?
+  assist_tackle_3_player_id            String?
+  assist_tackle_3_player_name          String?
+  assist_tackle_3_team                 String?
+  assist_tackle_4_player_id            String?
+  assist_tackle_4_player_name          String?
+  assist_tackle_4_team                 String?
+  tackle_with_assist                   Float?
+  tackle_with_assist_1_player_id       String?
+  tackle_with_assist_1_player_name     String?
+  tackle_with_assist_1_team            String?
+  tackle_with_assist_2_player_id       String?
+  tackle_with_assist_2_player_name     String?
+  tackle_with_assist_2_team            String?
+  pass_defense_1_player_id             String?
+  pass_defense_1_player_name           String?
+  pass_defense_2_player_id             String?
+  pass_defense_2_player_name           String?
+  fumbled_1_team                       String?
+  fumbled_1_player_id                  String?
+  fumbled_1_player_name                String?
+  fumbled_2_player_id                  String?
+  fumbled_2_player_name                String?
+  fumbled_2_team                       String?
+  fumble_recovery_1_team               String?
+  fumble_recovery_1_yards              Float?
+  fumble_recovery_1_player_id          String?
+  fumble_recovery_1_player_name        String?
+  fumble_recovery_2_team               String?
+  fumble_recovery_2_yards              Float?
+  fumble_recovery_2_player_id          String?
+  fumble_recovery_2_player_name        String?
+  sack_player_id                       String?
+  sack_player_name                     String?
+  half_sack_1_player_id                String?
+  half_sack_1_player_name              String?
+  half_sack_2_player_id                String?
+  half_sack_2_player_name              String?
+  return_team                          String?
+  return_yards                         Float?
+  penalty_team                         String?
+  penalty_player_id                    String?
+  penalty_player_name                  String?
+  penalty_yards                        Float?
+  replay_or_challenge                  Float?
+  replay_or_challenge_result           String?
+  penalty_type                         String?
+  defensive_two_point_attempt          Float?
+  defensive_two_point_conv             Float?
+  defensive_extra_point_attempt        Float?
+  defensive_extra_point_conv           Float?
+  safety_player_name                   String?
+  safety_player_id                     String?
+  season                               BigInt?
+  cp                                   Float?
+  cpoe                                 Float?
+  series                               Float?
+  series_success                       Float?
+  series_result                        String?
+  order_sequence                       Float?
+  start_time                           String?
+  time_of_day                          String?
+  stadium                              String?
+  weather                              String?
+  nfl_api_id                           String?
+  play_clock                           String?
+  play_deleted                         Float?
+  play_type_nfl                        String?
+  special_teams_play                   Float?
+  st_play_type                         String?
+  end_clock_time                       String?
+  end_yard_line                        String?
+  fixed_drive                          Float?
+  fixed_drive_result                   String?
+  drive_real_start_time                String?
+  drive_play_count                     Float?
+  drive_time_of_possession             String?
+  drive_first_downs                    Float?
+  drive_inside20                       Float?
+  drive_ended_with_score               Float?
+  drive_quarter_start                  Float?
+  drive_quarter_end                    Float?
+  drive_yards_penalized                Float?
+  drive_start_transition               String?
+  drive_end_transition                 String?
+  drive_game_clock_start               String?
+  drive_game_clock_end                 String?
+  drive_start_yard_line                String?
+  drive_end_yard_line                  String?
+  drive_play_id_started                Float?
+  drive_play_id_ended                  Float?
+  away_score                           BigInt?
+  home_score                           BigInt?
+  location                             String?
+  result                               BigInt?
+  total                                BigInt?
+  spread_line                          Float?
+  total_line                           Float?
+  div_game                             BigInt?
+  roof                                 String?
+  surface                              String?
+  temp                                 BigInt?
+  wind                                 BigInt?
+  home_coach                           String?
+  away_coach                           String?
+  stadium_id                           String?
+  game_stadium                         String?
+  aborted_play                         Float?
+  success                              Float?
+  passer                               String?
+  passer_jersey_number                 BigInt?
+  rusher                               String?
+  rusher_jersey_number                 BigInt?
+  receiver                             String?
+  receiver_jersey_number               BigInt?
+  pass                                 Float?
+  rush                                 Float?
+  first_down                           Float?
+  special                              Float?
+  play                                 Float?
+  passer_id                            String?
+  rusher_id                            String?
+  receiver_id                          String?
+  name                                 String?
+  jersey_number                        BigInt?
+  id                                   String?
+  fantasy_player_name                  String?
+  fantasy_player_id                    String?
+  fantasy                              String?
+  fantasy_id                           String?
+  out_of_bounds                        Float?
+  home_opening_kickoff                 Float?
+  qb_epa                               Float?
+  xyac_epa                             Float?
+  xyac_mean_yardage                    Float?
+  xyac_median_yardage                  BigInt?
+  xyac_success                         Float?
+  xyac_fd                              Float?
+  xpass                                Float?
+  pass_oe                              Float?
+
+  @@id([game_id, play_id])
+  @@unique([game_id, play_id], map: "pbp_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model player_stats {
+  player_id                   String?
+  player_name                 String?
+  player_display_name         String?
+  position                    String?
+  position_group              String?
+  headshot_url                String?
+  season                      BigInt?
+  week                        BigInt?
+  season_type                 String?
+  team                        String?
+  opponent_team               String?
+  completions                 BigInt?
+  attempts                    BigInt?
+  passing_yards               BigInt?
+  passing_tds                 BigInt?
+  passing_interceptions       BigInt?
+  sacks_suffered              BigInt?
+  sack_yards_lost             BigInt?
+  sack_fumbles                BigInt?
+  sack_fumbles_lost           BigInt?
+  passing_air_yards           BigInt?
+  passing_yards_after_catch   BigInt?
+  passing_first_downs         BigInt?
+  passing_epa                 Float?
+  passing_cpoe                Float?
+  passing_2pt_conversions     BigInt?
+  pacr                        Float?
+  carries                     BigInt?
+  rushing_yards               BigInt?
+  rushing_tds                 BigInt?
+  rushing_fumbles             BigInt?
+  rushing_fumbles_lost        BigInt?
+  rushing_first_downs         BigInt?
+  rushing_epa                 Float?
+  rushing_2pt_conversions     BigInt?
+  receptions                  BigInt?
+  targets                     BigInt?
+  receiving_yards             BigInt?
+  receiving_tds               BigInt?
+  receiving_fumbles           BigInt?
+  receiving_fumbles_lost      BigInt?
+  receiving_air_yards         BigInt?
+  receiving_yards_after_catch BigInt?
+  receiving_first_downs       BigInt?
+  receiving_epa               Float?
+  receiving_2pt_conversions   BigInt?
+  racr                        Float?
+  target_share                Float?
+  air_yards_share             Float?
+  wopr                        Float?
+  special_teams_tds           BigInt?
+  def_tackles_solo            BigInt?
+  def_tackles_with_assist     BigInt?
+  def_tackle_assists          BigInt?
+  def_tackles_for_loss        BigInt?
+  def_tackles_for_loss_yards  BigInt?
+  def_fumbles_forced          BigInt?
+  def_sacks                   Float?
+  def_sack_yards              Float?
+  def_qb_hits                 BigInt?
+  def_interceptions           BigInt?
+  def_interception_yards      BigInt?
+  def_pass_defended           BigInt?
+  def_tds                     BigInt?
+  def_fumbles                 BigInt?
+  def_safeties                BigInt?
+  misc_yards                  BigInt?
+  fumble_recovery_own         BigInt?
+  fumble_recovery_yards_own   BigInt?
+  fumble_recovery_opp         BigInt?
+  fumble_recovery_yards_opp   BigInt?
+  fumble_recovery_tds         BigInt?
+  penalties                   BigInt?
+  penalty_yards               BigInt?
+  punt_returns                BigInt?
+  punt_return_yards           BigInt?
+  kickoff_returns             BigInt?
+  kickoff_return_yards        BigInt?
+  fg_made                     BigInt?
+  fg_att                      BigInt?
+  fg_missed                   BigInt?
+  fg_blocked                  BigInt?
+  fg_long                     BigInt?
+  fg_pct                      Float?
+  fg_made_0_19                BigInt?
+  fg_made_20_29               BigInt?
+  fg_made_30_39               BigInt?
+  fg_made_40_49               BigInt?
+  fg_made_50_59               BigInt?
+  fg_made_60_                 BigInt?
+  fg_missed_0_19              BigInt?
+  fg_missed_20_29             BigInt?
+  fg_missed_30_39             BigInt?
+  fg_missed_40_49             BigInt?
+  fg_missed_50_59             BigInt?
+  fg_missed_60_               BigInt?
+  fg_made_list                String?
+  fg_missed_list              String?
+  fg_blocked_list             String?
+  fg_made_distance            BigInt?
+  fg_missed_distance          BigInt?
+  fg_blocked_distance         BigInt?
+  pat_made                    BigInt?
+  pat_att                     BigInt?
+  pat_missed                  BigInt?
+  pat_blocked                 BigInt?
+  pat_pct                     Float?
+  gwfg_made                   BigInt?
+  gwfg_att                    BigInt?
+  gwfg_missed                 BigInt?
+  gwfg_blocked                BigInt?
+  gwfg_distance               BigInt?
+  fantasy_points              Float?
+  fantasy_points_ppr          Float?
+  id                          Int     @id @default(autoincrement())
+
+  @@unique([player_id, season, week], map: "player_stats_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model players {
+  gsis_id                      String?
+  display_name                 String?
+  common_first_name            String?
+  first_name                   String?
+  last_name                    String?
+  short_name                   String?
+  football_name                String?
+  suffix                       String?
+  esb_id                       String?
+  nfl_id                       String?
+  pfr_id                       String?
+  pff_id                       String?
+  otc_id                       String?
+  espn_id                      String?
+  smart_id                     String?
+  birth_date                   String?
+  position_group               String?
+  position                     String?
+  ngs_position_group           String?
+  ngs_position                 String?
+  height                       BigInt?
+  weight                       BigInt?
+  headshot                     String?
+  college_name                 String?
+  college_conference           String?
+  jersey_number                String?
+  rookie_season                BigInt?
+  last_season                  BigInt?
+  latest_team                  String?
+  status                       String?
+  ngs_status                   String?
+  ngs_status_short_description String?
+  years_of_experience          BigInt?
+  pff_position                 String?
+  pff_status                   String?
+  draft_year                   BigInt?
+  draft_round                  BigInt?
+  draft_pick                   BigInt?
+  draft_team                   String?
+  id                           Int     @id @default(autoincrement())
+
+  @@index([display_name], map: "players_display_name_idx")
+
+  @@unique([gsis_id, esb_id, nfl_id, pfr_id, pff_id, otc_id, espn_id, smart_id], map: "players_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model rosters {
+  season                  BigInt?
+  team                    String?
+  position                String?
+  depth_chart_position    String?
+  jersey_number           String?
+  status                  String?
+  full_name               String?
+  first_name              String?
+  last_name               String?
+  birth_date              DateTime? @db.Date
+  height                  BigInt?
+  weight                  BigInt?
+  college                 String?
+  gsis_id                 String?
+  espn_id                 String?
+  sportradar_id           String?
+  yahoo_id                String?
+  rotowire_id             String?
+  pff_id                  String?
+  pfr_id                  String?
+  fantasy_data_id         String?
+  sleeper_id              String?
+  years_exp               BigInt?
+  headshot_url            String?
+  ngs_position            String?
+  week                    BigInt?
+  game_type               String?
+  status_description_abbr String?
+  football_name           String?
+  esb_id                  String?
+  gsis_it_id              String?
+  smart_id                String?
+  entry_year              BigInt?
+  rookie_year             BigInt?
+  draft_club              String?
+  draft_number            BigInt?
+  id                      Int       @id @default(autoincrement())
+
+  @@unique([season, team, gsis_id, espn_id, sportradar_id, yahoo_id, rotowire_id, pff_id, pfr_id, fantasy_data_id, sleeper_id], map: "rosters_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model rosters_weekly {
+  season                  BigInt?
+  team                    String?
+  position                String?
+  depth_chart_position    String?
+  jersey_number           String?
+  status                  String?
+  full_name               String?
+  first_name              String?
+  last_name               String?
+  birth_date              DateTime? @db.Date
+  height                  BigInt?
+  weight                  BigInt?
+  college                 String?
+  gsis_id                 String?
+  espn_id                 String?
+  sportradar_id           String?
+  yahoo_id                String?
+  rotowire_id             String?
+  pff_id                  String?
+  pfr_id                  String?
+  fantasy_data_id         String?
+  sleeper_id              String?
+  years_exp               BigInt?
+  headshot_url            String?
+  ngs_position            String?
+  week                    BigInt?
+  game_type               String?
+  status_description_abbr String?
+  football_name           String?
+  esb_id                  String?
+  gsis_it_id              String?
+  smart_id                String?
+  entry_year              BigInt?
+  rookie_year             BigInt?
+  draft_club              String?
+  draft_number            BigInt?
+  id                      Int       @id @default(autoincrement())
+
+  @@unique([season, team, gsis_id, espn_id, sportradar_id, yahoo_id, rotowire_id, pff_id, pfr_id, fantasy_data_id, sleeper_id, week], map: "rosters_weekly_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model schedules {
+  game_id          String?
+  season           BigInt?
+  game_type        String?
+  week             BigInt?
+  gameday          String?
+  weekday          String?
+  gametime         String?
+  away_team        String?
+  away_score       BigInt?
+  home_team        String?
+  home_score       BigInt?
+  location         String?
+  result           BigInt?
+  total            BigInt?
+  overtime         BigInt?
+  old_game_id      String?
+  gsis             BigInt?
+  nfl_detail_id    String?
+  pfr              String?
+  pff              BigInt?
+  espn             String?
+  ftn              BigInt?
+  away_rest        BigInt?
+  home_rest        BigInt?
+  away_moneyline   BigInt?
+  home_moneyline   BigInt?
+  spread_line      Float?
+  away_spread_odds BigInt?
+  home_spread_odds BigInt?
+  total_line       Float?
+  under_odds       BigInt?
+  over_odds        BigInt?
+  div_game         BigInt?
+  roof             String?
+  surface          String?
+  temp             BigInt?
+  wind             BigInt?
+  away_qb_id       String?
+  home_qb_id       String?
+  away_qb_name     String?
+  home_qb_name     String?
+  away_coach       String?
+  home_coach       String?
+  referee          String?
+  stadium_id       String?
+  stadium          String?
+  id               Int     @id @default(autoincrement())
+
+  @@unique([game_id, season, week], map: "schedules_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model snap_counts {
+  game_id       String?
+  pfr_game_id   String?
+  season        BigInt?
+  game_type     String?
+  week          BigInt?
+  player        String?
+  pfr_player_id String?
+  position      String?
+  team          String?
+  opponent      String?
+  offense_snaps Float?
+  offense_pct   Float?
+  defense_snaps Float?
+  defense_pct   Float?
+  st_snaps      Float?
+  st_pct        Float?
+  id            Int     @id @default(autoincrement())
+
+  @@unique([game_id, pfr_game_id, pfr_player_id, season, week], map: "snap_counts_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model team_stats {
+  season                      BigInt?
+  week                        BigInt?
+  team                        String?
+  season_type                 String?
+  opponent_team               String?
+  completions                 BigInt?
+  attempts                    BigInt?
+  passing_yards               BigInt?
+  passing_tds                 BigInt?
+  passing_interceptions       BigInt?
+  sacks_suffered              BigInt?
+  sack_yards_lost             BigInt?
+  sack_fumbles                BigInt?
+  sack_fumbles_lost           BigInt?
+  passing_air_yards           BigInt?
+  passing_yards_after_catch   BigInt?
+  passing_first_downs         BigInt?
+  passing_epa                 Float?
+  passing_cpoe                Float?
+  passing_2pt_conversions     BigInt?
+  carries                     BigInt?
+  rushing_yards               BigInt?
+  rushing_tds                 BigInt?
+  rushing_fumbles             BigInt?
+  rushing_fumbles_lost        BigInt?
+  rushing_first_downs         BigInt?
+  rushing_epa                 Float?
+  rushing_2pt_conversions     BigInt?
+  receptions                  BigInt?
+  targets                     BigInt?
+  receiving_yards             BigInt?
+  receiving_tds               BigInt?
+  receiving_fumbles           BigInt?
+  receiving_fumbles_lost      BigInt?
+  receiving_air_yards         BigInt?
+  receiving_yards_after_catch BigInt?
+  receiving_first_downs       BigInt?
+  receiving_epa               Float?
+  receiving_2pt_conversions   BigInt?
+  special_teams_tds           BigInt?
+  def_tackles_solo            BigInt?
+  def_tackles_with_assist     BigInt?
+  def_tackle_assists          BigInt?
+  def_tackles_for_loss        BigInt?
+  def_tackles_for_loss_yards  BigInt?
+  def_fumbles_forced          BigInt?
+  def_sacks                   Float?
+  def_sack_yards              Float?
+  def_qb_hits                 BigInt?
+  def_interceptions           BigInt?
+  def_interception_yards      BigInt?
+  def_pass_defended           BigInt?
+  def_tds                     BigInt?
+  def_fumbles                 BigInt?
+  def_safeties                BigInt?
+  misc_yards                  BigInt?
+  fumble_recovery_own         BigInt?
+  fumble_recovery_yards_own   BigInt?
+  fumble_recovery_opp         BigInt?
+  fumble_recovery_yards_opp   BigInt?
+  fumble_recovery_tds         BigInt?
+  penalties                   BigInt?
+  penalty_yards               BigInt?
+  timeouts                    BigInt?
+  punt_returns                BigInt?
+  punt_return_yards           BigInt?
+  kickoff_returns             BigInt?
+  kickoff_return_yards        BigInt?
+  fg_made                     BigInt?
+  fg_att                      BigInt?
+  fg_missed                   BigInt?
+  fg_blocked                  BigInt?
+  fg_long                     BigInt?
+  fg_pct                      Float?
+  fg_made_0_19                BigInt?
+  fg_made_20_29               BigInt?
+  fg_made_30_39               BigInt?
+  fg_made_40_49               BigInt?
+  fg_made_50_59               BigInt?
+  fg_made_60_                 BigInt?
+  fg_missed_0_19              BigInt?
+  fg_missed_20_29             BigInt?
+  fg_missed_30_39             BigInt?
+  fg_missed_40_49             BigInt?
+  fg_missed_50_59             BigInt?
+  fg_missed_60_               BigInt?
+  fg_made_list                String?
+  fg_missed_list              String?
+  fg_blocked_list             String?
+  fg_made_distance            BigInt?
+  fg_missed_distance          BigInt?
+  fg_blocked_distance         BigInt?
+  pat_made                    BigInt?
+  pat_att                     BigInt?
+  pat_missed                  BigInt?
+  pat_blocked                 BigInt?
+  pat_pct                     Float?
+  gwfg_made                   BigInt?
+  gwfg_att                    BigInt?
+  gwfg_missed                 BigInt?
+  gwfg_blocked                BigInt?
+  gwfg_distance               BigInt?
+  id                          Int     @id @default(autoincrement())
+
+  @@unique([season, week], map: "team_stats_unique")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model teams {
+  team_abbr            String?
+  team_name            String?
+  team_id              BigInt? @unique(map: "teams_unique")
+  team_nick            String?
+  team_conf            String?
+  team_division        String?
+  team_color           String?
+  team_color2          String?
+  team_color3          String?
+  team_color4          String?
+  team_logo_wikipedia  String?
+  team_logo_espn       String?
+  team_wordmark        String?
+  team_conference_logo String?
+  team_league_logo     String?
+  team_logo_squared    String?
+  id                   Int     @id @default(autoincrement())
+
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model trades {
+  trade_id    Float?
+  season      BigInt?
+  trade_date  DateTime? @db.Date
+  gave        String?
+  received    String?
+  pick_season Float?
+  pick_round  Float?
+  pick_number Float?
+  conditional Float?
+  pfr_id      String?
+  pfr_name    String?
+  id          Int       @id @default(autoincrement())
+
+  @@unique([trade_id, pfr_id], map: "trades_unique")
+}

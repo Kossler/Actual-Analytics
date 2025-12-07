@@ -47,21 +47,8 @@ export default function StatsTableWrapper({
           <TableContainer
             sx={{
               overflowX: 'auto',
-              '&::-webkit-scrollbar': {
-                width: '8px',
-                height: '8px',
-              },
-              '&::-webkit-scrollbar-track': {
-                background: 'rgba(255, 255, 255, 0.05)',
-                borderRadius: '4px',
-              },
-              '&::-webkit-scrollbar-thumb': {
-                background: 'rgba(25, 118, 210, 0.5)',
-                borderRadius: '4px',
-                '&:hover': {
-                  background: 'rgba(25, 118, 210, 0.7)',
-                },
-              },
+              scrollbarWidth: 'none', // Firefox
+              '&::-webkit-scrollbar': { display: 'none' }, // Chrome, Safari
             }}
           >
             <Table size="small" stickyHeader>

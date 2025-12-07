@@ -60,13 +60,21 @@ export function formatYards(yards) {
  * @returns {string|number} The value or '-'
  */
 export function displayStat(value, allowZero = false) {
-  if (value === null || value === undefined) {
+  if (value === null || value === undefined || value === '') {
     return '-';
   }
-  if (value === 0 && !allowZero) {
+  // Accept string numbers and 0
+  if (typeof value === 'string') {
+    if (value.trim() === '') return '-';
+    const num = Number(value);
+    if (!isNaN(num)) return num;
     return '-';
   }
-  return value;
+  if (typeof value === 'number') {
+    if (!isNaN(value)) return value;
+    return '-';
+  }
+  return '-';
 }
 
 /**
@@ -134,55 +142,75 @@ export function groupStatsBySeason(stats) {
   
   stats.forEach(stat => {
     const season = String(stat.season);
-    
     // Validate season key to prevent prototype pollution
     if (!season || season === '__proto__' || season === 'constructor' || season === 'prototype') {
       return;
     }
-    
     if (!grouped[season]) {
       grouped[season] = {
         season: stat.season,
-        passingYds: 0,
+        game_count: 0,
+        completions: 0,
+        attempts: 0,
+        passing_yards: 0,
         passing_tds: 0,
         passing_interceptions: 0,
-        passing_attempts: 0,
-        passing_completions: 0,
-        passing_sacks: 0,
-        rushingYds: 0,
-        rushing_attempts: 0,
+        sacks_suffered: 0,
+        passing_epa: 0,
+        passing_cpoe: 0,
+        carries: 0,
+        rushing_yards: 0,
         rushing_tds: 0,
-        receivingYds: 0,
+        rushing_epa: 0,
         receptions: 0,
         targets: 0,
+        receiving_yards: 0,
+        receiving: 0,
+        receiving_epa: 0,
+        target_share: 0,
+        passing_attempts: 0,
         receiving_tds: 0,
-        gameCount: 0,
+        // Defensive fields
+        def_tackles_solo: 0,
+        def_tackle_assists: 0,
+        def_sacks: 0,
+        def_interceptions: 0,
+        fumble_recovery_own: 0,
+        fumble_recovery_opp: 0,
+        def_tds: 0,
       };
     }
-    
-    // Aggregate stats
-    grouped[season].passingYds += stat.passingYds || 0;
+    // Aggregate all relevant fields
+    grouped[season].game_count += stat.game_count || 0;
+    grouped[season].completions += stat.completions || 0;
+    grouped[season].attempts += stat.attempts || 0;
+    grouped[season].passing_yards += stat.passing_yards || 0;
     grouped[season].passing_tds += stat.passing_tds || 0;
     grouped[season].passing_interceptions += stat.passing_interceptions || 0;
-    grouped[season].passing_attempts += stat.passing_attempts || 0;
-    grouped[season].passing_completions += stat.passing_completions || 0;
-    grouped[season].passing_sacks += stat.passing_sacks || 0;
-    grouped[season].rushingYds += stat.rushingYds || 0;
-    grouped[season].rushing_attempts += stat.rushing_attempts || 0;
+    grouped[season].sacks_suffered += stat.sacks_suffered || 0;
+    grouped[season].passing_epa += stat.passing_epa || 0;
+    grouped[season].passing_cpoe += stat.passing_cpoe || 0;
+    grouped[season].carries += stat.carries || 0;
+    grouped[season].rushing_yards += stat.rushing_yards || 0;
     grouped[season].rushing_tds += stat.rushing_tds || 0;
-    grouped[season].receivingYds += stat.receivingYds || 0;
+    grouped[season].rushing_epa += stat.rushing_epa || 0;
     grouped[season].receptions += stat.receptions || 0;
     grouped[season].targets += stat.targets || 0;
+    grouped[season].receiving_yards += stat.receiving_yards || 0;
+    grouped[season].receiving += stat.receiving || 0;
+    grouped[season].receiving_epa += stat.receiving_epa || 0;
+    grouped[season].target_share += stat.target_share || 0;
+    grouped[season].passing_attempts += stat.passing_attempts || 0;
     grouped[season].receiving_tds += stat.receiving_tds || 0;
-    
-    // Count games
-    if (stat.week === null && stat.games) {
-      grouped[season].gameCount = stat.games;
-    } else if (stat.week !== null) {
-      grouped[season].gameCount += 1;
-    }
+    // Defensive fields
+    grouped[season].def_tackles_solo += stat.def_tackles_solo || 0;
+    grouped[season].def_tackle_assists += stat.def_tackle_assists || 0;
+    grouped[season].def_sacks += stat.def_sacks || 0;
+    grouped[season].def_interceptions += stat.def_interceptions || 0;
+    grouped[season].fumble_recovery_own += stat.fumble_recovery_own || 0;
+    grouped[season].fumble_recovery_opp += stat.fumble_recovery_opp || 0;
+    grouped[season].def_tds += stat.def_tds || 0;
   });
-  
   return Object.values(grouped).sort((a, b) => b.season - a.season);
 }
 
@@ -216,5 +244,5 @@ export function getPositionColor(position) {
  * @returns {string} Formatted label
  */
 export function formatPlayerLabel(player) {
-  return `${player.name} - ${player.position} (${player.team})`;
+  return `${player.display_name} - ${player.position} (${player.team})`;
 }

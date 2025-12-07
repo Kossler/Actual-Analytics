@@ -4,6 +4,9 @@ cache/
 .vercel/
 .vercel/*
 
+# OpenNext build output
+.open-next/
+
 # Dependencies
 node_modules/
 .pnp

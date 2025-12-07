@@ -12,7 +12,7 @@ export default function PlayerInfo({ player }) {
     <Card sx={{ mb: 4 }}>
       <CardHeader
         title={player.name}
-        subheader={`${player.position} • ${player.team}`}
+        subheader={`${player.position} • ${player.team_name || player.team || ''}`}
         avatar={
           <Chip
             label={player.position}

@@ -19,6 +19,13 @@ cache/
 .vercel/
 .vercel/*
 
+# OpenNext build output
+.open-next/
+
+# Snyk policy files
+.snyk
+.snyk/**
+
 # Misc
 .DS_Store
 *.pem

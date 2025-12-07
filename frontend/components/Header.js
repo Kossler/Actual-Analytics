@@ -30,7 +30,7 @@ export default function Header() {
                 Actual NFL Analytics
               </span>
             }
-            subheader="Search for a player to view their stats across all years since 2016"
+            subheader="Search for a player to view their stats across all years since 1999"
             titleTypographyProps={{ variant: 'h4', sx: { fontWeight: 900 } }}
             sx={{ p: 0 }}
           />

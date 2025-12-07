@@ -17,7 +17,7 @@ const path = require('path');
 
 const PORT = process.env.PORT || 8080;
 const OUT_DIR = path.join(__dirname, 'out');
-const USE_HTTPS = process.env.HTTPS_CERT && process.env.HTTPS_KEY;
+const USE_HTTPS = true;
 const MAX_CONCURRENT_READS = 50;
 const fileReadSemaphore = new Semaphore(MAX_CONCURRENT_READS);
 
@@ -58,6 +58,12 @@ const MIME_TYPES = {
 const requestHandler = (req, res) => {
   // Basic rate limiting
   const clientIP = req.socket.remoteAddress;
+
+  // Set security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
   const now = Date.now();
   
   if (clientIP) {
@@ -79,15 +85,23 @@ const requestHandler = (req, res) => {
     }
   }
   
+
   // Parse URL and normalize path
   let urlPath = req.url === '/' ? '/index.html' : req.url;
   // Remove query strings
   urlPath = urlPath.split('?')[0];
-  
+  // Prevent serving dotfiles
+  if (path.basename(urlPath).startsWith('.')) {
+    console.warn(`[SECURITY] Attempt to access dotfile: ${urlPath} from ${clientIP}`);
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('Forbidden');
+    return;
+  }
   let filePath = path.join(OUT_DIR, urlPath);
-  
-  // Prevent directory traversal
-  if (!filePath.startsWith(OUT_DIR)) {
+  // Directory traversal protection (use path.relative)
+  const rel = path.relative(OUT_DIR, filePath);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    console.warn(`[SECURITY] Directory traversal attempt: ${urlPath} from ${clientIP}`);
     res.writeHead(403, { 'Content-Type': 'text/plain' });
     res.end('Forbidden');
     return;
@@ -109,6 +123,7 @@ const requestHandler = (req, res) => {
         // Try 404.html for not found pages
         const notFoundPath = path.join(OUT_DIR, '404.html');
         fs.readFile(notFoundPath, (err2, notFoundContent) => {
+          console.warn(`[404] Not found: ${urlPath} from ${clientIP}`);
           res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
           res.end(notFoundContent || 'Not Found');
         });
@@ -130,22 +145,19 @@ const requestHandler = (req, res) => {
       res.end(content);
     });
   });
-});
+};
 
 if (USE_HTTPS) {
+  if (!process.env.HTTPS_CERT || !process.env.HTTPS_KEY) {
+    console.error('ERROR: HTTPS_CERT and HTTPS_KEY environment variables must be set for HTTPS mode.');
+    process.exit(1);
+  }
   const fs = require('fs');
   const cert = fs.readFileSync(process.env.HTTPS_CERT);
   const key = fs.readFileSync(process.env.HTTPS_KEY);
   const server = https.createServer({ key, cert }, requestHandler);
   server.listen(PORT, () => {
     console.log(`✓ Static server listening on https://localhost:${PORT}`);
-    console.log(`✓ Serving files from: ${OUT_DIR}`);
-  });
-} else {
-  const server = http.createServer(requestHandler);
-  server.listen(PORT, () => {
-    console.warn('⚠️  Static server running in HTTP mode. Use HTTPS in production!');
-    console.log(`✓ Static server listening on http://localhost:${PORT}`);
     console.log(`✓ Serving files from: ${OUT_DIR}`);
   });
 }

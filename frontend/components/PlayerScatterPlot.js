@@ -27,41 +27,37 @@ import { Download, ContentCopy } from '@mui/icons-material';
 
 const METRICS = [
   // Passing Stats
-  { value: 'passingYds', label: 'Passing Yards', category: 'passing', threshold: 150 },
-  { value: 'passingTDs', label: 'Passing TDs', category: 'passing', threshold: 150 },
-  { value: 'interceptions', label: 'Interceptions', category: 'passing', threshold: 150 },
-  { value: 'passingAttempts', label: 'Pass Attempts', category: 'passing', threshold: 150 },
-  { value: 'passingCompletions', label: 'Completions', category: 'passing', threshold: 150 },
+  { value: 'passing_yards', label: 'Passing Yards', category: 'passing', threshold: 150 },
+  { value: 'passing_tds', label: 'Passing TDs', category: 'passing', threshold: 150 },
+  { value: 'passing_interceptions', label: 'Interceptions', category: 'passing', threshold: 150 },
+  { value: 'attempts', label: 'Pass Attempts', category: 'passing', threshold: 150 },
+  { value: 'completions', label: 'Completions', category: 'passing', threshold: 150 },
   { value: 'completionPct', label: 'Completion %', category: 'passing', threshold: 150 },
-  { value: 'sacks', label: 'Sacks Taken', category: 'passing', threshold: 150 },
-  { value: 'passingEPA', label: 'Passing EPA', category: 'passing', threshold: 150 },
+  { value: 'sacks_suffered', label: 'Sacks Taken', category: 'passing', threshold: 150 },
+  { value: 'passing_epa', label: 'Passing EPA', category: 'passing', threshold: 150 },
   { value: 'passing_epa_per_play', label: 'Passing EPA/Play', category: 'passing', threshold: 150 },
-  { value: 'passing_success_rate', label: 'Pass Success Rate %', category: 'passing', threshold: 150 },
   { value: 'cpoe', label: 'CPOE %', category: 'passing', threshold: 150 },
-  
+
   // Rushing Stats
-  { value: 'rushingYds', label: 'Rushing Yards', category: 'rushing', threshold: 120 },
-  { value: 'rushingAttempts', label: 'Rush Attempts', category: 'rushing', threshold: 120 },
-  { value: 'rushingTDs', label: 'Rushing TDs', category: 'rushing', threshold: 120 },
+  { value: 'rushing_yards', label: 'Rushing Yards', category: 'rushing', threshold: 120 },
+  { value: 'carries', label: 'Rush Attempts', category: 'rushing', threshold: 120 },
+  { value: 'rushing_tds', label: 'Rushing TDs', category: 'rushing', threshold: 120 },
   { value: 'yardsPerRushAttempt', label: 'Yards/Rush', category: 'rushing', threshold: 120 },
-  { value: 'rushingEPA', label: 'Rushing EPA', category: 'rushing', threshold: 120 },
+  { value: 'rushing_epa', label: 'Rushing EPA', category: 'rushing', threshold: 120 },
   { value: 'rushing_epa_per_play', label: 'Rushing EPA/Play', category: 'rushing', threshold: 120 },
-  { value: 'rushing_success_rate', label: 'Rush Success Rate %', category: 'rushing', threshold: 120 },
-  
+
   // Receiving Stats
-  { value: 'receivingYds', label: 'Receiving Yards', category: 'receiving', threshold: 40 },
+  { value: 'receiving_yards', label: 'Receiving Yards', category: 'receiving', threshold: 40 },
   { value: 'receptions', label: 'Receptions', category: 'receiving', threshold: 40 },
   { value: 'targets', label: 'Targets', category: 'receiving', threshold: 40 },
-  { value: 'receivingTDs', label: 'Receiving TDs', category: 'receiving', threshold: 40 },
+  { value: 'receiving_tds', label: 'Receiving TDs', category: 'receiving', threshold: 40 },
   { value: 'yardsPerReception', label: 'Yards/Reception', category: 'receiving', threshold: 40 },
   { value: 'catchPct', label: 'Catch %', category: 'receiving', threshold: 40 },
-  { value: 'receivingEPA', label: 'Receiving EPA', category: 'receiving', threshold: 40 },
+  { value: 'receiving_epa', label: 'Receiving EPA', category: 'receiving', threshold: 40 },
   { value: 'receiving_epa_per_play', label: 'Receiving EPA/Play', category: 'receiving', threshold: 40 },
-  { value: 'receiving_success_rate', label: 'Rec Success Rate %', category: 'receiving', threshold: 40 },
-  
+
   // Overall Stats
   { value: 'epa', label: 'Total EPA', category: 'overall', threshold: 0 },
-  { value: 'successRate', label: 'Overall Success Rate %', category: 'overall', threshold: 0 },
 ];
 
 export default function PlayerScatterPlot({ 
@@ -77,20 +73,21 @@ export default function PlayerScatterPlot({
   // Find the selected player's position to set appropriate defaults
   const selectedPlayer = useMemo(() => {
     if (!allPlayerStats || !selectedPlayerId) return null;
-    return allPlayerStats.find(p => p.playerId === selectedPlayerId);
+    return allPlayerStats.find(p => p.player_id === selectedPlayerId);
   }, [allPlayerStats, selectedPlayerId]);
+
+  // ...existing code...
 
   // Set default axes based on player position
   const getDefaultAxes = (position) => {
-    if (!position) return { x: 'passing_attempts', y: 'passing_epa' };
-    
+    if (!position) return { x: 'attempts', y: 'passing_epa' };
     if (position === 'RB') {
-      return { x: 'rushing_attempts', y: 'rushing_epa' };
+      return { x: 'carries', y: 'rushing_epa' };
     } else if (position === 'WR' || position === 'TE') {
       return { x: 'receptions', y: 'receiving_epa' };
     } else {
       // QB and others default to passing
-      return { x: 'passing_attempts', y: 'passing_epa' };
+      return { x: 'attempts', y: 'passing_epa' };
     }
   };
 
@@ -293,109 +290,100 @@ export default function PlayerScatterPlot({
     }
   };
 
-  // Combine all data sources for selected year
+
+  // Helper: map position to position group
+  const getPositionGroup = (position) => {
+    if (!position) return 'Other';
+    const pos = position.toUpperCase();
+    if (["QB"].includes(pos)) return "QB";
+    if (["RB", "FB"].includes(pos)) return "RB";
+    if (["WR", "TE"].includes(pos)) return "WRTE";
+    if (["OT", "OG", "C", "G", "T", "OL"].includes(pos)) return "OL";
+    if (["DL", "DE", "DT", "NT", "EDGE"].includes(pos)) return "DL";
+    if (["LB", "ILB", "OLB"].includes(pos)) return "LB";
+    if (["CB", "S", "FS", "SS"].includes(pos)) return "DB";
+    if (["K", "P"].includes(pos)) return "K";
+    return "Other";
+  };
+
+  // Combine all data sources for selected year, add positionGroup
   const combinedData = useMemo(() => {
     if (!allPlayerStats || allPlayerStats.length === 0) return [];
-
-    // Map the backend data to our frontend structure
-    return allPlayerStats.map(stat => ({
-      playerId: stat.playerId,
-      name: stat.name,
-      position: stat.position,
-      season: stat.season,
-      passingYds: Number(stat.passingYds) || 0,
-      passing_tds: Number(stat.passingTDs) || 0,
-      passing_interceptions: Number(stat.interceptions) || 0,
-      passing_attempts: Number(stat.passingAttempts) || 0,
-      passing_completions: Number(stat.passingCompletions) || 0,
-      completionPct: stat.passingAttempts > 0 
-        ? (Number(stat.passingCompletions) / Number(stat.passingAttempts) * 100) 
-        : 0,
-      passing_sacks: Number(stat.sacks) || 0,
-      rushingYds: Number(stat.rushingYds) || 0,
-      rushing_attempts: Number(stat.rushingAttempts) || 0,
-      rushing_tds: Number(stat.rushingTDs) || 0,
-      yardsPerRushAttempt: stat.rushingAttempts > 0 
-        ? (Number(stat.rushingYds) / Number(stat.rushingAttempts)) 
-        : 0,
-      receivingYds: Number(stat.receivingYds) || 0,
-      receptions: Number(stat.receptions) || 0,
-      targets: Number(stat.targets) || 0,
-      receiving_tds: Number(stat.receivingTDs) || 0,
-      yardsPerReception: stat.receptions > 0 
-        ? (Number(stat.receivingYds) / Number(stat.receptions)) 
-        : 0,
-      catchPct: stat.targets > 0 
-        ? (Number(stat.receptions) / Number(stat.targets) * 100) 
-        : 0,
-      passing_epa: Number(stat.passingEPA) || 0,
-      passing_epa_per_play: stat.passingAttempts > 0 
-        ? (Number(stat.passingEPA) / Number(stat.passingAttempts)) 
-        : 0,
-      passing_success_rate: Number(stat.successRate) || 0,
-      rushing_epa: Number(stat.rushingEPA) || 0,
-      rushing_epa_per_play: stat.rushingAttempts > 0 
-        ? (Number(stat.rushingEPA) / Number(stat.rushingAttempts)) 
-        : 0,
-      rushing_success_rate: Number(stat.successRate) || 0,
-      receiving_epa: Number(stat.receivingEPA) || 0,
-      receiving_epa_per_play: stat.receptions > 0 
-        ? (Number(stat.receivingEPA) / Number(stat.receptions)) 
-        : 0,
-      receiving_success_rate: Number(stat.successRate) || 0,
-      epa: (Number(stat.passingEPA) || 0) + (Number(stat.rushingEPA) || 0) + (Number(stat.receivingEPA) || 0),
-      success_rate: Number(stat.successRate) || 0,
-      cpoe: Number(stat.cpoe) || 0,
-    }));
+    return allPlayerStats.map(stat => {
+      const position = stat.position;
+      return {
+        playerId: stat.player_id,
+        name: stat.player_display_name,
+        position,
+        positionGroup: getPositionGroup(position),
+        season: stat.season,
+        passing_epa: Number(stat.passing_epa) || 0,
+        passing_cpoe: Number(stat.passing_cpoe) || 0,
+        passing_tds: Number(stat.passing_tds) || 0,
+        passing_interceptions: Number(stat.passing_interceptions) || 0,
+        attempts: Number(stat.attempts) || 0,
+        completions: Number(stat.completions) || 0,
+        sacks_suffered: Number(stat.sacks_suffered) || 0,
+        rushing_epa: Number(stat.rushing_epa) || 0,
+        carries: Number(stat.carries) || 0,
+        rushing_tds: Number(stat.rushing_tds) || 0,
+        rushing_yards: Number(stat.rushing_yards) || 0,
+        receptions: Number(stat.receptions) || 0,
+        targets: Number(stat.targets) || 0,
+        receiving_epa: Number(stat.receiving_epa) || 0,
+        receiving_tds: Number(stat.receiving_tds) || 0,
+        receiving_yards: Number(stat.receiving_yards) || 0,
+        // Derived metrics
+        passing_epa_per_play: stat.attempts > 0 ? (Number(stat.passing_epa) / Number(stat.attempts)) : 0,
+        cpoe: Number(stat.passing_cpoe) || 0,
+        yardsPerRushAttempt: stat.carries > 0 ? (Number(stat.rushing_yards) / Number(stat.carries)) : 0,
+        yardsPerReception: stat.receptions > 0 ? (Number(stat.receiving_yards) / Number(stat.receptions)) : 0,
+        catchPct: stat.targets > 0 ? (Number(stat.receptions) / Number(stat.targets) * 100) : 0,
+        receiving_epa_per_play: stat.receptions > 0 ? (Number(stat.receiving_epa) / Number(stat.receptions)) : 0,
+        rushing_epa_per_play: stat.carries > 0 ? (Number(stat.rushing_epa) / Number(stat.carries)) : 0,
+        completionPct: stat.attempts > 0 ? (Number(stat.completions) / Number(stat.attempts) * 100) : 0,
+        epa: (Number(stat.passing_epa) || 0) + (Number(stat.rushing_epa) || 0) + (Number(stat.receiving_epa) || 0),
+        game_count: Number(stat.game_count) || 0,
+      };
+    });
   }, [allPlayerStats]);
 
-  // Filter and prepare data for chart
+
+  // Filter and prepare data for chart (same position group, always include selected player, top 31 others)
   const chartData = useMemo(() => {
     const xMetric = METRICS.find(m => m.value === xAxis);
     const yMetric = METRICS.find(m => m.value === yAxis);
-
     if (!xMetric || !yMetric) return [];
 
-    // Determine threshold based on both axes
-    const thresholdField = xMetric.category === 'passing' ? 'passing_attempts'
-      : xMetric.category === 'rushing' ? 'rushing_attempts'
-      : xMetric.category === 'receiving' ? 'receptions'
-      : null;
+    // Get selected player's position group
+    const selectedPlayerData = combinedData.find(p => p.playerId === selectedPlayerId);
+    const selectedGroup = selectedPlayerData?.positionGroup;
+    if (!selectedGroup) return [];
 
-    const threshold = xMetric.threshold;
+    // Only compare to same position group
+    let groupPlayers = combinedData.filter(player => player.positionGroup === selectedGroup);
 
-    // Filter by threshold
-    let filtered = combinedData.filter(player => {
-      if (!thresholdField) return true;
-      return (player[thresholdField] || 0) >= threshold;
+    // Remove the selected player from the group
+    let others = groupPlayers.filter(player => player.playerId !== selectedPlayerId);
+
+    // Sort the rest by y-axis value (descending)
+    others = others.sort((a, b) => (b[yAxis] || 0) - (a[yAxis] || 0));
+
+    // Take the top 31
+    let topOthers = others.slice(0, 31);
+
+    // Add the selected player back in
+    let result = selectedPlayerData ? [selectedPlayerData, ...topOthers] : topOthers;
+
+    // Remove accidental duplicates (shouldn't happen, but for safety)
+    const seen = new Set();
+    result = result.filter(player => {
+      if (seen.has(player.playerId)) return false;
+      seen.add(player.playerId);
+      return true;
     });
 
-    // Also check y-axis threshold
-    const yThresholdField = yMetric.category === 'passing' ? 'passing_attempts'
-      : yMetric.category === 'rushing' ? 'rushing_attempts'
-      : yMetric.category === 'receiving' ? 'receptions'
-      : null;
-
-    if (yThresholdField && yThresholdField !== thresholdField) {
-      filtered = filtered.filter(player => {
-        return (player[yThresholdField] || 0) >= yMetric.threshold;
-      });
-    }
-
-    // Sort by y-axis value and take top 32
-    const sorted = filtered
-      .sort((a, b) => (b[yAxis] || 0) - (a[yAxis] || 0))
-      .slice(0, 32);
-
-    // Always include the selected player, even if they don't meet threshold
-    const selectedPlayerData = combinedData.find(p => p.playerId === selectedPlayerId);
-    if (selectedPlayerData && !sorted.find(p => p.playerId === selectedPlayerId)) {
-      // Remove the last player to make room for selected player
-      sorted.pop();
-      sorted.push(selectedPlayerData);
-    }
-
-    return sorted.map(player => ({
+    return result.map(player => ({
       name: player.name,
       position: player.position,
       playerId: player.playerId,
@@ -503,7 +491,7 @@ export default function PlayerScatterPlot({
       <CardContent>
         {/* Control dropdowns - will be hidden in capture */}
         <Grid container spacing={2} sx={{ mb: 3 }} className="chart-controls">
-          <Grid item xs={12} md={6}>
+          <Grid columns={6}>
             <FormControl fullWidth size="small">
               <InputLabel>X-Axis</InputLabel>
               <Select 
@@ -538,7 +526,7 @@ export default function PlayerScatterPlot({
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={6}>
+          <Grid columns={6}>
             <FormControl fullWidth size="small">
               <InputLabel>Y-Axis</InputLabel>
               <Select 
@@ -580,6 +568,20 @@ export default function PlayerScatterPlot({
           {chartData.length === 0 ? (
             <Box sx={{ textAlign: 'center', p: 4, color: 'text.secondary' }}>
               No players meet the threshold criteria
+              <pre style={{textAlign:'left',margin:'1em auto',background:'#222',color:'#fff',padding:'1em',borderRadius:'8px',maxWidth:'700px',overflowX:'auto'}}>
+{(() => {
+  // Debug info
+  const selectedPlayerData = combinedData.find(p => p.playerId === selectedPlayerId);
+  const selectedGroup = selectedPlayerData?.positionGroup;
+  const groupPlayers = combinedData.filter(p => p.positionGroup === selectedGroup);
+  return `Selected PlayerId: ${selectedPlayerId}\n` +
+    `Selected Player Name: ${selectedPlayerData?.name || 'N/A'}\n` +
+    `Selected Player Position: ${selectedPlayerData?.position || 'N/A'}\n` +
+    `Selected Player PositionGroup: ${selectedGroup || 'N/A'}\n` +
+    `Players in Group: ${groupPlayers.length}\n` +
+    `AllPlayerStats count: ${allPlayerStats?.length || 0}`;
+})()}
+              </pre>
             </Box>
           ) : (
             <ResponsiveContainer width="100%" height={500}>

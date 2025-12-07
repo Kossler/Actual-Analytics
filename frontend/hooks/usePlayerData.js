@@ -1,3 +1,37 @@
+/**
+ * Custom hook to fetch all weekly stats for a player (across all seasons)
+ * @param {string|null} playerId - Player ID
+ * @param {string} apiUrl - Base API URL
+ * @returns {object} { allWeeklyStats, loading, error }
+ */
+export function useAllWeeklyStats(playerId, apiUrl) {
+  const [allWeeklyStats, setAllWeeklyStats] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!playerId || !apiUrl) return;
+
+    setLoading(true);
+    fetch(`${apiUrl}/api/players/${playerId}/all-weekly`)
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to fetch all weekly stats');
+        return r.json();
+      })
+      .then(data => {
+        setAllWeeklyStats(data);
+        setError(null);
+      })
+      .catch(err => {
+        console.error('Error fetching all weekly stats:', err);
+        setError(err.message);
+        setAllWeeklyStats([]);
+      })
+      .finally(() => setLoading(false));
+  }, [playerId, apiUrl]);
+
+  return { allWeeklyStats, loading, error };
+}
 import { useState, useEffect } from 'react';
 
 /**
@@ -87,7 +121,7 @@ export function useWeeklyStats(playerId, apiUrl, season = 2025) {
     if (!playerId || !apiUrl) return;
 
     setLoading(true);
-    fetch(`${apiUrl}/api/players/${playerId}/stats?season=${season}`)
+    fetch(`${apiUrl}/api/players/${playerId}/weekly?season=${season}`)
       .then(r => {
         if (!r.ok) throw new Error('Failed to fetch weekly stats');
         return r.json();

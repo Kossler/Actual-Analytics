@@ -16,23 +16,162 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
   const showRushing = shouldShowRushingColumns(position, playerStats);
   const showReceiving = shouldShowReceivingColumns(position);
 
-  // Calculate career totals
+  // Calculate career totals using new schema
   const careerTotals = playerStats.reduce((totals, stat) => ({
-    gameCount: (totals.gameCount || 0) + (stat.gameCount || 0),
-    passingYds: (totals.passingYds || 0) + (stat.passingYds || 0),
-    passing_tds: (totals.passing_tds || 0) + (stat.passing_tds || 0),
-    passing_interceptions: (totals.passing_interceptions || 0) + (stat.passing_interceptions || 0),
-    passing_sacks: (totals.passing_sacks || 0) + (stat.passing_sacks || 0),
-    passing_attempts: (totals.passing_attempts || 0) + (stat.passing_attempts || 0),
-    passing_completions: (totals.passing_completions || 0) + (stat.passing_completions || 0),
-    rushingYds: (totals.rushingYds || 0) + (stat.rushingYds || 0),
-    rushing_tds: (totals.rushing_tds || 0) + (stat.rushing_tds || 0),
-    rushing_attempts: (totals.rushing_attempts || 0) + (stat.rushing_attempts || 0),
-    targets: (totals.targets || 0) + (stat.targets || 0),
-    receptions: (totals.receptions || 0) + (stat.receptions || 0),
-    receivingYds: (totals.receivingYds || 0) + (stat.receivingYds || 0),
-    receiving_tds: (totals.receiving_tds || 0) + (stat.receiving_tds || 0),
+    game_count: Number(totals.game_count || 0) + Number(stat.game_count || 0),
+    passing_yards: Number(totals.passing_yards || 0) + Number(stat.passing_yards || 0),
+    passing_tds: Number(totals.passing_tds || 0) + Number(stat.passing_tds || 0),
+    passing_interceptions: Number(totals.passing_interceptions || 0) + Number(stat.passing_interceptions || 0),
+    sacks_suffered: Number(totals.sacks_suffered || 0) + Number(stat.sacks_suffered || 0),
+    attempts: Number(totals.attempts || 0) + Number(stat.attempts || 0),
+    completions: Number(totals.completions || 0) + Number(stat.completions || 0),
+    rushing_yards: Number(totals.rushing_yards || 0) + Number(stat.rushing_yards || 0),
+    rushing_tds: Number(totals.rushing_tds || 0) + Number(stat.rushing_tds || 0),
+    carries: Number(totals.carries || 0) + Number(stat.carries || 0),
+    targets: Number(totals.targets || 0) + Number(stat.targets || 0),
+    receptions: Number(totals.receptions || 0) + Number(stat.receptions || 0),
+    receiving_yards: Number(totals.receiving_yards || 0) + Number(stat.receiving_yards || 0),
+    receiving_tds: Number(totals.receiving_tds || 0) + Number(stat.receiving_tds || 0),
+    // Defensive totals
+    def_tackles_solo: Number(totals.def_tackles_solo || 0) + Number(stat.def_tackles_solo || 0),
+    def_tackle_assists: Number(totals.def_tackle_assists || 0) + Number(stat.def_tackle_assists || 0),
+    def_sacks: Number(totals.def_sacks || 0) + Number(stat.def_sacks || 0),
+    def_interceptions: Number(totals.def_interceptions || 0) + Number(stat.def_interceptions || 0),
+    fumble_recovery_own: Number(totals.fumble_recovery_own || 0) + Number(stat.fumble_recovery_own || 0),
+    fumble_recovery_opp: Number(totals.fumble_recovery_opp || 0) + Number(stat.fumble_recovery_opp || 0),
+    def_tds: Number(totals.def_tds || 0) + Number(stat.def_tds || 0),
   }), {});
+
+  // Helper calculations
+  const completionPct = (comp, att) => att ? ((comp / att) * 100).toFixed(1) : '-';
+  const yardsPerAttempt = (yards, att) => att ? (yards / att).toFixed(2) : '-';
+  const roundEPA = val => (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(3) : '-';
+  const roundCPOE = val => (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(3) : '-';
+  const epaPerPlay = (epa, att) => att ? (Number(epa) / Number(att)).toFixed(3) : '-';
+  const catchPct = (rec, tgt) => tgt ? ((rec / tgt) * 100).toFixed(1) : '-';
+  const receivingYdsPerAttempt = (yards, att) => att ? (yards / att).toFixed(2) : '-';
+  // Table columns by position
+  const columnsQB = [
+    { label: 'Games', value: stat => Number(stat.game_count) },
+    { label: 'Cmp', value: stat => displayStat(stat.completions) },
+    { label: 'Att', value: stat => displayStat(stat.attempts) },
+    { label: 'Completion %', value: stat => completionPct(stat.completions, stat.attempts) },
+    { label: 'Yds/Att', value: stat => yardsPerAttempt(stat.passing_yards, stat.attempts) },
+    { label: 'Pass TD', value: stat => displayStat(stat.passing_tds) },
+    { label: 'INT', value: stat => displayStat(stat.passing_interceptions) },
+    { label: 'Sacks', value: stat => displayStat(stat.sacks_suffered) },
+    { label: 'Pass EPA', value: stat => roundEPA(stat.passing_epa) },
+    { label: 'EPA/Play', value: stat => epaPerPlay(stat.passing_epa, stat.attempts) },
+    { label: 'CPOE', value: stat => roundCPOE(stat.passing_cpoe) },
+    { label: 'Carries', value: stat => displayStat(stat.carries) },
+    { label: 'Rush Yds/Att', value: stat => yardsPerAttempt(stat.rushing_yards, stat.carries) },
+    { label: 'Rush TD', value: stat => displayStat(stat.rushing_tds) },
+    { label: 'Rush EPA', value: stat => roundEPA(stat.rushing_epa) },
+    { label: 'Rush EPA/Play', value: stat => epaPerPlay(stat.rushing_epa, stat.carries) },
+  ];
+  const columnsWRTE = [
+    { label: 'Games', value: stat => Number(stat.game_count) },
+    { label: 'Rec', value: stat => displayStat(stat.receptions) },
+    { label: 'Tgt', value: stat => displayStat(stat.targets) },
+    { label: 'Catch %', value: stat => catchPct(stat.receptions, stat.targets) },
+    { label: 'Yds/Catch', value: stat => receivingYdsPerAttempt(stat.receiving_yards, stat.receptions) },
+    { label: 'Receiving Yds', value: stat => displayStat(stat.receiving_yards) },
+    { label: 'Rec EPA', value: stat => roundEPA(stat.receiving_epa) },
+    { label: 'Pass EPA/Play', value: stat => epaPerPlay(stat.passing_epa, stat.attempts) },
+  ];
+  const columnsRB = [
+    { label: 'Games', value: stat => Number(stat.game_count) },
+    { label: 'Rec', value: stat => displayStat(stat.receptions) },
+    { label: 'Tgt', value: stat => displayStat(stat.targets) },
+    { label: 'Catch %', value: stat => catchPct(stat.receptions, stat.targets) },
+    { label: 'Yds/Catch', value: stat => receivingYdsPerAttempt(stat.receiving_yards, stat.receptions) },
+    { label: 'Receiving Yds', value: stat => displayStat(stat.receiving_yards) },
+    { label: 'Rec EPA', value: stat => roundEPA(stat.receiving_epa) },
+    { label: 'Rush Yds/Att', value: stat => yardsPerAttempt(stat.rushing_yards, stat.carries) },
+    { label: 'Rush Yds', value: stat => displayStat(stat.rushing_yards) },
+    { label: 'Rush TD', value: stat => displayStat(stat.rushing_tds) },
+    { label: 'Rush EPA/Play', value: stat => epaPerPlay(stat.rushing_epa, stat.carries) },
+  ];
+  // Defensive positions (case-insensitive)
+  const defensivePositions = [
+    'CB', 'S', 'FS', 'SS', 'LB', 'ILB', 'OLB', 'DE', 'DT', 'NT', 'DL', 'DB', 'SAF', 'COR', 'MLB', 'WLB', 'SLB', 'EDGE'
+  ];
+  // Defensive columns
+  const columnsDEF = [
+    { label: 'Games', value: stat => Number(stat.game_count) },
+    { label: 'Solo Tackles', value: stat => displayStat(stat.def_tackles_solo) },
+    { label: 'Tackle Assists', value: stat => displayStat(stat.def_tackle_assists) },
+    { label: 'TFL', value: stat => displayStat(stat.def_tackles_for_loss) },
+    { label: 'TFL Yards', value: stat => displayStat(stat.def_tackles_for_loss_yards) },
+    { label: 'Fumbles Forced', value: stat => displayStat(stat.def_fumbles_forced) },
+    { label: 'Sacks', value: stat => displayStat(stat.def_sacks) },
+    { label: 'Sack Yards', value: stat => displayStat(stat.def_sack_yards) },
+    { label: 'QB Hits', value: stat => displayStat(stat.def_qb_hits) },
+    { label: 'INT', value: stat => displayStat(stat.def_interceptions) },
+    { label: 'INT Yards', value: stat => displayStat(stat.def_interception_yards) },
+    { label: 'Passes Defended', value: stat => displayStat(stat.def_pass_defended) },
+    { label: 'Def TD', value: stat => displayStat(stat.def_tds) },
+    { label: 'Fumbles', value: stat => displayStat(stat.def_fumbles) },
+    { label: 'Safeties', value: stat => displayStat(stat.def_safeties) },
+  ];
+  let columns;
+  if (position === 'QB') columns = columnsQB;
+  else if (position === 'WR' || position === 'TE') columns = columnsWRTE;
+  else if (position === 'RB') columns = columnsRB;
+  else if (position && defensivePositions.includes(position.toUpperCase())) columns = columnsDEF;
+  else columns = columnsQB; // fallback
+
+  // Helper to calculate averages for career row for EPA/Play and CPOE
+  const getCareerValue = (col, stats, totals) => {
+    // Average per season for EPA and EPA/Play columns
+    if (col.label === 'Pass EPA') {
+      const epaVals = stats.map(s => Number(s.passing_epa)).filter(v => !isNaN(v));
+      if (epaVals.length === 0) return '-';
+      const avg = epaVals.reduce((a, b) => a + b, 0) / epaVals.length;
+      return avg.toFixed(3);
+    }
+    if (col.label === 'Rush EPA') {
+      const epaVals = stats.map(s => Number(s.rushing_epa)).filter(v => !isNaN(v));
+      if (epaVals.length === 0) return '-';
+      const avg = epaVals.reduce((a, b) => a + b, 0) / epaVals.length;
+      return avg.toFixed(3);
+    }
+    if (col.label === 'EPA/Play') {
+      // Average EPA/Play per season
+      const epaPlayVals = stats.map(s => {
+        const att = Number(s.attempts) || 0;
+        const epa = Number(s.passing_epa) || 0;
+        return att ? epa / att : null;
+      }).filter(v => v !== null && !isNaN(v));
+      if (epaPlayVals.length === 0) return '-';
+      const avg = epaPlayVals.reduce((a, b) => a + b, 0) / epaPlayVals.length;
+      return avg.toFixed(3);
+    }
+    if (col.label === 'Rush EPA/Play') {
+      // Average Rush EPA/Play per season
+      const rushEpaPlayVals = stats.map(s => {
+        const carries = Number(s.carries) || 0;
+        const epa = Number(s.rushing_epa) || 0;
+        return carries ? epa / carries : null;
+      }).filter(v => v !== null && !isNaN(v));
+      if (rushEpaPlayVals.length === 0) return '-';
+      const avg = rushEpaPlayVals.reduce((a, b) => a + b, 0) / rushEpaPlayVals.length;
+      return avg.toFixed(3);
+    }
+    if (col.label === 'CPOE') {
+      // Average CPOE
+      const cpoeVals = stats.map(s => Number(s.passing_cpoe)).filter(v => !isNaN(v));
+      if (cpoeVals.length === 0) return '-';
+      const avg = cpoeVals.reduce((a, b) => a + b, 0) / cpoeVals.length;
+      return avg.toFixed(3);
+    }
+    if (col.label === 'Completion %') {
+      const totalComp = stats.reduce((sum, s) => sum + (Number(s.completions) || 0), 0);
+      const totalAtt = stats.reduce((sum, s) => sum + (Number(s.attempts) || 0), 0);
+      return totalAtt ? ((totalComp / totalAtt) * 100).toFixed(1) : '-';
+    }
+    return col.value(totals);
+  };
 
   return (
     <StatsTableWrapper
@@ -44,33 +183,9 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
       <TableHead>
         <TableRow>
           <TableCell>Season</TableCell>
-          <TableCell align="right">Games</TableCell>
-          {showPassing && (
-            <>
-              <TableCell align="right">Pass Yds</TableCell>
-              <TableCell align="right">Pass TD</TableCell>
-              <TableCell align="right">INT</TableCell>
-              <TableCell align="right">Sacks</TableCell>
-              <TableCell align="right">Att</TableCell>
-              <TableCell align="right">Cmp</TableCell>
-              <TableCell align="right">Cmp %</TableCell>
-            </>
-          )}
-          {showRushing && (
-            <>
-              <TableCell align="right">Rush Yds</TableCell>
-              <TableCell align="right">Rush TD</TableCell>
-              <TableCell align="right">Rush Att</TableCell>
-            </>
-          )}
-          {showReceiving && (
-            <>
-              <TableCell align="right">Tgt</TableCell>
-              <TableCell align="right">Rec</TableCell>
-              <TableCell align="right">Rec Yds</TableCell>
-              <TableCell align="right">Rec TD</TableCell>
-            </>
-          )}
+          {columns.map(col => (
+            <TableCell key={col.label} align="right">{col.label}</TableCell>
+          ))}
         </TableRow>
       </TableHead>
       <TableBody>
@@ -98,38 +213,11 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
                 stat.season
               )}
             </TableCell>
-            <TableCell align="right">{stat.gameCount}</TableCell>
-            {showPassing && (
-              <>
-                <TableCell align="right">{displayStat(stat.passingYds)}</TableCell>
-                <TableCell align="right">{displayStat(stat.passing_tds)}</TableCell>
-                <TableCell align="right">{displayStat(stat.passing_interceptions)}</TableCell>
-                <TableCell align="right">{displayStat(stat.passing_sacks)}</TableCell>
-                <TableCell align="right">{displayStat(stat.passing_attempts)}</TableCell>
-                <TableCell align="right">{displayStat(stat.passing_completions)}</TableCell>
-                <TableCell align="right">
-                  {calculateCompletionPercentage(stat.passing_completions, stat.passing_attempts)}
-                </TableCell>
-              </>
-            )}
-            {showRushing && (
-              <>
-                <TableCell align="right">{displayStat(stat.rushingYds)}</TableCell>
-                <TableCell align="right">{displayStat(stat.rushing_tds)}</TableCell>
-                <TableCell align="right">{displayStat(stat.rushing_attempts)}</TableCell>
-              </>
-            )}
-            {showReceiving && (
-              <>
-                <TableCell align="right">{displayStat(stat.targets)}</TableCell>
-                <TableCell align="right">{displayStat(stat.receptions)}</TableCell>
-                <TableCell align="right">{displayStat(stat.receivingYds)}</TableCell>
-                <TableCell align="right">{displayStat(stat.receiving_tds)}</TableCell>
-              </>
-            )}
+            {columns.map(col => (
+              <TableCell key={col.label} align="right">{col.value(stat)}</TableCell>
+            ))}
           </TableRow>
         ))}
-        
         {/* Career Totals Row */}
         {playerStats.length > 0 && (
           <TableRow
@@ -155,35 +243,9 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
                 }}
               />
             </TableCell>
-            <TableCell align="right">{careerTotals.gameCount}</TableCell>
-            {showPassing && (
-              <>
-                <TableCell align="right">{displayStat(careerTotals.passingYds)}</TableCell>
-                <TableCell align="right">{displayStat(careerTotals.passing_tds)}</TableCell>
-                <TableCell align="right">{displayStat(careerTotals.passing_interceptions)}</TableCell>
-                <TableCell align="right">{displayStat(careerTotals.passing_sacks)}</TableCell>
-                <TableCell align="right">{displayStat(careerTotals.passing_attempts)}</TableCell>
-                <TableCell align="right">{displayStat(careerTotals.passing_completions)}</TableCell>
-                <TableCell align="right">
-                  {calculateCompletionPercentage(careerTotals.passing_completions, careerTotals.passing_attempts)}
-                </TableCell>
-              </>
-            )}
-            {showRushing && (
-              <>
-                <TableCell align="right">{displayStat(careerTotals.rushingYds)}</TableCell>
-                <TableCell align="right">{displayStat(careerTotals.rushing_tds)}</TableCell>
-                <TableCell align="right">{displayStat(careerTotals.rushing_attempts)}</TableCell>
-              </>
-            )}
-            {showReceiving && (
-              <>
-                <TableCell align="right">{displayStat(careerTotals.targets)}</TableCell>
-                <TableCell align="right">{displayStat(careerTotals.receptions)}</TableCell>
-                <TableCell align="right">{displayStat(careerTotals.receivingYds)}</TableCell>
-                <TableCell align="right">{displayStat(careerTotals.receiving_tds)}</TableCell>
-              </>
-            )}
+            {columns.map(col => (
+              <TableCell key={col.label} align="right">{getCareerValue(col, playerStats, careerTotals)}</TableCell>
+            ))}
           </TableRow>
         )}
       </TableBody>
