@@ -49,6 +49,9 @@ This guide covers deploying the Actual-Analytics application across Cloudflare P
    - **Build command**: `sh build.sh`
    - **Build output directory**: `.vercel/output/static`
    - **Root directory**: `frontend`
+    - **Functions / Compatibility flags**:
+       - Add `nodejs_compat` for **both** Production and Preview
+       - Set a recent **Compatibility date** (any non-future date is fine)
    - **Environment variables**:
      - `NEXT_PUBLIC_API_URL`: Your Railway backend URL (e.g., `https://actual-analytics-api.up.railway.app`)
 
@@ -116,6 +119,10 @@ NEXT_PUBLIC_API_URL=https://your-railway-backend.up.railway.app
 - **GitHub Actions**: Actions → Daily Data Ingestion → Workflow runs
 
 ## Troubleshooting
+
+**Cloudflare shows “Node.JS Compatibility Error: no nodejs_compat compatibility flag set”**:
+- In Cloudflare Pages → your project → **Settings** → **Functions** → **Compatibility flags**, add `nodejs_compat` for both **Production** and **Preview**.
+- Then trigger a new deployment (flag changes won’t always apply to already-deployed builds).
 
 **Frontend can't reach backend**:
 - Check `NEXT_PUBLIC_API_URL` environment variable in Cloudflare Pages

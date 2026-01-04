@@ -119,10 +119,28 @@ router.get('/:gsis_id/all-weekly', async (req, res) => {
     return res.status(400).json({ error: 'Missing player GSIS ID' });
   }
   try {
+    // QB pressures faced: count of plays where participation.was_pressure = true
+    // and the player appears in participation.offense_players for that play.
+    // Note: offense_players is not reliably JSON in all datasets, so we use a regex match.
     const query = `
+      WITH pressure_counts AS (
+        SELECT
+          pbp.season AS season,
+          pbp.week AS week,
+          COUNT(*)::FLOAT AS pressures
+        FROM participation part
+        JOIN pbp
+          ON pbp.game_id = part.nflverse_game_id
+         AND pbp.play_id = part.play_id
+        WHERE pbp.season_type = 'REG'
+          AND part.was_pressure = true
+          AND part.offense_players IS NOT NULL
+          AND part.offense_players ~ ('(^|[^0-9-])' || $1 || '([^0-9-]|$)')
+        GROUP BY pbp.season, pbp.week
+      )
       SELECT
-        week,
-        season,
+        ps.week,
+        ps.season,
         completions::FLOAT AS completions,
         attempts::FLOAT AS attempts,
         passing_yards::FLOAT AS passing_yards,
@@ -155,10 +173,23 @@ router.get('/:gsis_id/all-weekly', async (req, res) => {
         def_interception_yards::FLOAT AS def_interception_yards,
         def_pass_defended::FLOAT AS def_pass_defended,
         def_fumbles::FLOAT AS def_fumbles,
-        def_safeties::FLOAT AS def_safeties
-      FROM player_stats
-      WHERE player_id = $1 AND season_type = 'REG'
-      ORDER BY season DESC, week ASC
+        def_safeties::FLOAT AS def_safeties,
+        CASE
+          WHEN ps.position = 'QB' THEN COALESCE(pc.pressures, 0)::FLOAT
+          ELSE NULL
+        END AS pressures,
+        CASE
+          WHEN ps.position = 'QB'
+           AND (COALESCE(ps.attempts::FLOAT, 0) + COALESCE(ps.sacks_suffered::FLOAT, 0)) > 0
+            THEN (COALESCE(pc.pressures, 0)::FLOAT / (COALESCE(ps.attempts::FLOAT, 0) + COALESCE(ps.sacks_suffered::FLOAT, 0))) * 100
+          ELSE NULL
+        END AS pressure_rate
+      FROM player_stats ps
+      LEFT JOIN pressure_counts pc
+        ON pc.season = ps.season
+       AND pc.week = ps.week
+      WHERE ps.player_id = $1 AND ps.season_type = 'REG'
+      ORDER BY ps.season DESC, ps.week ASC
     `;
     const { Prisma } = require('@prisma/client');
     const stats = await prisma.$queryRawUnsafe(query, gsis_id);
@@ -178,9 +209,25 @@ router.get('/:gsis_id/weekly', async (req, res) => {
   }
   try {
     const query = `
+      WITH pressure_counts AS (
+        SELECT
+          pbp.season AS season,
+          pbp.week AS week,
+          COUNT(*)::FLOAT AS pressures
+        FROM participation part
+        JOIN pbp
+          ON pbp.game_id = part.nflverse_game_id
+         AND pbp.play_id = part.play_id
+        WHERE pbp.season_type = 'REG'
+          AND pbp.season = $2
+          AND part.was_pressure = true
+          AND part.offense_players IS NOT NULL
+          AND part.offense_players ~ ('(^|[^0-9-])' || $1 || '([^0-9-]|$)')
+        GROUP BY pbp.season, pbp.week
+      )
       SELECT
-        week,
-        season,
+        ps.week,
+        ps.season,
         completions::FLOAT AS completions,
         attempts::FLOAT AS attempts,
         passing_yards::FLOAT AS passing_yards,
@@ -213,10 +260,23 @@ router.get('/:gsis_id/weekly', async (req, res) => {
         def_interception_yards::FLOAT AS def_interception_yards,
         def_pass_defended::FLOAT AS def_pass_defended,
         def_fumbles::FLOAT AS def_fumbles,
-        def_safeties::FLOAT AS def_safeties
-      FROM player_stats
-      WHERE player_id = $1 AND season = $2 AND season_type = 'REG'
-      ORDER BY week ASC
+        def_safeties::FLOAT AS def_safeties,
+        CASE
+          WHEN ps.position = 'QB' THEN COALESCE(pc.pressures, 0)::FLOAT
+          ELSE NULL
+        END AS pressures,
+        CASE
+          WHEN ps.position = 'QB'
+           AND (COALESCE(ps.attempts::FLOAT, 0) + COALESCE(ps.sacks_suffered::FLOAT, 0)) > 0
+            THEN (COALESCE(pc.pressures, 0)::FLOAT / (COALESCE(ps.attempts::FLOAT, 0) + COALESCE(ps.sacks_suffered::FLOAT, 0))) * 100
+          ELSE NULL
+        END AS pressure_rate
+      FROM player_stats ps
+      LEFT JOIN pressure_counts pc
+        ON pc.season = ps.season
+       AND pc.week = ps.week
+      WHERE ps.player_id = $1 AND ps.season = $2 AND ps.season_type = 'REG'
+      ORDER BY ps.week ASC
     `;
     const { Prisma } = require('@prisma/client');
     const stats = await prisma.$queryRawUnsafe(query, gsis_id, season);
@@ -237,8 +297,22 @@ router.get('/:gsis_id/stats', async (req, res) => {
   }
   try {
     const query = `
+      WITH pressure_counts AS (
+        SELECT
+          pbp.season AS season,
+          COUNT(*)::FLOAT AS pressures
+        FROM participation part
+        JOIN pbp
+          ON pbp.game_id = part.nflverse_game_id
+         AND pbp.play_id = part.play_id
+        WHERE pbp.season_type = 'REG'
+          AND part.was_pressure = true
+          AND part.offense_players IS NOT NULL
+          AND part.offense_players ~ ('(^|[^0-9-])' || $1 || '([^0-9-]|$)')
+        GROUP BY pbp.season
+      )
       SELECT
-        season,
+        player_stats.season AS season,
         COALESCE(SUM(completions::FLOAT),0) AS completions,
         COALESCE(SUM(attempts::FLOAT),0) AS attempts,
         -- removed passing_attempts and rushing_attempts, use attempts and carries instead
@@ -274,11 +348,23 @@ router.get('/:gsis_id/stats', async (req, res) => {
         COALESCE(SUM(def_pass_defended::FLOAT),0) AS def_pass_defended,
         COALESCE(SUM(def_fumbles::FLOAT),0) AS def_fumbles,
         COALESCE(SUM(def_safeties::FLOAT),0) AS def_safeties,
+        CASE
+          WHEN MAX(position) = 'QB' THEN COALESCE(MAX(pc.pressures), 0)::FLOAT
+          ELSE NULL
+        END AS pressures,
+        CASE
+          WHEN MAX(position) = 'QB'
+           AND (COALESCE(SUM(attempts::FLOAT),0) + COALESCE(SUM(sacks_suffered::FLOAT),0)) > 0
+            THEN (COALESCE(MAX(pc.pressures), 0)::FLOAT / (COALESCE(SUM(attempts::FLOAT),0) + COALESCE(SUM(sacks_suffered::FLOAT),0))) * 100
+          ELSE NULL
+        END AS pressure_rate,
         COUNT(*) AS game_count
       FROM player_stats
+      LEFT JOIN pressure_counts pc
+        ON pc.season = player_stats.season
       WHERE player_id = $1 AND season_type = 'REG'
-      GROUP BY season
-      ORDER BY season DESC
+      GROUP BY player_stats.season
+      ORDER BY player_stats.season DESC
     `;
     const { Prisma } = require('@prisma/client');
     const stats = await prisma.$queryRawUnsafe(query, gsis_id);

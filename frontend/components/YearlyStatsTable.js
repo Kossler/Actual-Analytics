@@ -16,30 +16,46 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
   const showRushing = shouldShowRushingColumns(position, playerStats);
   const showReceiving = shouldShowReceivingColumns(position);
 
+  const toNumber = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  };
+
   // Calculate career totals using new schema
   const careerTotals = playerStats.reduce((totals, stat) => ({
-    game_count: Number(totals.game_count || 0) + Number(stat.game_count || 0),
-    passing_yards: Number(totals.passing_yards || 0) + Number(stat.passing_yards || 0),
-    passing_tds: Number(totals.passing_tds || 0) + Number(stat.passing_tds || 0),
-    passing_interceptions: Number(totals.passing_interceptions || 0) + Number(stat.passing_interceptions || 0),
-    sacks_suffered: Number(totals.sacks_suffered || 0) + Number(stat.sacks_suffered || 0),
-    attempts: Number(totals.attempts || 0) + Number(stat.attempts || 0),
-    completions: Number(totals.completions || 0) + Number(stat.completions || 0),
-    rushing_yards: Number(totals.rushing_yards || 0) + Number(stat.rushing_yards || 0),
-    rushing_tds: Number(totals.rushing_tds || 0) + Number(stat.rushing_tds || 0),
-    carries: Number(totals.carries || 0) + Number(stat.carries || 0),
-    targets: Number(totals.targets || 0) + Number(stat.targets || 0),
-    receptions: Number(totals.receptions || 0) + Number(stat.receptions || 0),
-    receiving_yards: Number(totals.receiving_yards || 0) + Number(stat.receiving_yards || 0),
-    receiving_tds: Number(totals.receiving_tds || 0) + Number(stat.receiving_tds || 0),
+    game_count: toNumber(totals.game_count) + toNumber(stat.game_count),
+    passing_yards: toNumber(totals.passing_yards) + toNumber(stat.passing_yards),
+    passing_tds: toNumber(totals.passing_tds) + toNumber(stat.passing_tds),
+    passing_interceptions: toNumber(totals.passing_interceptions) + toNumber(stat.passing_interceptions),
+    sacks_suffered: toNumber(totals.sacks_suffered) + toNumber(stat.sacks_suffered),
+    attempts: toNumber(totals.attempts) + toNumber(stat.attempts),
+    completions: toNumber(totals.completions) + toNumber(stat.completions),
+    pressures: toNumber(totals.pressures) + toNumber(stat.pressures),
+    rushing_yards: toNumber(totals.rushing_yards) + toNumber(stat.rushing_yards),
+    rushing_tds: toNumber(totals.rushing_tds) + toNumber(stat.rushing_tds),
+    carries: toNumber(totals.carries) + toNumber(stat.carries),
+    targets: toNumber(totals.targets) + toNumber(stat.targets),
+    receptions: toNumber(totals.receptions) + toNumber(stat.receptions),
+    receiving_yards: toNumber(totals.receiving_yards) + toNumber(stat.receiving_yards),
+    receiving_tds: toNumber(totals.receiving_tds) + toNumber(stat.receiving_tds),
+    receiving_epa: toNumber(totals.receiving_epa) + toNumber(stat.receiving_epa),
     // Defensive totals
-    def_tackles_solo: Number(totals.def_tackles_solo || 0) + Number(stat.def_tackles_solo || 0),
-    def_tackle_assists: Number(totals.def_tackle_assists || 0) + Number(stat.def_tackle_assists || 0),
-    def_sacks: Number(totals.def_sacks || 0) + Number(stat.def_sacks || 0),
-    def_interceptions: Number(totals.def_interceptions || 0) + Number(stat.def_interceptions || 0),
-    fumble_recovery_own: Number(totals.fumble_recovery_own || 0) + Number(stat.fumble_recovery_own || 0),
-    fumble_recovery_opp: Number(totals.fumble_recovery_opp || 0) + Number(stat.fumble_recovery_opp || 0),
-    def_tds: Number(totals.def_tds || 0) + Number(stat.def_tds || 0),
+    def_tackles_solo: toNumber(totals.def_tackles_solo) + toNumber(stat.def_tackles_solo),
+    def_tackle_assists: toNumber(totals.def_tackle_assists) + toNumber(stat.def_tackle_assists),
+    def_tackles_for_loss: toNumber(totals.def_tackles_for_loss) + toNumber(stat.def_tackles_for_loss),
+    def_tackles_for_loss_yards: toNumber(totals.def_tackles_for_loss_yards) + toNumber(stat.def_tackles_for_loss_yards),
+    def_fumbles_forced: toNumber(totals.def_fumbles_forced) + toNumber(stat.def_fumbles_forced),
+    def_sacks: toNumber(totals.def_sacks) + toNumber(stat.def_sacks),
+    def_sack_yards: toNumber(totals.def_sack_yards) + toNumber(stat.def_sack_yards),
+    def_qb_hits: toNumber(totals.def_qb_hits) + toNumber(stat.def_qb_hits),
+    def_interceptions: toNumber(totals.def_interceptions) + toNumber(stat.def_interceptions),
+    def_interception_yards: toNumber(totals.def_interception_yards) + toNumber(stat.def_interception_yards),
+    def_pass_defended: toNumber(totals.def_pass_defended) + toNumber(stat.def_pass_defended),
+    def_tds: toNumber(totals.def_tds) + toNumber(stat.def_tds),
+    def_fumbles: toNumber(totals.def_fumbles) + toNumber(stat.def_fumbles),
+    def_safeties: toNumber(totals.def_safeties) + toNumber(stat.def_safeties),
+    fumble_recovery_own: toNumber(totals.fumble_recovery_own) + toNumber(stat.fumble_recovery_own),
+    fumble_recovery_opp: toNumber(totals.fumble_recovery_opp) + toNumber(stat.fumble_recovery_opp),
   }), {});
 
   // Helper calculations
@@ -48,6 +64,11 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
   const roundEPA = val => (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(3) : '-';
   const roundCPOE = val => (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(3) : '-';
   const epaPerPlay = (epa, att) => att ? (Number(epa) / Number(att)).toFixed(3) : '-';
+  const pressureRatePct = (pressures, attempts, sacks) => {
+    const p = Number(pressures) || 0;
+    const dropbacks = (Number(attempts) || 0) + (Number(sacks) || 0);
+    return dropbacks ? ((p / dropbacks) * 100).toFixed(1) : '-';
+  };
   const catchPct = (rec, tgt) => tgt ? ((rec / tgt) * 100).toFixed(1) : '-';
   const receivingYdsPerAttempt = (yards, att) => att ? (yards / att).toFixed(2) : '-';
   // Table columns by position
@@ -60,6 +81,7 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
     { label: 'Pass TD', value: stat => displayStat(stat.passing_tds) },
     { label: 'INT', value: stat => displayStat(stat.passing_interceptions) },
     { label: 'Sacks', value: stat => displayStat(stat.sacks_suffered) },
+    { label: 'Pressure %', value: stat => pressureRatePct(stat.pressures, stat.attempts, stat.sacks_suffered) },
     { label: 'Pass EPA', value: stat => roundEPA(stat.passing_epa) },
     { label: 'EPA/Play', value: stat => epaPerPlay(stat.passing_epa, stat.attempts) },
     { label: 'CPOE', value: stat => roundCPOE(stat.passing_cpoe) },
@@ -169,6 +191,9 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
       const totalComp = stats.reduce((sum, s) => sum + (Number(s.completions) || 0), 0);
       const totalAtt = stats.reduce((sum, s) => sum + (Number(s.attempts) || 0), 0);
       return totalAtt ? ((totalComp / totalAtt) * 100).toFixed(1) : '-';
+    }
+    if (col.label === 'Pressure %') {
+      return pressureRatePct(totals.pressures, totals.attempts, totals.sacks_suffered);
     }
     return col.value(totals);
   };

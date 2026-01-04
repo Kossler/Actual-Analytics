@@ -80,6 +80,9 @@ export default function WeeklyStatsTable({
       receiving_yards: (totals.receiving_yards || 0) + (stat.receiving_yards || 0),
       receiving_tds: (totals.receiving_tds || 0) + (stat.receiving_tds || 0),
       receiving_epa: (totals.receiving_epa || 0) + (stat.receiving_epa || 0),
+      // QB pressure tracking (for pressure rate)
+      pressures: (totals.pressures || 0) + (Number(stat.pressures) || 0),
+      pressure_dropbacks: (totals.pressure_dropbacks || 0) + ((Number(stat.attempts) || 0) + (Number(stat.sacks_suffered) || 0)),
       // Defensive totals
       def_tackles_solo: (totals.def_tackles_solo || 0) + (stat.def_tackles_solo || 0),
       def_tackle_assists: (totals.def_tackle_assists || 0) + (stat.def_tackle_assists || 0),
@@ -128,6 +131,11 @@ export default function WeeklyStatsTable({
   const roundEPA = val => (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(3) : '-';
   const roundCPOE = val => (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(3) : '-';
   const epaPerPlay = (epa, att) => att ? (Number(epa) / Number(att)).toFixed(3) : '-';
+  const pressureRatePct = (pressures, attempts, sacks) => {
+    const p = Number(pressures) || 0;
+    const dropbacks = (Number(attempts) || 0) + (Number(sacks) || 0);
+    return dropbacks ? ((p / dropbacks) * 100).toFixed(1) : '-';
+  };
   const catchPct = (rec, tgt) => tgt ? ((rec / tgt) * 100).toFixed(1) : '-';
   const receivingYdsPerAttempt = (yards, att) => att ? (yards / att).toFixed(2) : '-';
 
@@ -142,6 +150,7 @@ export default function WeeklyStatsTable({
     { label: 'Pass TD', value: stat => displayStat(stat.passing_tds) },
     { label: 'INT', value: stat => displayStat(stat.passing_interceptions) },
     { label: 'Sacks', value: stat => displayStat(stat.sacks_suffered) },
+    { label: 'Pressure %', value: stat => pressureRatePct(stat.pressures, stat.attempts, stat.sacks_suffered) },
     { label: 'Pass EPA', value: stat => roundEPA(stat.passing_epa) },
     { label: 'EPA/Play', value: stat => epaPerPlay(stat.passing_epa, stat.attempts) },
     { label: 'CPOE', value: stat => roundCPOE(stat.cpoe) },

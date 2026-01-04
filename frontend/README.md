@@ -37,6 +37,7 @@ This directory contains the frontend application for Actual Analytics, an NFL pl
 - Root directory: `frontend`
 - Build command: `sh build.sh`
 - Output directory: `.vercel/output/static`
+- Cloudflare Pages → Settings → Functions: add compatibility flag `nodejs_compat` (Production + Preview)
 
 ## License
 MIT

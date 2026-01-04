@@ -24,6 +24,9 @@ cache/
 
 # Snyk policy files
 .snyk
+
+# Next.js build output (do not commit)
+frontend/.next/
 .snyk/**
 
 # Misc

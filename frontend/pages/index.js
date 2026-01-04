@@ -28,7 +28,7 @@ import {
 import { usePlayerSearch } from '../hooks/usePlayerSearch';
 
 // Utils
-import { groupStatsBySeason, sortWeeklyStats } from '../utils/statsUtils';
+import { sortWeeklyStats } from '../utils/statsUtils';
 
 /**
  * Main application component
@@ -81,7 +81,11 @@ export default function Home() {
     }
   }, [selectedPlayer, allWeeklyStats]);
   // Process stats data
-  const playerStats = groupStatsBySeason(rawPlayerStats);
+  // `rawPlayerStats` already comes from the backend as season-aggregated rows.
+  // Re-aggregating it via groupStatsBySeason() drops newer fields (e.g. TFL, QB hits).
+  const playerStats = Array.isArray(rawPlayerStats)
+    ? [...rawPlayerStats].sort((a, b) => (Number(b.season) || 0) - (Number(a.season) || 0))
+    : [];
   const weeklyStats = sortWeeklyStats(rawWeeklyStats);
 
   // Helper to normalize player object for UI compatibility
