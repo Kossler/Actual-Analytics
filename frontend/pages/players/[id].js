@@ -134,7 +134,11 @@ export default function PlayerPage({ initialPlayer }) {
       setSearchQuery('');
 
       if (normalized && normalized.gsis_id) {
-        router.replace(`/players/${normalized.gsis_id}`, undefined, { shallow: true });
+        lastResolvedPlayerIdRef.current = String(normalized.gsis_id);
+        router.push(
+          { pathname: '/players/[id]', query: { id: normalized.gsis_id } },
+          `/players/${normalized.gsis_id}`
+        );
       }
     },
     [normalizePlayer, router]

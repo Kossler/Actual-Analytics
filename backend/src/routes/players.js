@@ -385,6 +385,7 @@ router.get('/season/:season/all-stats', async (req, res) => {
         MAX(ps.player_display_name) AS player_display_name,
         MAX(ps.position) AS position,
         MAX(ps.season) AS season,
+        MAX(ps.team) AS team,
         SUM(ps.completions::FLOAT) AS completions,
         SUM(ps.attempts::FLOAT) AS attempts,
         SUM(ps.passing_yards::FLOAT) AS passing_yards,

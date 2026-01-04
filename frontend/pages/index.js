@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import { Container, Box } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
 
@@ -35,6 +36,7 @@ import { sortWeeklyStats } from '../utils/statsUtils';
  * Simplified to orchestrate components and manage high-level state
  */
 export default function Home() {
+  const router = useRouter();
   // API URL configuration
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -111,6 +113,13 @@ export default function Home() {
     console.log('[handleSelectPlayer] normalized player:', normalized);
     setSelectedPlayer(normalized);
     setSearchQuery('');
+
+    if (normalized?.gsis_id) {
+      router.push(
+        { pathname: '/players/[id]', query: { id: normalized.gsis_id } },
+        `/players/${normalized.gsis_id}`
+      );
+    }
   };
 
   return (
