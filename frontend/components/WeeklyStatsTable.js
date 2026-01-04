@@ -1,4 +1,4 @@
-import { TableHead, TableBody, TableRow, TableCell, Chip, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
+import { TableHead, TableBody, TableRow, TableCell, Chip, Select, MenuItem, FormControl, InputLabel, Tooltip, Box } from '@mui/material';
 import StatsTableWrapper from './StatsTableWrapper';
 import {
   displayStat,
@@ -54,6 +54,17 @@ export default function WeeklyStatsTable({
     def_tds: stat.def_tds != null ? stat.def_tds : (stat.def_td != null ? stat.def_td : 0),
     def_fumbles: stat.def_fumbles != null ? stat.def_fumbles : (stat.fumbles != null ? stat.fumbles : 0),
     def_safeties: stat.def_safeties != null ? stat.def_safeties : (stat.safeties != null ? stat.safeties : 0),
+    penalties: Number(stat.penalties) || 0,
+    penalty_yards: Number(stat.penalty_yards) || 0,
+    punt_returns: Number(stat.punt_returns) || 0,
+    punt_return_yards: Number(stat.punt_return_yards) || 0,
+    kickoff_returns: Number(stat.kickoff_returns) || 0,
+    kickoff_return_yards: Number(stat.kickoff_return_yards) || 0,
+    fumble_recovery_own: Number(stat.fumble_recovery_own) || 0,
+    fumble_recovery_opp: Number(stat.fumble_recovery_opp) || 0,
+    fumble_recovery_yards_own: Number(stat.fumble_recovery_yards_own) || 0,
+    fumble_recovery_yards_opp: Number(stat.fumble_recovery_yards_opp) || 0,
+    fumble_recovery_tds: Number(stat.fumble_recovery_tds) || 0,
   }));
 
   // Calculate season totals and averages using new schema
@@ -80,9 +91,6 @@ export default function WeeklyStatsTable({
       receiving_yards: (totals.receiving_yards || 0) + (stat.receiving_yards || 0),
       receiving_tds: (totals.receiving_tds || 0) + (stat.receiving_tds || 0),
       receiving_epa: (totals.receiving_epa || 0) + (stat.receiving_epa || 0),
-      // QB pressure tracking (for pressure rate)
-      pressures: (totals.pressures || 0) + (Number(stat.pressures) || 0),
-      pressure_dropbacks: (totals.pressure_dropbacks || 0) + ((Number(stat.attempts) || 0) + (Number(stat.sacks_suffered) || 0)),
       // Defensive totals
       def_tackles_solo: (totals.def_tackles_solo || 0) + (stat.def_tackles_solo || 0),
       def_tackle_assists: (totals.def_tackle_assists || 0) + (stat.def_tackle_assists || 0),
@@ -98,8 +106,17 @@ export default function WeeklyStatsTable({
       def_tds: (totals.def_tds || 0) + (stat.def_tds || 0),
       def_fumbles: (totals.def_fumbles || 0) + (stat.def_fumbles || 0),
       def_safeties: (totals.def_safeties || 0) + (stat.def_safeties || 0),
+      penalties: (totals.penalties || 0) + (stat.penalties || 0),
+      penalty_yards: (totals.penalty_yards || 0) + (stat.penalty_yards || 0),
+      punt_returns: (totals.punt_returns || 0) + (stat.punt_returns || 0),
+      punt_return_yards: (totals.punt_return_yards || 0) + (stat.punt_return_yards || 0),
+      kickoff_returns: (totals.kickoff_returns || 0) + (stat.kickoff_returns || 0),
+      kickoff_return_yards: (totals.kickoff_return_yards || 0) + (stat.kickoff_return_yards || 0),
       fumble_recovery_own: (totals.fumble_recovery_own || 0) + (stat.fumble_recovery_own || 0),
+      fumble_recovery_yards_own: (totals.fumble_recovery_yards_own || 0) + (stat.fumble_recovery_yards_own || 0),
       fumble_recovery_opp: (totals.fumble_recovery_opp || 0) + (stat.fumble_recovery_opp || 0),
+      fumble_recovery_yards_opp: (totals.fumble_recovery_yards_opp || 0) + (stat.fumble_recovery_yards_opp || 0),
+      fumble_recovery_tds: (totals.fumble_recovery_tds || 0) + (stat.fumble_recovery_tds || 0),
       // For averages (sum up for later division)
       passing_epa_per_play_sum: (totals.passing_epa_per_play_sum || 0) + (Number(stat.passing_epa_per_play) || 0),
       cpoe_sum: (totals.cpoe_sum || 0) + (Number(stat.cpoe) || 0),
@@ -125,32 +142,69 @@ export default function WeeklyStatsTable({
       ? (seasonTotals.receiving_epa_per_play_sum / seasonTotals.receiving_epa_per_play_count).toFixed(3) : null,
   };
 
+  // Values used in the "Season Total" row. Most columns are true totals, but some
+  // (like CPOE) should be shown as an average across games.
+  const seasonTotalsForDisplay = {
+    ...seasonTotals,
+    cpoe: seasonTotals.cpoe_count > 0 ? (seasonTotals.cpoe_sum / seasonTotals.cpoe_count) : null,
+  };
+
+  const averageIndicatorByLabel = {
+    // Summary-row values that are rates/averages (not simple sums)
+    'Cmp %': 'Rate/average (not a sum)',
+    'Yds/Att': 'Rate/average (not a sum)',
+    'EPA/Play': 'Rate/average (not a sum)',
+    CPOE: 'Average across games',
+    'Rush Yds/Att': 'Rate/average (not a sum)',
+    'Rush EPA/Play': 'Rate/average (not a sum)',
+    'Catch %': 'Rate/average (not a sum)',
+    'Yds/Catch': 'Rate/average (not a sum)',
+    'FG %': 'Rate/average (not a sum)',
+    'XP %': 'Rate/average (not a sum)',
+  };
+
   // Column definitions matching YearlyStatsTable
-  const completionPct = (comp, att) => att ? ((comp / att) * 100).toFixed(1) : '-';
+  const pct = (value) => (value === '-' ? '-' : `${value}%`);
+  const completionPct = (comp, att) => (att ? pct(((comp / att) * 100).toFixed(1)) : '-');
   const yardsPerAttempt = (yards, att) => att ? (yards / att).toFixed(2) : '-';
   const roundEPA = val => (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(3) : '-';
-  const roundCPOE = val => (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(3) : '-';
+  const roundCPOE = val => (val !== null && val !== undefined && !isNaN(val)) ? pct(Number(val).toFixed(3)) : '-';
   const epaPerPlay = (epa, att) => att ? (Number(epa) / Number(att)).toFixed(3) : '-';
-  const pressureRatePct = (pressures, attempts, sacks) => {
-    const p = Number(pressures) || 0;
-    const dropbacks = (Number(attempts) || 0) + (Number(sacks) || 0);
-    return dropbacks ? ((p / dropbacks) * 100).toFixed(1) : '-';
-  };
-  const catchPct = (rec, tgt) => tgt ? ((rec / tgt) * 100).toFixed(1) : '-';
+  const catchPct = (rec, tgt) => (tgt ? pct(((rec / tgt) * 100).toFixed(1)) : '-');
   const receivingYdsPerAttempt = (yards, att) => att ? (yards / att).toFixed(2) : '-';
+
+  const hasNonZero = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && Math.abs(n) > 0;
+  };
+
+  const showPuntReturns = weeklyData.some(
+    (stat) => hasNonZero(stat.punt_returns) || hasNonZero(stat.punt_return_yards)
+  );
+  const showKickReturns = weeklyData.some(
+    (stat) => hasNonZero(stat.kickoff_returns) || hasNonZero(stat.kickoff_return_yards)
+  );
+
+  const showFumbleRecovery = weeklyData.some(
+    (stat) =>
+      hasNonZero(stat.fumble_recovery_own) ||
+      hasNonZero(stat.fumble_recovery_opp) ||
+      hasNonZero(stat.fumble_recovery_yards_own) ||
+      hasNonZero(stat.fumble_recovery_yards_opp) ||
+      hasNonZero(stat.fumble_recovery_tds)
+  );
 
   // QB columns
   const columnsQB = [
     { label: 'Week', value: stat => `Wk ${stat.week}` },
     { label: 'Cmp', value: stat => displayStat(stat.completions) },
     { label: 'Att', value: stat => displayStat(stat.attempts) },
-    { label: 'Completion %', value: stat => completionPct(stat.completions, stat.attempts) },
+    { label: 'Cmp %', value: stat => completionPct(stat.completions, stat.attempts) },
     { label: 'Pass Yds', value: stat => displayStat(stat.passing_yards) },
     { label: 'Yds/Att', value: stat => yardsPerAttempt(stat.passing_yards, stat.attempts) },
     { label: 'Pass TD', value: stat => displayStat(stat.passing_tds) },
     { label: 'INT', value: stat => displayStat(stat.passing_interceptions) },
     { label: 'Sacks', value: stat => displayStat(stat.sacks_suffered) },
-    { label: 'Pressure %', value: stat => pressureRatePct(stat.pressures, stat.attempts, stat.sacks_suffered) },
     { label: 'Pass EPA', value: stat => roundEPA(stat.passing_epa) },
     { label: 'EPA/Play', value: stat => epaPerPlay(stat.passing_epa, stat.attempts) },
     { label: 'CPOE', value: stat => roundCPOE(stat.cpoe) },
@@ -182,7 +236,7 @@ export default function WeeklyStatsTable({
     { label: 'Yds/Catch', value: stat => receivingYdsPerAttempt(stat.receiving_yards, stat.receptions) },
     { label: 'Receiving Yds', value: stat => displayStat(stat.receiving_yards) },
     { label: 'Rec EPA', value: stat => roundEPA(stat.receiving_epa) },
-    { label: 'Target Share', value: stat => displayStat(stat.target_share) },
+    { label: 'Target Share', value: stat => (stat.target_share != null ? `${displayStat(stat.target_share)}%` : '-') },
     { label: 'Rush Yds/Att', value: stat => yardsPerAttempt(stat.rushing_yards, stat.carries) },
     { label: 'Rush Yds', value: stat => displayStat(stat.rushing_yards) },
     { label: 'Rush TD', value: stat => displayStat(stat.rushing_tds) },
@@ -194,10 +248,10 @@ export default function WeeklyStatsTable({
     { label: 'Week', value: stat => `Wk ${stat.week}` },
     { label: 'FG Made', value: stat => displayStat(stat.fg_made) },
     { label: 'FG Att', value: stat => displayStat(stat.fg_att) },
-    { label: 'FG %', value: stat => stat.fg_att ? ((stat.fg_made / stat.fg_att) * 100).toFixed(1) : '-' },
+    { label: 'FG %', value: stat => stat.fg_att ? pct(((stat.fg_made / stat.fg_att) * 100).toFixed(1)) : '-' },
     { label: 'XP Made', value: stat => displayStat(stat.xp_made) },
     { label: 'XP Att', value: stat => displayStat(stat.xp_att) },
-    { label: 'XP %', value: stat => stat.xp_att ? ((stat.xp_made / stat.xp_att) * 100).toFixed(1) : '-' },
+    { label: 'XP %', value: stat => stat.xp_att ? pct(((stat.xp_made / stat.xp_att) * 100).toFixed(1)) : '-' },
     { label: 'Points', value: stat => displayStat(stat.kicking_points) },
   ];
 
@@ -206,6 +260,7 @@ export default function WeeklyStatsTable({
     { label: 'Week', value: stat => `Wk ${stat.week}` },
     { label: 'Solo Tackles', value: stat => displayStat(stat.def_tackles_solo) },
     { label: 'Tackle Assists', value: stat => displayStat(stat.def_tackle_assists) },
+    { label: 'Total Tackles', value: stat => displayStat((Number(stat.def_tackles_solo) || 0) + (Number(stat.def_tackle_assists) || 0)) },
     { label: 'TFL', value: stat => displayStat(stat.def_tackles_for_loss) },
     { label: 'TFL Yards', value: stat => displayStat(stat.def_tackles_for_loss_yards) },
     { label: 'Fumbles Forced', value: stat => displayStat(stat.def_fumbles_forced) },
@@ -218,6 +273,29 @@ export default function WeeklyStatsTable({
     { label: 'Def TD', value: stat => displayStat(stat.def_tds) },
     { label: 'Fumbles', value: stat => displayStat(stat.def_fumbles) },
     { label: 'Safeties', value: stat => displayStat(stat.def_safeties) },
+    { label: 'Penalties', value: stat => displayStat(stat.penalties) },
+    { label: 'Penalty Yards', value: stat => displayStat(stat.penalty_yards) },
+    ...(showPuntReturns
+      ? [
+          { label: 'Punt Returns', value: stat => displayStat(stat.punt_returns) },
+          { label: 'Punt Return Yards', value: stat => displayStat(stat.punt_return_yards) },
+        ]
+      : []),
+    ...(showKickReturns
+      ? [
+          { label: 'Kick Returns', value: stat => displayStat(stat.kickoff_returns) },
+          { label: 'Kick Return Yards', value: stat => displayStat(stat.kickoff_return_yards) },
+        ]
+      : []),
+    ...(showFumbleRecovery
+      ? [
+          { label: 'FR Own', value: stat => displayStat(stat.fumble_recovery_own) },
+          { label: 'FR Opp', value: stat => displayStat(stat.fumble_recovery_opp) },
+          { label: 'FR Yds Own', value: stat => displayStat(stat.fumble_recovery_yards_own) },
+          { label: 'FR Yds Opp', value: stat => displayStat(stat.fumble_recovery_yards_opp) },
+          { label: 'FR TD', value: stat => displayStat(stat.fumble_recovery_tds) },
+        ]
+      : []),
   ];
 
   // Fullback columns (similar to RB, but can be customized)
@@ -325,8 +403,28 @@ export default function WeeklyStatsTable({
                     }}
                   />
                 ) : (
-                  // For totals, use seasonTotals for stat values
-                  col.value(seasonTotals)
+                  // For totals, use seasonTotalsForDisplay for stat values
+                  averageIndicatorByLabel[col.label] ? (
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
+                      <Tooltip title={averageIndicatorByLabel[col.label]} arrow>
+                        <Chip
+                          label="avg"
+                          size="small"
+                          variant="outlined"
+                          sx={{
+                            height: 18,
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                            borderColor: 'divider',
+                            color: 'text.secondary',
+                          }}
+                        />
+                      </Tooltip>
+                      <span>{col.value(seasonTotalsForDisplay)}</span>
+                    </Box>
+                  ) : (
+                    col.value(seasonTotalsForDisplay)
+                  )
                 )}
               </TableCell>
             ))}

@@ -56,9 +56,84 @@ const METRICS = [
   { value: 'receiving_epa', label: 'Receiving EPA', category: 'receiving', threshold: 40 },
   { value: 'receiving_epa_per_play', label: 'Receiving EPA/Play', category: 'receiving', threshold: 40 },
 
+  // Defensive Stats (qualified by defensive snaps)
+  { value: 'defense_snaps', label: 'Defensive Snaps', category: 'defense', threshold: 150 },
+  { value: 'def_tackles_total', label: 'Total Tackles', category: 'defense', threshold: 150 },
+  { value: 'def_tackles_solo', label: 'Solo Tackles', category: 'defense', threshold: 150 },
+  { value: 'def_tackle_assists', label: 'Assisted Tackles', category: 'defense', threshold: 150 },
+  { value: 'def_tackles_for_loss', label: 'TFL', category: 'defense', threshold: 150 },
+  { value: 'def_sacks', label: 'Sacks', category: 'defense', threshold: 150 },
+  { value: 'def_qb_hits', label: 'QB Hits', category: 'defense', threshold: 150 },
+  { value: 'def_interceptions', label: 'Interceptions', category: 'defense', threshold: 150 },
+  { value: 'def_pass_defended', label: 'Passes Defended', category: 'defense', threshold: 150 },
+  { value: 'def_fumbles_forced', label: 'Forced Fumbles', category: 'defense', threshold: 150 },
+  { value: 'def_tds', label: 'Defensive TDs', category: 'defense', threshold: 150 },
+  { value: 'penalties', label: 'Penalties', category: 'defense', threshold: 150 },
+  { value: 'penalty_yards', label: 'Penalty Yards', category: 'defense', threshold: 150 },
+  { value: 'fumble_recovery_own', label: 'FR Own', category: 'defense', threshold: 150 },
+  { value: 'fumble_recovery_opp', label: 'FR Opp', category: 'defense', threshold: 150 },
+  { value: 'fumble_recovery_yards_own', label: 'FR Yds Own', category: 'defense', threshold: 150 },
+  { value: 'fumble_recovery_yards_opp', label: 'FR Yds Opp', category: 'defense', threshold: 150 },
+  { value: 'fumble_recovery_tds', label: 'FR TD', category: 'defense', threshold: 150 },
+
+  // Return Stats (qualified by total returns)
+  { value: 'return_attempts', label: 'Returns', category: 'returns', threshold: 1 },
+  { value: 'punt_returns', label: 'Punt Returns', category: 'returns', threshold: 1 },
+  { value: 'punt_return_yards', label: 'Punt Return Yards', category: 'returns', threshold: 1 },
+  { value: 'kickoff_returns', label: 'Kick Returns', category: 'returns', threshold: 1 },
+  { value: 'kickoff_return_yards', label: 'Kick Return Yards', category: 'returns', threshold: 1 },
+
   // Overall Stats
   { value: 'epa', label: 'Total EPA', category: 'overall', threshold: 0 },
 ];
+
+const QUALIFIER_BY_CATEGORY = {
+  passing: { field: 'attempts', label: 'pass attempts' },
+  rushing: { field: 'carries', label: 'carries' },
+  receiving: { field: 'targets', label: 'targets' },
+  defense: { field: 'defense_snaps', label: 'def snaps' },
+  returns: { field: 'return_attempts', label: 'returns' },
+  overall: { field: null, label: 'qualifying stat' },
+};
+
+const meetsQualification = (player, metric) => {
+  if (!player || !metric) return false;
+  const threshold = Number(metric.threshold) || 0;
+  if (threshold <= 0) return true;
+
+  const qualifier = QUALIFIER_BY_CATEGORY[metric.category];
+  if (!qualifier?.field) return true;
+
+  const qualifierValue = Number(player[qualifier.field]) || 0;
+  return qualifierValue >= threshold;
+};
+
+const buildQualificationText = (xMetric, yMetric) => {
+  const requirementsByCategory = new Map();
+
+  const addRequirement = (metric) => {
+    if (!metric) return;
+    const threshold = Number(metric.threshold) || 0;
+    if (threshold <= 0) return;
+
+    const qualifier = QUALIFIER_BY_CATEGORY[metric.category];
+    const label = qualifier?.label || 'qualifying stat';
+    const existing = requirementsByCategory.get(metric.category);
+    if (!existing || threshold > existing.threshold) {
+      requirementsByCategory.set(metric.category, { threshold, label });
+    }
+  };
+
+  addRequirement(xMetric);
+  addRequirement(yMetric);
+
+  const requirements = Array.from(requirementsByCategory.values());
+  if (requirements.length === 0) return '';
+  if (requirements.length === 1) {
+    return `(min ${requirements[0].threshold}+ ${requirements[0].label})`;
+  }
+  return `(min ${requirements[0].threshold}+ ${requirements[0].label} & ${requirements[1].threshold}+ ${requirements[1].label})`;
+};
 
 export default function PlayerScatterPlot({ 
   playerStats, 
@@ -85,32 +160,73 @@ export default function PlayerScatterPlot({
       return { x: 'carries', y: 'rushing_epa' };
     } else if (position === 'WR' || position === 'TE') {
       return { x: 'receptions', y: 'receiving_epa' };
+    } else if ([
+      'CB', 'S', 'FS', 'SS',
+      'LB', 'ILB', 'OLB',
+      'DL', 'DE', 'DT', 'NT', 'EDGE'
+    ].includes(position)) {
+      return { x: 'defense_snaps', y: 'def_sacks' };
     } else {
       // QB and others default to passing
       return { x: 'attempts', y: 'passing_epa' };
     }
   };
 
-  // Always use a valid metric for defaults
-  const defaultAxes = useMemo(() => {
-    const axes = getDefaultAxes(selectedPlayer?.position);
-    // Validate x
-    const validX = METRICS.some(m => m.value === axes.x) ? axes.x : METRICS[0].value;
-    // Validate y
-    const validY = METRICS.some(m => m.value === axes.y) ? axes.y : METRICS[0].value;
-    return { x: validX, y: validY };
+  const getAllowedCategoriesForPosition = (position) => {
+    if (!position) return ['passing', 'rushing', 'receiving', 'defense', 'returns', 'overall'];
+    if (position === 'QB') return ['passing', 'rushing', 'overall'];
+    if (position === 'RB' || position === 'FB') return ['rushing', 'receiving', 'returns', 'overall'];
+    if (position === 'WR' || position === 'TE') return ['receiving', 'returns', 'overall'];
+    if (['CB', 'S', 'FS', 'SS'].includes(position)) return ['defense', 'returns'];
+    if ([
+      'CB', 'S', 'FS', 'SS',
+      'LB', 'ILB', 'OLB',
+      'DL', 'DE', 'DT', 'NT', 'EDGE'
+    ].includes(position)) {
+      return ['defense'];
+    }
+    if (position === 'K' || position === 'P') return ['overall'];
+    return ['passing', 'rushing', 'receiving', 'defense', 'returns', 'overall'];
+  };
+
+  const allowedCategories = useMemo(() => {
+    return getAllowedCategoriesForPosition(selectedPlayer?.position);
   }, [selectedPlayer?.position]);
 
-  const [xAxis, setXAxis] = useState(defaultAxes.x);
-  const [yAxis, setYAxis] = useState(defaultAxes.y);
+  const allowedMetrics = useMemo(() => {
+    return METRICS.filter(m => allowedCategories.includes(m.category));
+  }, [allowedCategories]);
+
+  const allowedMetricValues = useMemo(() => {
+    return new Set(allowedMetrics.map(m => m.value));
+  }, [allowedMetrics]);
+
+  // Always use a valid metric for defaults (based on allowed metrics for this position)
+  const defaultAxes = useMemo(() => {
+    const axes = getDefaultAxes(selectedPlayer?.position);
+    const fallbackX = allowedMetrics[0]?.value || METRICS[0].value;
+    const validX = allowedMetricValues.has(axes.x) ? axes.x : fallbackX;
+    const fallbackY = allowedMetrics.find(m => m.value !== validX)?.value || fallbackX;
+    const validY = allowedMetricValues.has(axes.y) ? axes.y : fallbackY;
+    return { x: validX, y: validY };
+  }, [selectedPlayer?.position, allowedMetrics, allowedMetricValues]);
+
+  const [xAxis, setXAxis] = useState(() => defaultAxes.x);
+  const [yAxis, setYAxis] = useState(() => defaultAxes.y);
   const [copySuccess, setCopySuccess] = useState(false);
   const chartRef = useRef(null);
 
-  // Update axes when selected player position changes
+  const qualificationText = useMemo(() => {
+    const xMetric = METRICS.find(m => m.value === xAxis);
+    const yMetric = METRICS.find(m => m.value === yAxis);
+    return buildQualificationText(xMetric, yMetric);
+  }, [xAxis, yAxis]);
+
+  // Keep axes valid when selected player (or allowed metrics) change
   useEffect(() => {
-    setXAxis(defaultAxes.x);
-    setYAxis(defaultAxes.y);
-  }, [defaultAxes.x, defaultAxes.y]);
+    if (!allowedMetricValues.has(xAxis)) setXAxis(defaultAxes.x);
+    if (!allowedMetricValues.has(yAxis)) setYAxis(defaultAxes.y);
+  }, [allowedMetricValues, xAxis, yAxis, defaultAxes.x, defaultAxes.y]);
 
   // Function to capture chart as image using canvas
   const captureChart = async () => {
@@ -128,7 +244,7 @@ export default function PlayerScatterPlot({
       // Get the title and subtitle text
       const titleElement = cardElement.querySelector('.MuiCardHeader-title');
       const title = titleElement ? titleElement.textContent : 'Player Comparison';
-      const subtitle = `${selectedYear} - Top 32 players (min ${xThreshold}+ qualifying stat)`;
+      const subtitle = `${selectedYear} - Top 32 players${qualificationText ? ` ${qualificationText}` : ''}`;
 
       // Get actual SVG dimensions
       const svgRect = svgElement.getBoundingClientRect();
@@ -311,6 +427,8 @@ export default function PlayerScatterPlot({
     if (!allPlayerStats || allPlayerStats.length === 0) return [];
     return allPlayerStats.map(stat => {
       const position = stat.position;
+      const puntReturns = Number(stat.punt_returns) || 0;
+      const kickoffReturns = Number(stat.kickoff_returns) || 0;
       return {
         playerId: stat.player_id,
         name: stat.player_display_name,
@@ -333,6 +451,29 @@ export default function PlayerScatterPlot({
         receiving_epa: Number(stat.receiving_epa) || 0,
         receiving_tds: Number(stat.receiving_tds) || 0,
         receiving_yards: Number(stat.receiving_yards) || 0,
+        defense_snaps: Number(stat.defense_snaps) || 0,
+        def_tackles_solo: Number(stat.def_tackles_solo) || 0,
+        def_tackle_assists: Number(stat.def_tackle_assists) || 0,
+        def_tackles_for_loss: Number(stat.def_tackles_for_loss) || 0,
+        def_sacks: Number(stat.def_sacks) || 0,
+        def_qb_hits: Number(stat.def_qb_hits) || 0,
+        def_interceptions: Number(stat.def_interceptions) || 0,
+        def_pass_defended: Number(stat.def_pass_defended) || 0,
+        def_fumbles_forced: Number(stat.def_fumbles_forced) || 0,
+        def_tds: Number(stat.def_tds) || 0,
+        def_tackles_total: (Number(stat.def_tackles_solo) || 0) + (Number(stat.def_tackle_assists) || 0),
+        penalties: Number(stat.penalties) || 0,
+        penalty_yards: Number(stat.penalty_yards) || 0,
+        punt_returns: puntReturns,
+        punt_return_yards: Number(stat.punt_return_yards) || 0,
+        kickoff_returns: kickoffReturns,
+        kickoff_return_yards: Number(stat.kickoff_return_yards) || 0,
+        return_attempts: puntReturns + kickoffReturns,
+        fumble_recovery_own: Number(stat.fumble_recovery_own) || 0,
+        fumble_recovery_yards_own: Number(stat.fumble_recovery_yards_own) || 0,
+        fumble_recovery_opp: Number(stat.fumble_recovery_opp) || 0,
+        fumble_recovery_yards_opp: Number(stat.fumble_recovery_yards_opp) || 0,
+        fumble_recovery_tds: Number(stat.fumble_recovery_tds) || 0,
         // Derived metrics
         passing_epa_per_play: stat.attempts > 0 ? (Number(stat.passing_epa) / Number(stat.attempts)) : 0,
         cpoe: Number(stat.passing_cpoe) || 0,
@@ -366,6 +507,9 @@ export default function PlayerScatterPlot({
     // Remove the selected player from the group
     let others = groupPlayers.filter(player => player.playerId !== selectedPlayerId);
 
+    // Enforce qualification thresholds for both selected axes (by category)
+    others = others.filter(player => meetsQualification(player, xMetric) && meetsQualification(player, yMetric));
+
     // Sort the rest by y-axis value (descending)
     others = others.sort((a, b) => (b[yAxis] || 0) - (a[yAxis] || 0));
 
@@ -395,7 +539,6 @@ export default function PlayerScatterPlot({
 
   const xMetricLabel = METRICS.find(m => m.value === xAxis)?.label || 'X-Axis';
   const yMetricLabel = METRICS.find(m => m.value === yAxis)?.label || 'Y-Axis';
-  const xThreshold = METRICS.find(m => m.value === xAxis)?.threshold || 0;
 
   // Calculate axis domains with padding for better readability
   const xDomain = useMemo(() => {
@@ -451,7 +594,7 @@ export default function PlayerScatterPlot({
     <Card sx={{ mb: 4 }}>
       <CardHeader
         title="Player Comparison"
-        subheader={`Top 32 players for ${selectedYear} (min ${xThreshold}+ qualifying stat)`}
+        subheader={`Top 32 players for ${selectedYear}${qualificationText ? ` ${qualificationText}` : ''}`}
         titleTypographyProps={{ variant: 'h6', fontWeight: 600 }}
         subheaderTypographyProps={{ variant: 'body2' }}
         action={
@@ -499,28 +642,48 @@ export default function PlayerScatterPlot({
                 onChange={(e) => setXAxis(e.target.value)}
                 label="X-Axis"
               >
-                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1 }}>
-                  Passing Stats
-                </MenuItem>
-                {METRICS.filter(m => m.category === 'passing').map(m => (
+                {allowedCategories.includes('passing') && (
+                  <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1 }}>
+                    Passing Stats
+                  </MenuItem>
+                )}
+                {METRICS.filter(m => m.category === 'passing' && allowedCategories.includes('passing')).map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
-                  Rushing Stats
-                </MenuItem>
-                {METRICS.filter(m => m.category === 'rushing').map(m => (
+
+                {allowedCategories.includes('rushing') && (
+                  <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
+                    Rushing Stats
+                  </MenuItem>
+                )}
+                {METRICS.filter(m => m.category === 'rushing' && allowedCategories.includes('rushing')).map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
-                  Receiving Stats
-                </MenuItem>
-                {METRICS.filter(m => m.category === 'receiving').map(m => (
+
+                {allowedCategories.includes('receiving') && (
+                  <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
+                    Receiving Stats
+                  </MenuItem>
+                )}
+                {METRICS.filter(m => m.category === 'receiving' && allowedCategories.includes('receiving')).map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
-                  Overall Stats
-                </MenuItem>
-                {METRICS.filter(m => m.category === 'overall').map(m => (
+
+                {allowedCategories.includes('defense') && (
+                  <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
+                    Defensive Stats
+                  </MenuItem>
+                )}
+                {METRICS.filter(m => m.category === 'defense' && allowedCategories.includes('defense')).map(m => (
+                  <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
+                ))}
+
+                {allowedCategories.includes('overall') && (
+                  <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
+                    Overall Stats
+                  </MenuItem>
+                )}
+                {METRICS.filter(m => m.category === 'overall' && allowedCategories.includes('overall')).map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
               </Select>
@@ -534,28 +697,48 @@ export default function PlayerScatterPlot({
                 onChange={(e) => setYAxis(e.target.value)}
                 label="Y-Axis"
               >
-                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1 }}>
-                  Passing Stats
-                </MenuItem>
-                {METRICS.filter(m => m.category === 'passing').map(m => (
+                {allowedCategories.includes('passing') && (
+                  <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1 }}>
+                    Passing Stats
+                  </MenuItem>
+                )}
+                {METRICS.filter(m => m.category === 'passing' && allowedCategories.includes('passing')).map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
-                  Rushing Stats
-                </MenuItem>
-                {METRICS.filter(m => m.category === 'rushing').map(m => (
+
+                {allowedCategories.includes('rushing') && (
+                  <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
+                    Rushing Stats
+                  </MenuItem>
+                )}
+                {METRICS.filter(m => m.category === 'rushing' && allowedCategories.includes('rushing')).map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
-                  Receiving Stats
-                </MenuItem>
-                {METRICS.filter(m => m.category === 'receiving').map(m => (
+
+                {allowedCategories.includes('receiving') && (
+                  <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
+                    Receiving Stats
+                  </MenuItem>
+                )}
+                {METRICS.filter(m => m.category === 'receiving' && allowedCategories.includes('receiving')).map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
-                <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
-                  Overall Stats
-                </MenuItem>
-                {METRICS.filter(m => m.category === 'overall').map(m => (
+
+                {allowedCategories.includes('defense') && (
+                  <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
+                    Defensive Stats
+                  </MenuItem>
+                )}
+                {METRICS.filter(m => m.category === 'defense' && allowedCategories.includes('defense')).map(m => (
+                  <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
+                ))}
+
+                {allowedCategories.includes('overall') && (
+                  <MenuItem disabled sx={{ fontWeight: 700, color: '#90caf9', fontSize: '0.95rem', backgroundColor: 'rgba(25, 118, 210, 0.08)', py: 1, mt: 1 }}>
+                    Overall Stats
+                  </MenuItem>
+                )}
+                {METRICS.filter(m => m.category === 'overall' && allowedCategories.includes('overall')).map(m => (
                   <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
                 ))}
               </Select>

@@ -1,7 +1,7 @@
 export const runtime = 'experimental-edge';
 // Enable Edge Runtime for Cloudflare Pages Functions (Next.js 15.x)
 import { useRouter } from 'next/router';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Container, Box } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
 import theme from '../../theme/theme';
@@ -14,7 +14,6 @@ import AdvancedMetricsTable from '../../components/AdvancedMetricsTable';
 import PlayerScatterPlot from '../../components/PlayerScatterPlot';
 import { sortWeeklyStats } from '../../utils/statsUtils';
 import {
-  useAllPlayers,
   usePlayerStats,
   useWeeklyStats,
   useAllWeeklyStats,
@@ -32,6 +31,7 @@ export default function PlayerPage({ initialPlayer }) {
   const router = useRouter();
   const { id: gsis_id } = router.query;
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const lastResolvedPlayerIdRef = useRef(null);
 
   // Background image (with 1% chance of special variant)
   const backgroundImage = useBackgroundImage(0.01);
@@ -41,7 +41,6 @@ export default function PlayerPage({ initialPlayer }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const { players: searchPlayers } = usePlayerSearch(apiUrl, searchQuery);
-  const { players: allPlayers } = useAllPlayers(apiUrl);
   const { stats: rawPlayerStats, loading: statsLoading } = usePlayerStats(selectedPlayer?.gsis_id || gsis_id, apiUrl);
   const { weeklyStats: rawWeeklyStats } = useWeeklyStats(selectedPlayer?.gsis_id || gsis_id, apiUrl, selectedYear);
   const { allWeeklyStats } = useAllWeeklyStats(selectedPlayer?.gsis_id || gsis_id, apiUrl);
@@ -49,160 +48,122 @@ export default function PlayerPage({ initialPlayer }) {
   const { allStats } = useAllPlayerStats(apiUrl, selectedYear);
   const { availableYears } = useAvailableYears(apiUrl);
 
+  // Resolve selected player when navigating directly to /players/:id.
+  // Prefer SSR-provided initialPlayer; otherwise fetch minimal metadata once per gsis_id.
+  useEffect(() => {
+    if (!gsis_id) return;
 
-    // Robust player selection and fallback logic
-    useEffect(() => {
-      if (!gsis_id) return;
-      // Debug: log the gsis_id and allPlayers
-      // eslint-disable-next-line no-console
-      console.log('[PlayerPage] gsis_id from URL:', gsis_id);
-      // eslint-disable-next-line no-console
-      console.log('[PlayerPage] allPlayers:', allPlayers);
-      // Log all gsis_id values for debugging
-      if (allPlayers.length > 0) {
-        const allGsisIds = allPlayers.map(p => p.gsis_id);
-        console.log('[PlayerPage] allPlayers gsis_ids:', allGsisIds);
-        // Try strict match, then fallback to trimmed match
-        let found = allPlayers.find(p => p.gsis_id === gsis_id);
-        if (!found) {
-          found = allPlayers.find(p => (p.gsis_id || '').trim() === (gsis_id || '').trim());
-          if (found) {
-            console.log('[PlayerPage] found player with trimmed match:', found);
-          }
-        }
-        console.log('[PlayerPage] found player:', found);
-        if (found) {
-          if (!selectedPlayer || selectedPlayer.gsis_id !== found.gsis_id) {
-            setSelectedPlayer(found);
-          }
-          // removed invalid bare return
-        }
-      }
-      // Fallback: fetch player metadata from backend if not found in allPlayers
-      const fetchPlayerById = async () => {
-        try {
-          const res = await fetch(`${apiUrl}/api/players/${gsis_id}`);
-          if (res.ok) {
-            const player = await res.json();
-            console.log('[PlayerPage] fetched player from /api/players/:gsis_id:', player);
-            if (!selectedPlayer || selectedPlayer.gsis_id !== player.gsis_id) {
-              setSelectedPlayer(player);
-            }
-          } else {
-            console.warn('[PlayerPage] Player not found in backend:', gsis_id);
-          }
-        } catch (err) {
-          console.error('[PlayerPage] Error fetching player by gsis_id:', err);
-        }
-      };
-      fetchPlayerById();
-      // Fallback: if stats loaded and no selectedPlayer, build from stats
-      if (allPlayers.length > 0 && rawPlayerStats && rawPlayerStats.length > 0) {
-        const base = rawPlayerStats[0];
-        if (!selectedPlayer || selectedPlayer.gsis_id !== (base.gsis_id || gsis_id)) {
-          setSelectedPlayer({
-            id: base.gsis_id || gsis_id || 'unknown',
-            gsis_id: base.gsis_id || gsis_id || 'unknown',
-            name: base.display_name || base.name || 'Unknown Player',
-            display_name: base.display_name || base.name || 'Unknown Player',
-            team: base.latest_team || base.team_name || base.team || 'Unknown',
-            position: base.position || 'N/A',
-            ...base,
-          });
-        }
-      }
-    }, [gsis_id, allPlayers, rawPlayerStats]);
+    const currentId = String(gsis_id);
+    if (lastResolvedPlayerIdRef.current === currentId) return;
 
-    // If navigated directly, set selectedPlayer from allPlayers or fallback to stats
-    useEffect(() => {
-      if (!gsis_id) return;
-      // Try to find player in allPlayers and merge with stats if available
-      if (allPlayers.length > 0) {
-        const found = allPlayers.find(p => p.gsis_id === gsis_id);
-        if (found) {
-          // If stats are loaded, merge stats fields into found
-          let merged = { ...found };
-          if (rawPlayerStats && rawPlayerStats.length > 0) {
-            const base = rawPlayerStats[0];
-            merged = {
-              ...merged,
-              ...base,
-              // Prefer allPlayers for these fields if present
-              display_name: found.display_name || base.display_name || base.name || 'Unknown Player',
-              name: found.display_name || base.display_name || base.name || 'Unknown Player',
-              team: found.latest_team || found.team || base.latest_team || base.team_name || base.team || 'Unknown',
-              team_name: found.latest_team || found.team || base.latest_team || base.team_name || base.team || 'Unknown',
-              position: found.position || base.position || 'N/A',
-            };
-          }
-          setSelectedPlayer(merged);
-          // removed invalid bare return
-        }
-      }
-      // Fallback: if stats loaded and no selectedPlayer, build from stats
-      if (!selectedPlayer && rawPlayerStats && rawPlayerStats.length > 0) {
-        const base = rawPlayerStats[0];
-        setSelectedPlayer({
-          id: base.gsis_id || gsis_id || 'unknown',
-          gsis_id: base.gsis_id || gsis_id || 'unknown',
-          name: base.display_name || base.name || 'Unknown Player',
-          display_name: base.display_name || base.name || 'Unknown Player',
-          team: base.latest_team || base.team_name || base.team || 'Unknown',
-          team_name: base.latest_team || base.team_name || base.team || 'Unknown',
-          position: base.position || 'N/A',
-          ...base,
-        });
-      }
-    }, [gsis_id, allPlayers, rawPlayerStats]);
+    // If SSR already provided the correct player, use it and skip fetch.
+    if (initialPlayer && initialPlayer.gsis_id === currentId) {
+      setSelectedPlayer(initialPlayer);
+      lastResolvedPlayerIdRef.current = currentId;
+      return;
+    }
 
-    // Update selectedYear when player changes to most recent available year
-    useEffect(() => {
-      if (selectedPlayer && allWeeklyStats.length > 0) {
-        const years = [...new Set(allWeeklyStats.map(s => s.season))].sort((a, b) => b - a);
-        if (years.length > 0) {
-          setSelectedYear(years[0]);
-        }
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/players/${currentId}`, { signal: controller.signal });
+        if (!res.ok) return;
+        const player = await res.json();
+        setSelectedPlayer(player);
+        lastResolvedPlayerIdRef.current = currentId;
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+        // eslint-disable-next-line no-console
+        console.error('[PlayerPage] Error fetching player by gsis_id:', err);
       }
-    }, [selectedPlayer, allWeeklyStats]);
+    })();
+
+    return () => controller.abort();
+  }, [gsis_id, apiUrl, initialPlayer]);
+
+  const availableYearsFromWeekly = useMemo(() => {
+    if (!allWeeklyStats || allWeeklyStats.length === 0) return [];
+    return [...new Set(allWeeklyStats.map(s => s.season))].sort((a, b) => b - a);
+  }, [allWeeklyStats]);
+
+  // Update selectedYear when player changes to most recent available year (but don't fight user changes).
+  useEffect(() => {
+    const playerId = selectedPlayer?.gsis_id || gsis_id;
+    if (!playerId || availableYearsFromWeekly.length === 0) return;
+    if (lastResolvedPlayerIdRef.current !== String(playerId)) return;
+
+    if (!availableYearsFromWeekly.includes(selectedYear)) {
+      setSelectedYear(availableYearsFromWeekly[0]);
+    }
+  }, [selectedPlayer?.gsis_id, gsis_id, availableYearsFromWeekly, selectedYear]);
 
     // Process stats data
     // `rawPlayerStats` already comes from the backend as season-aggregated rows.
     // Re-aggregating it via groupStatsBySeason() drops newer fields (e.g. TFL, QB hits).
-    const playerStats = Array.isArray(rawPlayerStats)
-      ? [...rawPlayerStats].sort((a, b) => (Number(b.season) || 0) - (Number(a.season) || 0))
-      : [];
-    const weeklyStats = sortWeeklyStats(rawWeeklyStats);
+  const playerStats = useMemo(() => {
+    if (!Array.isArray(rawPlayerStats)) return [];
+    return [...rawPlayerStats].sort((a, b) => (Number(b.season) || 0) - (Number(a.season) || 0));
+  }, [rawPlayerStats]);
 
-    // Helper to normalize player object for UI compatibility
-    function normalizePlayer(player) {
-      if (!player) return null;
-      return {
-        ...player,
-        id: player.gsis_id,
-        gsis_id: player.gsis_id,
-        name: player.display_name || player.name || 'Unknown Player',
-        display_name: player.display_name || player.name || 'Unknown Player',
-        team: player.latest_team || player.team || player.team_name || 'Unknown',
-        team_name: player.latest_team || player.team || player.team_name || 'Unknown',
-        position: player.position || 'N/A',
-      };
-    }
-    const normalizedSearchPlayers = searchPlayers.map(normalizePlayer);
-    const normalizedAllPlayers = allPlayers.map(normalizePlayer);
+  const weeklyStats = useMemo(() => sortWeeklyStats(rawWeeklyStats), [rawWeeklyStats]);
+
+  const normalizePlayer = useCallback((player) => {
+    if (!player) return null;
+    return {
+      ...player,
+      id: player.gsis_id,
+      gsis_id: player.gsis_id,
+      name: player.display_name || player.name || 'Unknown Player',
+      display_name: player.display_name || player.name || 'Unknown Player',
+      team: player.latest_team || player.team || player.team_name || 'Unknown',
+      team_name: player.latest_team || player.team || player.team_name || 'Unknown',
+      position: player.position || 'N/A',
+    };
+  }, []);
+
+  const normalizedSearchPlayers = useMemo(
+    () => (Array.isArray(searchPlayers) ? searchPlayers.map(normalizePlayer) : []),
+    [searchPlayers, normalizePlayer]
+  );
 
     // Handle player selection
-    const handleSelectPlayer = (player) => {
+  const handleSelectPlayer = useCallback(
+    (player) => {
       const normalized = normalizePlayer(player);
       setSelectedPlayer(normalized);
       setSearchQuery('');
-      // Update URL to reflect selected player
+
       if (normalized && normalized.gsis_id) {
         router.replace(`/players/${normalized.gsis_id}`, undefined, { shallow: true });
       }
-    };
+    },
+    [normalizePlayer, router]
+  );
 
     // Always normalize selectedPlayer before passing to UI components
-    const normalizedSelectedPlayer = normalizePlayer(selectedPlayer);
+  const normalizedSelectedPlayer = useMemo(
+    () => normalizePlayer(selectedPlayer),
+    [selectedPlayer, normalizePlayer]
+  );
+
+  const isDefensivePlayer = useMemo(() => {
+    const pos = String(normalizedSelectedPlayer?.position || '').toUpperCase();
+    const defensivePositions = new Set([
+      // Secondary
+      'CB', 'S', 'FS', 'SS', 'DB', 'SAF', 'COR',
+      // Linebackers
+      'LB', 'ILB', 'OLB', 'MLB', 'WLB', 'SLB',
+      // Defensive line / front
+      'DL', 'DE', 'DT', 'NT', 'EDGE',
+      // Team defenses / misc
+      'DEF', 'DST',
+    ]);
+
+    if (defensivePositions.has(pos)) return true;
+
+    // Some feeds provide compound labels like "LB/EDGE" or similar.
+    return pos.includes('LB') || pos.includes('DL') || pos.includes('DB') || pos.includes('EDGE');
+  }, [normalizedSelectedPlayer?.position]);
 
     // If no player is selected, show search and allow navigation back to homepage
     return (
@@ -235,7 +196,7 @@ export default function PlayerPage({ initialPlayer }) {
 
             {/* Search Bar */}
             <SearchBar
-              players={searchQuery ? normalizedSearchPlayers : normalizedAllPlayers}
+              players={normalizedSearchPlayers}
               selectedPlayer={normalizedSelectedPlayer}
               onSelectPlayer={handleSelectPlayer}
               searchQuery={searchQuery}
@@ -261,19 +222,21 @@ export default function PlayerPage({ initialPlayer }) {
                   loading={statsLoading}
                   selectedYear={selectedYear}
                   onYearChange={setSelectedYear}
-                  availableYears={allWeeklyStats.length > 0 ? [...new Set(allWeeklyStats.map(s => s.season))].sort((a, b) => b - a) : []}
+                  availableYears={availableYearsFromWeekly}
                 />
                 <YearlyStatsTable
                   playerStats={playerStats}
                   position={normalizedSelectedPlayer.position}
                   loading={statsLoading}
                 />
-                <AdvancedMetricsTable
-                  advancedMetrics={advancedMetrics}
-                  position={normalizedSelectedPlayer.position}
-                  playerStats={playerStats}
-                  loading={false}
-                />
+                {!isDefensivePlayer && (
+                  <AdvancedMetricsTable
+                    advancedMetrics={advancedMetrics}
+                    position={normalizedSelectedPlayer.position}
+                    playerStats={playerStats}
+                    loading={false}
+                  />
+                )}
                 <PlayerScatterPlot
                   playerStats={rawPlayerStats}
                   weeklyStats={weeklyStats}
@@ -282,11 +245,7 @@ export default function PlayerPage({ initialPlayer }) {
                   allPlayerStats={allStats}
                   selectedYear={selectedYear}
                   onYearChange={setSelectedYear}
-                  availableYears={
-                    allWeeklyStats.length > 0
-                      ? [...new Set(allWeeklyStats.map(s => s.season))].sort((a, b) => b - a)
-                      : []
-                  }
+                  availableYears={availableYearsFromWeekly.length > 0 ? availableYearsFromWeekly : availableYears}
                 />
               </>
             )}

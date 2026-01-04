@@ -1,4 +1,4 @@
-import { TableHead, TableBody, TableRow, TableCell, Box, Chip } from '@mui/material';
+import { TableHead, TableBody, TableRow, TableCell, Box, Chip, Tooltip } from '@mui/material';
 import StatsTableWrapper from './StatsTableWrapper';
 import {
   displayStat,
@@ -30,7 +30,6 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
     sacks_suffered: toNumber(totals.sacks_suffered) + toNumber(stat.sacks_suffered),
     attempts: toNumber(totals.attempts) + toNumber(stat.attempts),
     completions: toNumber(totals.completions) + toNumber(stat.completions),
-    pressures: toNumber(totals.pressures) + toNumber(stat.pressures),
     rushing_yards: toNumber(totals.rushing_yards) + toNumber(stat.rushing_yards),
     rushing_tds: toNumber(totals.rushing_tds) + toNumber(stat.rushing_tds),
     carries: toNumber(totals.carries) + toNumber(stat.carries),
@@ -59,29 +58,24 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
   }), {});
 
   // Helper calculations
-  const completionPct = (comp, att) => att ? ((comp / att) * 100).toFixed(1) : '-';
+  const pct = (value) => (value === '-' ? '-' : `${value}%`);
+  const completionPct = (comp, att) => (att ? pct(((comp / att) * 100).toFixed(1)) : '-');
   const yardsPerAttempt = (yards, att) => att ? (yards / att).toFixed(2) : '-';
   const roundEPA = val => (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(3) : '-';
-  const roundCPOE = val => (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(3) : '-';
+  const roundCPOE = val => (val !== null && val !== undefined && !isNaN(val)) ? pct(Number(val).toFixed(3)) : '-';
   const epaPerPlay = (epa, att) => att ? (Number(epa) / Number(att)).toFixed(3) : '-';
-  const pressureRatePct = (pressures, attempts, sacks) => {
-    const p = Number(pressures) || 0;
-    const dropbacks = (Number(attempts) || 0) + (Number(sacks) || 0);
-    return dropbacks ? ((p / dropbacks) * 100).toFixed(1) : '-';
-  };
-  const catchPct = (rec, tgt) => tgt ? ((rec / tgt) * 100).toFixed(1) : '-';
+  const catchPct = (rec, tgt) => (tgt ? pct(((rec / tgt) * 100).toFixed(1)) : '-');
   const receivingYdsPerAttempt = (yards, att) => att ? (yards / att).toFixed(2) : '-';
   // Table columns by position
   const columnsQB = [
     { label: 'Games', value: stat => Number(stat.game_count) },
     { label: 'Cmp', value: stat => displayStat(stat.completions) },
     { label: 'Att', value: stat => displayStat(stat.attempts) },
-    { label: 'Completion %', value: stat => completionPct(stat.completions, stat.attempts) },
+    { label: 'Cmp %', value: stat => completionPct(stat.completions, stat.attempts) },
     { label: 'Yds/Att', value: stat => yardsPerAttempt(stat.passing_yards, stat.attempts) },
     { label: 'Pass TD', value: stat => displayStat(stat.passing_tds) },
     { label: 'INT', value: stat => displayStat(stat.passing_interceptions) },
     { label: 'Sacks', value: stat => displayStat(stat.sacks_suffered) },
-    { label: 'Pressure %', value: stat => pressureRatePct(stat.pressures, stat.attempts, stat.sacks_suffered) },
     { label: 'Pass EPA', value: stat => roundEPA(stat.passing_epa) },
     { label: 'EPA/Play', value: stat => epaPerPlay(stat.passing_epa, stat.attempts) },
     { label: 'CPOE', value: stat => roundCPOE(stat.passing_cpoe) },
@@ -185,17 +179,31 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
       const cpoeVals = stats.map(s => Number(s.passing_cpoe)).filter(v => !isNaN(v));
       if (cpoeVals.length === 0) return '-';
       const avg = cpoeVals.reduce((a, b) => a + b, 0) / cpoeVals.length;
-      return avg.toFixed(3);
+      return pct(avg.toFixed(3));
     }
     if (col.label === 'Completion %') {
       const totalComp = stats.reduce((sum, s) => sum + (Number(s.completions) || 0), 0);
       const totalAtt = stats.reduce((sum, s) => sum + (Number(s.attempts) || 0), 0);
       return totalAtt ? ((totalComp / totalAtt) * 100).toFixed(1) : '-';
     }
-    if (col.label === 'Pressure %') {
-      return pressureRatePct(totals.pressures, totals.attempts, totals.sacks_suffered);
-    }
     return col.value(totals);
+  };
+
+  const averageIndicatorByLabel = {
+    // These are explicitly averaged across seasons in getCareerValue
+    'Pass EPA': 'Average per season',
+    'Rush EPA': 'Average per season',
+    'EPA/Play': 'Average per season',
+    'Rush EPA/Play': 'Average per season',
+    CPOE: 'Average per season',
+
+    // These are rates/derived values in the summary row (not simple sums)
+    'Cmp %': 'Rate/average (not a sum)',
+    'Yds/Att': 'Rate/average (not a sum)',
+    'Rush Yds/Att': 'Rate/average (not a sum)',
+    'Catch %': 'Rate/average (not a sum)',
+    'Yds/Catch': 'Rate/average (not a sum)',
+    'Pass EPA/Play': 'Rate/average (not a sum)',
   };
 
   return (
@@ -250,7 +258,6 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
               backgroundColor: 'rgba(255, 255, 255, 0.05)',
               '& td': {
                 fontWeight: 'bold',
-                borderTop: '2px solid rgba(255, 255, 255, 0.2)',
                 fontSize: '0.95rem',
               },
             }}
@@ -269,7 +276,29 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
               />
             </TableCell>
             {columns.map(col => (
-              <TableCell key={col.label} align="right">{getCareerValue(col, playerStats, careerTotals)}</TableCell>
+              <TableCell key={col.label} align="right">
+                {averageIndicatorByLabel[col.label] ? (
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
+                    <Tooltip title={averageIndicatorByLabel[col.label]} arrow>
+                      <Chip
+                        label="avg"
+                        size="small"
+                        variant="outlined"
+                        sx={{
+                          height: 18,
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          borderColor: 'divider',
+                          color: 'text.secondary',
+                        }}
+                      />
+                    </Tooltip>
+                    <span>{getCareerValue(col, playerStats, careerTotals)}</span>
+                  </Box>
+                ) : (
+                  getCareerValue(col, playerStats, careerTotals)
+                )}
+              </TableCell>
             ))}
           </TableRow>
         )}

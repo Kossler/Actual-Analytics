@@ -88,16 +88,31 @@ router.get('/:gsis_id/advanced', async (req, res) => {
   }
   try {
     const query = `
+      WITH season_agg AS (
+        SELECT
+          ps.season,
+          $1::TEXT AS "playerId",
+          SUM(COALESCE(ps.passing_epa, 0)::FLOAT) AS passing_epa,
+          SUM(COALESCE(ps.rushing_epa, 0)::FLOAT) AS rushing_epa,
+          SUM(COALESCE(ps.receiving_epa, 0)::FLOAT) AS receiving_epa,
+          AVG(ps.passing_cpoe::FLOAT) AS cpoe,
+          SUM(COALESCE(ps.attempts, 0)::FLOAT) AS attempts,
+          SUM(COALESCE(ps.carries, 0)::FLOAT) AS carries
+        FROM player_stats ps
+        WHERE ps.player_id = $1 AND ps.season_type = 'REG'
+        GROUP BY ps.season
+      )
       SELECT
         season,
-        SUM(passing_epa::FLOAT + rushing_epa::FLOAT + receiving_epa::FLOAT) AS epa,
-        SUM(passing_epa::FLOAT) AS passing_epa,
-        SUM(rushing_epa::FLOAT) AS rushing_epa,
-        SUM(receiving_epa::FLOAT) AS receiving_epa,
-        AVG(passing_cpoe::FLOAT) AS cpoe
-      FROM player_stats
-      WHERE player_id = $1 AND season_type = 'REG'
-      GROUP BY season
+        "playerId",
+        (passing_epa + rushing_epa + receiving_epa) AS epa,
+        passing_epa,
+        rushing_epa,
+        receiving_epa,
+        cpoe,
+        CASE WHEN attempts > 0 THEN (passing_epa / attempts) ELSE NULL END AS passing_epa_per_play,
+        CASE WHEN carries > 0 THEN (rushing_epa / carries) ELSE NULL END AS rushing_epa_per_play
+      FROM season_agg
       ORDER BY season DESC
     `;
     const { Prisma } = require('@prisma/client');
@@ -119,25 +134,7 @@ router.get('/:gsis_id/all-weekly', async (req, res) => {
     return res.status(400).json({ error: 'Missing player GSIS ID' });
   }
   try {
-    // QB pressures faced: count of plays where participation.was_pressure = true
-    // and the player appears in participation.offense_players for that play.
-    // Note: offense_players is not reliably JSON in all datasets, so we use a regex match.
     const query = `
-      WITH pressure_counts AS (
-        SELECT
-          pbp.season AS season,
-          pbp.week AS week,
-          COUNT(*)::FLOAT AS pressures
-        FROM participation part
-        JOIN pbp
-          ON pbp.game_id = part.nflverse_game_id
-         AND pbp.play_id = part.play_id
-        WHERE pbp.season_type = 'REG'
-          AND part.was_pressure = true
-          AND part.offense_players IS NOT NULL
-          AND part.offense_players ~ ('(^|[^0-9-])' || $1 || '([^0-9-]|$)')
-        GROUP BY pbp.season, pbp.week
-      )
       SELECT
         ps.week,
         ps.season,
@@ -159,11 +156,15 @@ router.get('/:gsis_id/all-weekly', async (req, res) => {
         receiving_tds::FLOAT AS receiving_tds,
         receiving_epa::FLOAT AS receiving_epa,
         def_tackles_solo::FLOAT AS def_tackles_solo,
+        def_tackles_with_assist::FLOAT AS def_tackles_with_assist,
         def_tackle_assists::FLOAT AS def_tackle_assists,
         def_sacks::FLOAT AS def_sacks,
         def_interceptions::FLOAT AS def_interceptions,
         fumble_recovery_own::FLOAT AS fumble_recovery_own,
+        fumble_recovery_yards_own::FLOAT AS fumble_recovery_yards_own,
         fumble_recovery_opp::FLOAT AS fumble_recovery_opp,
+        fumble_recovery_yards_opp::FLOAT AS fumble_recovery_yards_opp,
+        fumble_recovery_tds::FLOAT AS fumble_recovery_tds,
         def_tds::FLOAT AS def_tds,
         def_tackles_for_loss::FLOAT AS def_tackles_for_loss,
         def_tackles_for_loss_yards::FLOAT AS def_tackles_for_loss_yards,
@@ -174,20 +175,13 @@ router.get('/:gsis_id/all-weekly', async (req, res) => {
         def_pass_defended::FLOAT AS def_pass_defended,
         def_fumbles::FLOAT AS def_fumbles,
         def_safeties::FLOAT AS def_safeties,
-        CASE
-          WHEN ps.position = 'QB' THEN COALESCE(pc.pressures, 0)::FLOAT
-          ELSE NULL
-        END AS pressures,
-        CASE
-          WHEN ps.position = 'QB'
-           AND (COALESCE(ps.attempts::FLOAT, 0) + COALESCE(ps.sacks_suffered::FLOAT, 0)) > 0
-            THEN (COALESCE(pc.pressures, 0)::FLOAT / (COALESCE(ps.attempts::FLOAT, 0) + COALESCE(ps.sacks_suffered::FLOAT, 0))) * 100
-          ELSE NULL
-        END AS pressure_rate
+        penalties::FLOAT AS penalties,
+        penalty_yards::FLOAT AS penalty_yards,
+        punt_returns::FLOAT AS punt_returns,
+        punt_return_yards::FLOAT AS punt_return_yards,
+        kickoff_returns::FLOAT AS kickoff_returns,
+        kickoff_return_yards::FLOAT AS kickoff_return_yards
       FROM player_stats ps
-      LEFT JOIN pressure_counts pc
-        ON pc.season = ps.season
-       AND pc.week = ps.week
       WHERE ps.player_id = $1 AND ps.season_type = 'REG'
       ORDER BY ps.season DESC, ps.week ASC
     `;
@@ -209,22 +203,6 @@ router.get('/:gsis_id/weekly', async (req, res) => {
   }
   try {
     const query = `
-      WITH pressure_counts AS (
-        SELECT
-          pbp.season AS season,
-          pbp.week AS week,
-          COUNT(*)::FLOAT AS pressures
-        FROM participation part
-        JOIN pbp
-          ON pbp.game_id = part.nflverse_game_id
-         AND pbp.play_id = part.play_id
-        WHERE pbp.season_type = 'REG'
-          AND pbp.season = $2
-          AND part.was_pressure = true
-          AND part.offense_players IS NOT NULL
-          AND part.offense_players ~ ('(^|[^0-9-])' || $1 || '([^0-9-]|$)')
-        GROUP BY pbp.season, pbp.week
-      )
       SELECT
         ps.week,
         ps.season,
@@ -246,11 +224,15 @@ router.get('/:gsis_id/weekly', async (req, res) => {
         receiving_tds::FLOAT AS receiving_tds,
         receiving_epa::FLOAT AS receiving_epa,
         def_tackles_solo::FLOAT AS def_tackles_solo,
+        def_tackles_with_assist::FLOAT AS def_tackles_with_assist,
         def_tackle_assists::FLOAT AS def_tackle_assists,
         def_sacks::FLOAT AS def_sacks,
         def_interceptions::FLOAT AS def_interceptions,
         fumble_recovery_own::FLOAT AS fumble_recovery_own,
+        fumble_recovery_yards_own::FLOAT AS fumble_recovery_yards_own,
         fumble_recovery_opp::FLOAT AS fumble_recovery_opp,
+        fumble_recovery_yards_opp::FLOAT AS fumble_recovery_yards_opp,
+        fumble_recovery_tds::FLOAT AS fumble_recovery_tds,
         def_tds::FLOAT AS def_tds,
         def_tackles_for_loss::FLOAT AS def_tackles_for_loss,
         def_tackles_for_loss_yards::FLOAT AS def_tackles_for_loss_yards,
@@ -261,20 +243,13 @@ router.get('/:gsis_id/weekly', async (req, res) => {
         def_pass_defended::FLOAT AS def_pass_defended,
         def_fumbles::FLOAT AS def_fumbles,
         def_safeties::FLOAT AS def_safeties,
-        CASE
-          WHEN ps.position = 'QB' THEN COALESCE(pc.pressures, 0)::FLOAT
-          ELSE NULL
-        END AS pressures,
-        CASE
-          WHEN ps.position = 'QB'
-           AND (COALESCE(ps.attempts::FLOAT, 0) + COALESCE(ps.sacks_suffered::FLOAT, 0)) > 0
-            THEN (COALESCE(pc.pressures, 0)::FLOAT / (COALESCE(ps.attempts::FLOAT, 0) + COALESCE(ps.sacks_suffered::FLOAT, 0))) * 100
-          ELSE NULL
-        END AS pressure_rate
+        penalties::FLOAT AS penalties,
+        penalty_yards::FLOAT AS penalty_yards,
+        punt_returns::FLOAT AS punt_returns,
+        punt_return_yards::FLOAT AS punt_return_yards,
+        kickoff_returns::FLOAT AS kickoff_returns,
+        kickoff_return_yards::FLOAT AS kickoff_return_yards
       FROM player_stats ps
-      LEFT JOIN pressure_counts pc
-        ON pc.season = ps.season
-       AND pc.week = ps.week
       WHERE ps.player_id = $1 AND ps.season = $2 AND ps.season_type = 'REG'
       ORDER BY ps.week ASC
     `;
@@ -297,20 +272,6 @@ router.get('/:gsis_id/stats', async (req, res) => {
   }
   try {
     const query = `
-      WITH pressure_counts AS (
-        SELECT
-          pbp.season AS season,
-          COUNT(*)::FLOAT AS pressures
-        FROM participation part
-        JOIN pbp
-          ON pbp.game_id = part.nflverse_game_id
-         AND pbp.play_id = part.play_id
-        WHERE pbp.season_type = 'REG'
-          AND part.was_pressure = true
-          AND part.offense_players IS NOT NULL
-          AND part.offense_players ~ ('(^|[^0-9-])' || $1 || '([^0-9-]|$)')
-        GROUP BY pbp.season
-      )
       SELECT
         player_stats.season AS season,
         COALESCE(SUM(completions::FLOAT),0) AS completions,
@@ -348,20 +309,8 @@ router.get('/:gsis_id/stats', async (req, res) => {
         COALESCE(SUM(def_pass_defended::FLOAT),0) AS def_pass_defended,
         COALESCE(SUM(def_fumbles::FLOAT),0) AS def_fumbles,
         COALESCE(SUM(def_safeties::FLOAT),0) AS def_safeties,
-        CASE
-          WHEN MAX(position) = 'QB' THEN COALESCE(MAX(pc.pressures), 0)::FLOAT
-          ELSE NULL
-        END AS pressures,
-        CASE
-          WHEN MAX(position) = 'QB'
-           AND (COALESCE(SUM(attempts::FLOAT),0) + COALESCE(SUM(sacks_suffered::FLOAT),0)) > 0
-            THEN (COALESCE(MAX(pc.pressures), 0)::FLOAT / (COALESCE(SUM(attempts::FLOAT),0) + COALESCE(SUM(sacks_suffered::FLOAT),0))) * 100
-          ELSE NULL
-        END AS pressure_rate,
         COUNT(*) AS game_count
       FROM player_stats
-      LEFT JOIN pressure_counts pc
-        ON pc.season = player_stats.season
       WHERE player_id = $1 AND season_type = 'REG'
       GROUP BY player_stats.season
       ORDER BY player_stats.season DESC
@@ -432,33 +381,59 @@ router.get('/season/:season/all-stats', async (req, res) => {
   try {
     const query = `
       SELECT
-        player_id,
-          MAX(player_display_name) AS player_display_name,
-        MAX(position) AS position,
-        MAX(season) AS season,
-        SUM(completions::FLOAT) AS completions,
-        SUM(attempts::FLOAT) AS attempts,
-        SUM(passing_yards::FLOAT) AS passing_yards,
-        SUM(passing_tds::FLOAT) AS passing_tds,
-        SUM(passing_interceptions::FLOAT) AS passing_interceptions,
-        SUM(sacks_suffered::FLOAT) AS sacks_suffered,
-        SUM(passing_epa::FLOAT) AS passing_epa,
-        AVG(passing_cpoe::FLOAT) AS passing_cpoe,
-        SUM(carries::FLOAT) AS carries,
-        SUM(rushing_yards::FLOAT) AS rushing_yards,
-        SUM(rushing_tds::FLOAT) AS rushing_tds,
-        SUM(rushing_epa::FLOAT) AS rushing_epa,
-        SUM(receptions::FLOAT) AS receptions,
-        SUM(targets::FLOAT) AS targets,
-        SUM(receiving_yards::FLOAT) AS receiving_yards,
-        SUM(receiving_tds::FLOAT) AS receiving_tds,
-        SUM(receiving_epa::FLOAT) AS receiving_epa,
-        SUM(target_share::FLOAT) AS target_share,
+        ps.player_id,
+        MAX(ps.player_display_name) AS player_display_name,
+        MAX(ps.position) AS position,
+        MAX(ps.season) AS season,
+        SUM(ps.completions::FLOAT) AS completions,
+        SUM(ps.attempts::FLOAT) AS attempts,
+        SUM(ps.passing_yards::FLOAT) AS passing_yards,
+        SUM(ps.passing_tds::FLOAT) AS passing_tds,
+        SUM(ps.passing_interceptions::FLOAT) AS passing_interceptions,
+        SUM(ps.sacks_suffered::FLOAT) AS sacks_suffered,
+        SUM(ps.passing_epa::FLOAT) AS passing_epa,
+        AVG(ps.passing_cpoe::FLOAT) AS passing_cpoe,
+        SUM(ps.carries::FLOAT) AS carries,
+        SUM(ps.rushing_yards::FLOAT) AS rushing_yards,
+        SUM(ps.rushing_tds::FLOAT) AS rushing_tds,
+        SUM(ps.rushing_epa::FLOAT) AS rushing_epa,
+        SUM(ps.receptions::FLOAT) AS receptions,
+        SUM(ps.targets::FLOAT) AS targets,
+        SUM(ps.receiving_yards::FLOAT) AS receiving_yards,
+        SUM(ps.receiving_tds::FLOAT) AS receiving_tds,
+        SUM(ps.receiving_epa::FLOAT) AS receiving_epa,
+        SUM(ps.target_share::FLOAT) AS target_share,
+        SUM(ps.def_tackles_solo::FLOAT) AS def_tackles_solo,
+        SUM(ps.def_tackle_assists::FLOAT) AS def_tackle_assists,
+        SUM(ps.def_sacks::FLOAT) AS def_sacks,
+        SUM(ps.def_interceptions::FLOAT) AS def_interceptions,
+        SUM(ps.def_pass_defended::FLOAT) AS def_pass_defended,
+        SUM(ps.def_qb_hits::FLOAT) AS def_qb_hits,
+        SUM(ps.def_tackles_for_loss::FLOAT) AS def_tackles_for_loss,
+        SUM(ps.def_fumbles_forced::FLOAT) AS def_fumbles_forced,
+        SUM(ps.def_tds::FLOAT) AS def_tds,
+        SUM(ps.penalties::FLOAT) AS penalties,
+        SUM(ps.penalty_yards::FLOAT) AS penalty_yards,
+        SUM(ps.punt_returns::FLOAT) AS punt_returns,
+        SUM(ps.punt_return_yards::FLOAT) AS punt_return_yards,
+        SUM(ps.kickoff_returns::FLOAT) AS kickoff_returns,
+        SUM(ps.kickoff_return_yards::FLOAT) AS kickoff_return_yards,
+        SUM(ps.fumble_recovery_own::FLOAT) AS fumble_recovery_own,
+        SUM(ps.fumble_recovery_yards_own::FLOAT) AS fumble_recovery_yards_own,
+        SUM(ps.fumble_recovery_opp::FLOAT) AS fumble_recovery_opp,
+        SUM(ps.fumble_recovery_yards_opp::FLOAT) AS fumble_recovery_yards_opp,
+        SUM(ps.fumble_recovery_tds::FLOAT) AS fumble_recovery_tds,
+        COALESCE(SUM(sc.defense_snaps::FLOAT), 0) AS defense_snaps,
         COUNT(*) AS game_count
-      FROM player_stats
-      WHERE season = $1 AND season_type = 'REG'
-      GROUP BY player_id
-      ORDER BY player_id ASC
+      FROM player_stats ps
+      LEFT JOIN players p ON p.gsis_id = ps.player_id
+      LEFT JOIN snap_counts sc ON sc.pfr_player_id = p.pfr_id
+        AND sc.season = ps.season
+        AND sc.week = ps.week
+        AND sc.game_type = 'REG'
+      WHERE ps.season = $1 AND ps.season_type = 'REG'
+      GROUP BY ps.player_id
+      ORDER BY ps.player_id ASC
     `;
     const { Prisma } = require('@prisma/client');
     const stats = await prisma.$queryRawUnsafe(query, season);

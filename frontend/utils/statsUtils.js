@@ -116,8 +116,9 @@ export function shouldShowReceivingColumns(position) {
  */
 export function shouldShowRushingColumns(position, stats = []) {
   if (position === 'QB') {
-    // For QBs, only show if they have rushing attempts
-    const yearsWithRushing = stats.filter(s => s.rushing_attempts > 0).length;
+    // For QBs, only show if they have rushing production.
+    // Our API returns `carries` (not `rushing_attempts`).
+    const yearsWithRushing = stats.filter(s => (s.carries || 0) > 0).length;
     return yearsWithRushing > 0;
   }
   return true; // Show for all other positions

@@ -9,7 +9,7 @@ export default function Header() {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2 }}>
         <Box
           component="img"
-          src="/Actual NFL Analytics icon - Alt.svg"
+          src="/logo-alt.svg"
           alt="Actual NFL Analytics Logo"
           sx={{
             height: { xs: '60px', sm: '80px' },
