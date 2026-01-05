@@ -2,20 +2,30 @@ name: Daily Data Ingestion
 
 on:
   schedule:
-    # TNF (Friday AM UTC after TNF game)
-    - cron: "30 6 * 1,2,9-12 5"
+    # All schedules are in UTC (GitHub Actions standard).
+    # Times are set to run ~3 hours after the final game of each slate ends (ET).
+    # Daylight Saving Time is handled automatically via UTC → ET conversion.
 
-    # Early Window (Sunday)
-    - cron: "0 23 * 1,2,9-12 0"
+    # TNF (Thursday Night Football)
+    # Game ends ~11:15 PM ET → Run at ~2:15 AM ET (7:15 AM UTC Friday)
+    - cron: "15 7 * 1,2,9-12 5"
 
-    # Late Window (Sunday)
-    - cron: "5 1 * 1,2,9-12 0"
+    # Sunday Early Window
+    # Games end ~4:15 PM ET → Run at ~7:15 PM ET (12:15 AM UTC Monday)
+    - cron: "15 0 * 1,2,9-12 1"
 
-    # SNF (Monday AM UTC)
-    - cron: "30 6 * 1,2,9-12 1"
+    # Sunday Late Window
+    # Games end ~7:15 PM ET → Run at ~10:15 PM ET (3:15 AM UTC Monday)
+    - cron: "15 3 * 1,2,9-12 1"
 
-    # MNF (Tuesday AM UTC)
-    - cron: "30 6 * 1,2,9-12 2"
+    # Sunday Night Football (SNF)
+    # Game ends ~11:15 PM ET → Run at ~2:15 AM ET (7:15 AM UTC Monday)
+    - cron: "15 7 * 1,2,9-12 1"
+
+    # Monday Night Football (MNF)
+    # Game ends ~11:15 PM ET → Run at ~2:15 AM ET (7:15 AM UTC Tuesday)
+    - cron: "15 7 * 1,2,9-12 2"
+
 
   workflow_dispatch:
 

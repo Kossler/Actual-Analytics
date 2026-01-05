@@ -424,11 +424,26 @@ router.get('/season/:season/all-stats', async (req, res) => {
         SUM(ps.fumble_recovery_opp::FLOAT) AS fumble_recovery_opp,
         SUM(ps.fumble_recovery_yards_opp::FLOAT) AS fumble_recovery_yards_opp,
         SUM(ps.fumble_recovery_tds::FLOAT) AS fumble_recovery_tds,
-        COALESCE(SUM(sc.defense_snaps::FLOAT), 0) AS defense_snaps,
-        COUNT(*) AS game_count
+        COALESCE(SUM(sc.defense_snaps), 0) AS defense_snaps,
+        COUNT(DISTINCT ps.week) AS game_count
       FROM player_stats ps
-      LEFT JOIN players p ON p.gsis_id = ps.player_id
-      LEFT JOIN snap_counts sc ON sc.pfr_player_id = p.pfr_id
+      LEFT JOIN (
+        SELECT
+          gsis_id,
+          MAX(pfr_id) AS pfr_id
+        FROM players
+        GROUP BY gsis_id
+      ) p ON p.gsis_id = ps.player_id
+      LEFT JOIN (
+        SELECT
+          pfr_player_id,
+          season,
+          week,
+          game_type,
+          SUM(defense_snaps::FLOAT) AS defense_snaps
+        FROM snap_counts
+        GROUP BY pfr_player_id, season, week, game_type
+      ) sc ON sc.pfr_player_id = p.pfr_id
         AND sc.season = ps.season
         AND sc.week = ps.week
         AND sc.game_type = 'REG'
