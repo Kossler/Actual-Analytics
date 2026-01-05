@@ -40,7 +40,15 @@ jobs:
       - name: Run current season data update
         env:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+          LATEST_SEASON: '1'
+          # Refresh app-critical tables (these tables contain all seasons; we load only the latest season rows).
+          TABLES: 'schedules,teams,players,rosters_weekly,player_stats,pbp,participation,snap_counts,nextgen_stats'
+          # Upsert only the tables that can change as stats are recalculated.
+          UPSERT_TABLES: 'schedules,rosters_weekly,player_stats,pbp,participation,snap_counts,nextgen_stats'
+          UPSERT: '0'
+          PROCESSES: '4'
+          CHUNK_SIZE: '50000'
         continue-on-error: true
         run: |
           cd ingest
-          echo "yes" | python load_current_season_data.py 2025 || echo "⚠️  Warning: Data update encountered errors (2025 data may not be available yet)"
+          python populate_tables.py || echo "⚠️  Warning: Data update encountered errors"

@@ -1,6 +1,7 @@
 nflreadpy>=0.1.4
 polars>=1.0.0
 pyarrow>=17.0.0
+numpy>=1.26.0
 sqlalchemy>=1.4
 psycopg2-binary
 python-dotenv

@@ -4,7 +4,32 @@ import psycopg2
 import os
 import re
 import inspect
+from datetime import datetime
 from multiprocessing import Pool, cpu_count
+
+_LATEST_SEASON_CACHE = None
+
+
+def get_latest_season_cached():
+    global _LATEST_SEASON_CACHE
+    if _LATEST_SEASON_CACHE is not None:
+        return _LATEST_SEASON_CACHE
+
+    # Best-effort detection using schedules (usually small and always has season).
+    try:
+        df = nflreadpy.load_schedules(seasons=True)
+        if df is not None and len(df) > 0 and 'season' in df.columns:
+            if isinstance(df, pl.DataFrame):
+                latest = int(df.select(pl.col('season').max()).item())
+            else:
+                latest = int(max(df['season']))
+            _LATEST_SEASON_CACHE = latest
+            return latest
+    except Exception as e:
+        print(f"WARNING: Could not auto-detect latest season via schedules: {e}")
+
+    _LATEST_SEASON_CACHE = datetime.now().year
+    return _LATEST_SEASON_CACHE
 
 # Database connection helpers
 def get_database_url():
@@ -38,6 +63,33 @@ funcs = [
     'load_officials', 'load_participation', 'load_pbp', 'load_player_stats', 'load_players', 'load_rosters',
     'load_rosters_weekly', 'load_schedules', 'load_snap_counts', 'load_team_stats', 'load_teams', 'load_trades'
 ]
+
+
+def get_selected_funcs():
+    """Select which nflreadpy loaders to run.
+
+    Env:
+      TABLES: comma-separated list of table names (e.g. "pbp,player_stats")
+      LOADERS: comma-separated list of loader function names (e.g. "load_pbp,load_player_stats")
+
+    If neither is provided, runs the full `funcs` list.
+    """
+
+    loaders_raw = os.getenv('LOADERS', '').strip()
+    tables_raw = os.getenv('TABLES', '').strip()
+
+    if loaders_raw:
+        wanted = {x.strip() for x in loaders_raw.split(',') if x.strip()}
+        selected = [f for f in funcs if f in wanted]
+        return selected
+
+    if tables_raw:
+        wanted_tables = {x.strip() for x in tables_raw.split(',') if x.strip()}
+        wanted_loaders = {f'load_{t}' for t in wanted_tables}
+        selected = [f for f in funcs if f in wanted_loaders]
+        return selected
+
+    return funcs
 
 # Table unique keys mapping
 TABLE_UNIQUE_KEYS = {
@@ -87,10 +139,37 @@ def process_table(fname, creds):
     func = getattr(nflreadpy, fname)
     args = get_default_args(func)
     sig = inspect.signature(func)
+
+    # Performance/behavior knobs
+    # - CLEAR_BEFORE_LOAD=1 will TRUNCATE a table before loading (destructive)
+    # - UPSERT=1 will update existing rows on conflict (slower than DO NOTHING)
+    # - SEASONS="2025" or "2024,2025" limits loads to specific seasons when supported by nflreadpy
+    # - LATEST_SEASON=1 auto-detects the newest season and loads only that
+    # - CHUNK_SIZE controls bulk insert batch size
+    clear_before_load = os.getenv('CLEAR_BEFORE_LOAD', '').strip().lower() in {'1', 'true', 'yes', 'y'}
+    upsert_all = os.getenv('UPSERT', '').strip().lower() in {'1', 'true', 'yes', 'y'}
+    upsert_tables_raw = os.getenv('UPSERT_TABLES', '').strip()
+    upsert_tables = None
+    if upsert_tables_raw:
+        upsert_tables = {t.strip() for t in upsert_tables_raw.split(',') if t.strip()}
+    chunk_size = int(os.getenv('CHUNK_SIZE', '50000'))
+    seasons_raw = os.getenv('SEASONS', '').strip()
+    latest_season_mode = os.getenv('LATEST_SEASON', '').strip().lower() in {'1', 'true', 'yes', 'y'}
+    seasons_filter = None
+    if seasons_raw:
+        seasons_filter = [int(s.strip()) for s in seasons_raw.split(',') if s.strip().isdigit()]
+        if not seasons_filter:
+            seasons_filter = None
     if 'seasons' in sig.parameters:
-        print(f"Loading {fname} with seasons=True...")
+        if seasons_filter is not None:
+            seasons_value = seasons_filter
+        elif latest_season_mode:
+            seasons_value = [get_latest_season_cached()]
+        else:
+            seasons_value = True
+        print(f"Loading {fname} with seasons={seasons_value}...")
         try:
-            df = func(seasons=True, **{k: v for k, v in args.items() if k != 'seasons'})
+            df = func(seasons=seasons_value, **{k: v for k, v in args.items() if k != 'seasons'})
             if df is not None and len(df) > 0:
                 print(f"Loaded {fname} data: {len(df)} rows.")
             else:
@@ -113,6 +192,7 @@ def process_table(fname, creds):
             conn.close()
             return
     table_name = fname.replace('load_', '')
+    upsert = upsert_all if upsert_tables is None else (table_name in upsert_tables)
     columns = df.columns
     col_names = ', '.join([f'"{col}"' for col in columns])
     unique_cols = TABLE_UNIQUE_KEYS.get(table_name, [])
@@ -126,7 +206,19 @@ def process_table(fname, creds):
         return
     if unique_cols:
         conflict_cols = ', '.join([f'"{col}"' for col in unique_cols])
-        insert_sql = f'INSERT INTO "{table_name}" ({col_names}) VALUES %s ON CONFLICT ({conflict_cols}) DO NOTHING'
+        if upsert:
+            updatable_cols = [c for c in columns if c not in unique_cols]
+            if updatable_cols:
+                set_clause = ', '.join([f'"{col}" = EXCLUDED."{col}"' for col in updatable_cols])
+                insert_sql = (
+                    f'INSERT INTO "{table_name}" ({col_names}) VALUES %s '
+                    f'ON CONFLICT ({conflict_cols}) DO UPDATE SET {set_clause}'
+                )
+            else:
+                insert_sql = f'INSERT INTO "{table_name}" ({col_names}) VALUES %s ON CONFLICT ({conflict_cols}) DO NOTHING'
+        else:
+            # Fastest for incremental loads when rows are append-only.
+            insert_sql = f'INSERT INTO "{table_name}" ({col_names}) VALUES %s ON CONFLICT ({conflict_cols}) DO NOTHING'
     else:
         insert_sql = f'INSERT INTO "{table_name}" ({col_names}) VALUES %s ON CONFLICT DO NOTHING'
     print(f"Populating table {table_name} with {len(df)} rows...")
@@ -142,8 +234,8 @@ def process_table(fname, creds):
                 return str(cell)
         return cell
     try:
-        cur.execute(f'TRUNCATE TABLE "{table_name}"')
-        chunk_size = 50000
+        if clear_before_load:
+            cur.execute(f'TRUNCATE TABLE "{table_name}"')
         total_rows = len(df)
         # Use .to_dicts() for fast row extraction
         dict_rows = df.to_dicts()
@@ -170,8 +262,17 @@ def worker(fname):
     process_table(fname, creds)
 
 def main():
-    with Pool(processes=min(cpu_count(), len(funcs))) as pool:
-        pool.map(worker, funcs)
+    selected_funcs = get_selected_funcs()
+    if not selected_funcs:
+        print('No loaders selected. Set TABLES or LOADERS, or leave unset to run all.')
+        return
+
+    requested = os.getenv('PROCESSES', '').strip()
+    processes = min(cpu_count(), len(selected_funcs))
+    if requested.isdigit():
+        processes = max(1, min(int(requested), len(selected_funcs)))
+    with Pool(processes=processes) as pool:
+        pool.map(worker, selected_funcs)
 
 if __name__ == "__main__":
     main()

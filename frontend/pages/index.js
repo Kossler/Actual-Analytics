@@ -9,6 +9,7 @@ import theme from '../theme/theme';
 // Components
 import Header from '../components/Header';
 import SearchBar from '../components/SearchBar';
+import HomeSeasonTables from '../components/HomeSeasonTables';
 import PlayerInfo from '../components/PlayerInfo';
 import WeeklyStatsTable from '../components/WeeklyStatsTable';
 import YearlyStatsTable from '../components/YearlyStatsTable';
@@ -45,9 +46,7 @@ export default function Home() {
 
   // Search state
   const [selectedPlayer, setSelectedPlayer] = useState(null);
-    // ...existing code...
 
-    // (moved below allPlayers declaration)
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState(2025);
 
@@ -70,8 +69,13 @@ export default function Home() {
     apiUrl
   );
   const { advancedMetrics } = useAdvancedMetrics(selectedPlayer?.id, apiUrl);
-  const { allStats } = useAllPlayerStats(apiUrl, selectedYear);
-  const { availableYears } = useAvailableYears(apiUrl);
+  const { allStats, loading: allStatsLoading } = useAllPlayerStats(apiUrl, selectedYear);
+  const { availableYears, loading: yearsLoading } = useAvailableYears(apiUrl);
+
+  const latestSeason = Array.isArray(availableYears) && availableYears.length
+    ? Math.max(...availableYears.map(y => Number(y) || 0))
+    : null;
+  const { allStats: latestAllStats, loading: latestStatsLoading } = useAllPlayerStats(apiUrl, latestSeason);
 
   // Update selectedYear when player changes to most recent available year
   useEffect(() => {
@@ -160,51 +164,12 @@ export default function Home() {
             onSearchChange={setSearchQuery}
           />
 
-          {/* Selected Player Info */}
-          {selectedPlayer && <PlayerInfo player={selectedPlayer} />}
-
-          {/* Stats Tables */}
-          {selectedPlayer && (
-            <>
-              {/* Weekly Stats for Current Season */}
-              <WeeklyStatsTable
-                weeklyStats={weeklyStats}
-                position={selectedPlayer.position}
-                playerStats={playerStats}
-                loading={false}
-                selectedYear={selectedYear}
-                onYearChange={setSelectedYear}
-                availableYears={allWeeklyStats.length > 0 ? [...new Set(allWeeklyStats.map(s => s.season))].sort((a, b) => b - a) : []}
-              />
-
-              {/* Yearly Aggregated Stats */}
-              <YearlyStatsTable
-                playerStats={playerStats}
-                position={selectedPlayer.position}
-                loading={statsLoading}
-              />
-
-              {/* Advanced Metrics (EPA, Success Rate, etc.) */}
-              <AdvancedMetricsTable
-                advancedMetrics={advancedMetrics}
-                position={selectedPlayer.position}
-                playerStats={playerStats}
-                loading={false}
-              />
-
-              {/* Player Comparison Scatter Plot */}
-              <PlayerScatterPlot
-                playerStats={rawPlayerStats}
-                weeklyStats={rawWeeklyStats}
-                advancedMetrics={advancedMetrics}
-                selectedPlayerId={selectedPlayer.gsis_id}
-                allPlayerStats={allStats}
-                selectedYear={selectedYear}
-                onYearChange={setSelectedYear}
-                availableYears={availableYears}
-              />
-            </>
-          )}
+          <HomeSeasonTables
+            season={latestSeason}
+            allStats={latestAllStats}
+            loading={yearsLoading || latestStatsLoading}
+          />
+          
         </Container>
       </Box>
     </ThemeProvider>

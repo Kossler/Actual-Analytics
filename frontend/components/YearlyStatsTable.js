@@ -93,7 +93,6 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
     { label: 'Yds/Catch', value: stat => receivingYdsPerAttempt(stat.receiving_yards, stat.receptions) },
     { label: 'Receiving Yds', value: stat => displayStat(stat.receiving_yards) },
     { label: 'Rec EPA', value: stat => roundEPA(stat.receiving_epa) },
-    { label: 'Pass EPA/Play', value: stat => epaPerPlay(stat.passing_epa, stat.attempts) },
   ];
   const columnsRB = [
     { label: 'Games', value: stat => Number(stat.game_count) },
