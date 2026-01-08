@@ -13,7 +13,7 @@ app.use(compression());
 
 // Configure CORS to allow requests from Cloudflare Pages
 const allowedOrigins = [
-  'https://actualnflanalytics.com',
+  'https://secondlevelanalytics.com',
   'https://actual-analytics.pages.dev',
   'http://localhost:3000',
   'http://localhost:3001',

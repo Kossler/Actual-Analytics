@@ -4,7 +4,7 @@
 
 ### Major Changes
 
-#### 1. Data Source Migration
+ Second Level Analytics Changelog
 - **From**: Multiple APIs (ESPN, nflverse) with fallback to generated sample data
 - **To**: Single authoritative source - **nfl-data-py** (Pro-Football-Reference)
 - **Impact**: 100% real data, 28x more records per season (from ~200 to 5,600+)

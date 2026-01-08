@@ -93,6 +93,7 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
     { label: 'Yds/Catch', value: stat => receivingYdsPerAttempt(stat.receiving_yards, stat.receptions) },
     { label: 'Receiving Yds', value: stat => displayStat(stat.receiving_yards) },
     { label: 'Rec EPA', value: stat => roundEPA(stat.receiving_epa) },
+    { label: 'Rec EPA/Rec', value: stat => epaPerPlay(stat.receiving_epa, stat.receptions) },
   ];
   const columnsRB = [
     { label: 'Games', value: stat => Number(stat.game_count) },
@@ -102,6 +103,8 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
     { label: 'Yds/Catch', value: stat => receivingYdsPerAttempt(stat.receiving_yards, stat.receptions) },
     { label: 'Receiving Yds', value: stat => displayStat(stat.receiving_yards) },
     { label: 'Rec EPA', value: stat => roundEPA(stat.receiving_epa) },
+    { label: 'Rec EPA/Rec', value: stat => epaPerPlay(stat.receiving_epa, stat.receptions) },
+    { label: 'Carries', value: stat => displayStat(stat.carries) },
     { label: 'Rush Yds/Att', value: stat => yardsPerAttempt(stat.rushing_yards, stat.carries) },
     { label: 'Rush Yds', value: stat => displayStat(stat.rushing_yards) },
     { label: 'Rush TD', value: stat => displayStat(stat.rushing_tds) },
@@ -140,45 +143,92 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
   const getCareerValue = (col, stats, totals) => {
     // Average per season for EPA and EPA/Play columns
     if (col.label === 'Pass EPA') {
-      const epaVals = stats.map(s => Number(s.passing_epa)).filter(v => !isNaN(v));
+      // Only include seasons with at least one pass attempt
+      const epaVals = stats.filter(s => Number(s.attempts) > 0).map(s => Number(s.passing_epa)).filter(v => !isNaN(v));
       if (epaVals.length === 0) return '-';
       const avg = epaVals.reduce((a, b) => a + b, 0) / epaVals.length;
       return avg.toFixed(3);
     }
     if (col.label === 'Rush EPA') {
-      const epaVals = stats.map(s => Number(s.rushing_epa)).filter(v => !isNaN(v));
+      // Only include seasons with at least one carry
+      const epaVals = stats.filter(s => Number(s.carries) > 0).map(s => Number(s.rushing_epa)).filter(v => !isNaN(v));
       if (epaVals.length === 0) return '-';
       const avg = epaVals.reduce((a, b) => a + b, 0) / epaVals.length;
       return avg.toFixed(3);
     }
     if (col.label === 'EPA/Play') {
-      // Average EPA/Play per season
-      const epaPlayVals = stats.map(s => {
-        const att = Number(s.attempts) || 0;
-        const epa = Number(s.passing_epa) || 0;
-        return att ? epa / att : null;
-      }).filter(v => v !== null && !isNaN(v));
+      // Only include seasons with at least one pass attempt
+      const epaPlayVals = stats.filter(s => Number(s.attempts) > 0)
+        .map(s => {
+          const att = Number(s.attempts) || 0;
+          const epa = Number(s.passing_epa) || 0;
+          return att ? epa / att : null;
+        })
+        .filter(v => v !== null && !isNaN(v));
       if (epaPlayVals.length === 0) return '-';
       const avg = epaPlayVals.reduce((a, b) => a + b, 0) / epaPlayVals.length;
       return avg.toFixed(3);
     }
     if (col.label === 'Rush EPA/Play') {
-      // Average Rush EPA/Play per season
-      const rushEpaPlayVals = stats.map(s => {
-        const carries = Number(s.carries) || 0;
-        const epa = Number(s.rushing_epa) || 0;
-        return carries ? epa / carries : null;
-      }).filter(v => v !== null && !isNaN(v));
+      // Only include seasons with at least one carry
+      const rushEpaPlayVals = stats.filter(s => Number(s.carries) > 0)
+        .map(s => {
+          const carries = Number(s.carries) || 0;
+          const epa = Number(s.rushing_epa) || 0;
+          return carries ? epa / carries : null;
+        })
+        .filter(v => v !== null && !isNaN(v));
       if (rushEpaPlayVals.length === 0) return '-';
       const avg = rushEpaPlayVals.reduce((a, b) => a + b, 0) / rushEpaPlayVals.length;
       return avg.toFixed(3);
     }
+    if (col.label === 'Rec EPA/Rec') {
+      // Only include seasons with at least one reception
+      const recEpaRecVals = stats.filter(s => Number(s.receptions) > 0)
+        .map(s => {
+          const rec = Number(s.receptions) || 0;
+          const epa = Number(s.receiving_epa) || 0;
+          return rec ? epa / rec : null;
+        })
+        .filter(v => v !== null && !isNaN(v));
+      if (recEpaRecVals.length === 0) return '-';
+      const avg = recEpaRecVals.reduce((a, b) => a + b, 0) / recEpaRecVals.length;
+      return avg.toFixed(3);
+    }
     if (col.label === 'CPOE') {
-      // Average CPOE
-      const cpoeVals = stats.map(s => Number(s.passing_cpoe)).filter(v => !isNaN(v));
+      // Only include seasons with at least one pass attempt
+      const cpoeVals = stats.filter(s => Number(s.attempts) > 0)
+        .map(s => Number(s.passing_cpoe))
+        .filter(v => !isNaN(v));
       if (cpoeVals.length === 0) return '-';
       const avg = cpoeVals.reduce((a, b) => a + b, 0) / cpoeVals.length;
       return pct(avg.toFixed(3));
+    }
+    if (col.label === 'Catch %') {
+      // Only include seasons with at least one target
+      const catchVals = stats.filter(s => Number(s.targets) > 0)
+        .map(s => {
+          const rec = Number(s.receptions) || 0;
+          const tgt = Number(s.targets) || 0;
+          return tgt ? (rec / tgt) * 100 : null;
+        })
+        .filter(v => v !== null && !isNaN(v));
+      if (catchVals.length === 0) return '-';
+      const avg = catchVals.reduce((a, b) => a + b, 0) / catchVals.length;
+      return avg.toFixed(1);
+    }
+    if (col.label === 'Yds/Catch') {
+      // Only include seasons with at least one reception
+      const ypcVals = stats.filter(s => Number(s.receptions) > 0)
+        .map(s => {
+          const yds = Number(s.receiving_yards) || 0;
+          const rec = Number(s.receptions) || 0;
+          return rec ? yds / rec : null;
+        })
+        .filter(v => v !== null && !isNaN(v));
+      if (ypcVals.length === 0) return '-';
+      const avg = ypcVals.reduce((a, b) => a + b, 0) / ypcVals.length;
+      return avg.toFixed(2);
     }
     if (col.label === 'Completion %') {
       const totalComp = stats.reduce((sum, s) => sum + (Number(s.completions) || 0), 0);
@@ -194,6 +244,7 @@ export default function YearlyStatsTable({ playerStats, position, loading }) {
     'Rush EPA': 'Average per season',
     'EPA/Play': 'Average per season',
     'Rush EPA/Play': 'Average per season',
+    'Rec EPA/Rec': 'Average per season',
     CPOE: 'Average per season',
 
     // These are rates/derived values in the summary row (not simple sums)

@@ -1,6 +1,6 @@
-# Actual Analytics Ingest
+# Second Level Analytics Ingest
 
-This directory contains scripts and tools for ingesting, cleaning, and populating the NFL analytics database.
+This directory contains scripts and tools for ingesting, cleaning, and populating the Second Level Analytics NFL analytics database.
 
 ## Structure
 - **check_player_stats.py**: Validates player stats data

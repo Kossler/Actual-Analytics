@@ -1,6 +1,6 @@
-# Actual Analytics Frontend
+# Second Level Analytics Frontend
 
-This directory contains the frontend application for Actual Analytics, an NFL player analytics platform.
+This directory contains the frontend application for Second Level Analytics, an NFL player analytics platform.
 
 ## Structure
 - **components/**: React UI components (tables, charts, search, etc.)

@@ -1,6 +1,6 @@
-# Actual Analytics Backend
+# Second Level Analytics Backend
 
-This directory contains the backend services and database logic for Actual Analytics, an NFL player analytics platform.
+This directory contains the backend services and database logic for Second Level Analytics, an NFL player analytics platform.
 
 ## Structure
 - **src/**: Main backend source code (Express server, API routes, database logic)

@@ -1,6 +1,6 @@
-# Actual Analytics
+# Second Level Analytics
 
-Actual Analytics is a full-stack NFL player analytics platform providing advanced metrics, player stats, and interactive visualizations.
+Second Level Analytics is a full-stack NFL player analytics platform providing advanced metrics, player stats, and interactive visualizations.
 
 ## Project Structure
 - **frontend/**: Next.js SPA for user interface and data visualization
@@ -19,8 +19,8 @@ Actual Analytics is a full-stack NFL player analytics platform providing advance
 ## Setup
 1. Clone the repository:
    ```bash
-   git clone https://github.com/Kossler/Actual-Analytics.git
-   cd Actual-Analytics
+   git clone https://github.com/Kossler/Second-Level-Analytics.git
+   cd Second-Level-Analytics
    ```
 2. See individual directory READMEs for setup instructions
 

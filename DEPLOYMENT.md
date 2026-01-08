@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying the Actual-Analytics application across Cloudflare Pages and Railway.
+This guide covers deploying the Second Level Analytics application across Cloudflare Pages and Railway.
 
 ## Architecture
 

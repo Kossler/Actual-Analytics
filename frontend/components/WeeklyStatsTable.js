@@ -68,6 +68,7 @@ export default function WeeklyStatsTable({
   }));
 
   // Calculate season totals and averages using new schema
+  // Calculate season totals and averages using new schema
   const seasonTotals = weeklyData.reduce((totals, stat) => {
     const gamesPlayed = (totals.gamesPlayed || 0) + 1;
     return {
@@ -118,15 +119,15 @@ export default function WeeklyStatsTable({
       fumble_recovery_yards_opp: (totals.fumble_recovery_yards_opp || 0) + (stat.fumble_recovery_yards_opp || 0),
       fumble_recovery_tds: (totals.fumble_recovery_tds || 0) + (stat.fumble_recovery_tds || 0),
       // For averages (sum up for later division)
-      passing_epa_per_play_sum: (totals.passing_epa_per_play_sum || 0) + (Number(stat.passing_epa_per_play) || 0),
-      cpoe_sum: (totals.cpoe_sum || 0) + (Number(stat.cpoe) || 0),
-      rushing_epa_per_play_sum: (totals.rushing_epa_per_play_sum || 0) + (Number(stat.rushing_epa_per_play) || 0),
-      receiving_epa_per_play_sum: (totals.receiving_epa_per_play_sum || 0) + (Number(stat.receiving_epa_per_play) || 0),
+      passing_epa_per_play_sum: (totals.passing_epa_per_play_sum || 0) + ((stat.passing_epa_per_play != null && stat.attempts && Number(stat.attempts) > 0) ? Number(stat.passing_epa_per_play) : 0),
+      cpoe_sum: (totals.cpoe_sum || 0) + ((stat.cpoe != null && stat.attempts && Number(stat.attempts) > 0) ? Number(stat.cpoe) : 0),
+      rushing_epa_per_play_sum: (totals.rushing_epa_per_play_sum || 0) + ((stat.rushing_epa_per_play != null && stat.carries && Number(stat.carries) > 0) ? Number(stat.rushing_epa_per_play) : 0),
+      receiving_epa_per_play_sum: (totals.receiving_epa_per_play_sum || 0) + ((stat.receiving_epa_per_play != null && stat.receptions && Number(stat.receptions) > 0) ? Number(stat.receiving_epa_per_play) : 0),
       // Count non-null values for proper averaging
-      passing_epa_per_play_count: (totals.passing_epa_per_play_count || 0) + (stat.passing_epa_per_play != null ? 1 : 0),
-      cpoe_count: (totals.cpoe_count || 0) + (stat.cpoe != null ? 1 : 0),
-      rushing_epa_per_play_count: (totals.rushing_epa_per_play_count || 0) + (stat.rushing_epa_per_play != null ? 1 : 0),
-      receiving_epa_per_play_count: (totals.receiving_epa_per_play_count || 0) + (stat.receiving_epa_per_play != null ? 1 : 0),
+      passing_epa_per_play_count: (totals.passing_epa_per_play_count || 0) + ((stat.passing_epa_per_play != null && stat.attempts && Number(stat.attempts) > 0) ? 1 : 0),
+      cpoe_count: (totals.cpoe_count || 0) + ((stat.cpoe != null && stat.attempts && Number(stat.attempts) > 0) ? 1 : 0),
+      rushing_epa_per_play_count: (totals.rushing_epa_per_play_count || 0) + ((stat.rushing_epa_per_play != null && stat.carries && Number(stat.carries) > 0) ? 1 : 0),
+      receiving_epa_per_play_count: (totals.receiving_epa_per_play_count || 0) + ((stat.receiving_epa_per_play != null && stat.receptions && Number(stat.receptions) > 0) ? 1 : 0),
     };
   }, { gamesPlayed: 0 });
 
@@ -154,6 +155,7 @@ export default function WeeklyStatsTable({
     'Cmp %': 'Rate/average (not a sum)',
     'Yds/Att': 'Rate/average (not a sum)',
     'EPA/Play': 'Rate/average (not a sum)',
+    'Rec EPA/Rec': 'Rate/average (not a sum)',
     CPOE: 'Average across games',
     'Rush Yds/Att': 'Rate/average (not a sum)',
     'Rush EPA/Play': 'Rate/average (not a sum)',
@@ -225,6 +227,7 @@ export default function WeeklyStatsTable({
     { label: 'Yds/Catch', value: stat => receivingYdsPerAttempt(stat.receiving_yards, stat.receptions) },
     { label: 'Receiving Yds', value: stat => displayStat(stat.receiving_yards) },
     { label: 'Rec EPA', value: stat => roundEPA(stat.receiving_epa) },
+    { label: 'Rec EPA/Rec', value: stat => epaPerPlay(stat.receiving_epa, stat.receptions) },
   ];
 
   // RB columns
@@ -236,7 +239,8 @@ export default function WeeklyStatsTable({
     { label: 'Yds/Catch', value: stat => receivingYdsPerAttempt(stat.receiving_yards, stat.receptions) },
     { label: 'Receiving Yds', value: stat => displayStat(stat.receiving_yards) },
     { label: 'Rec EPA', value: stat => roundEPA(stat.receiving_epa) },
-    { label: 'Target Share', value: stat => (stat.target_share != null ? `${displayStat(stat.target_share)}%` : '-') },
+    { label: 'Rec EPA/Rec', value: stat => epaPerPlay(stat.receiving_epa, stat.receptions) },
+    { label: 'Carries', value: stat => displayStat(stat.carries) },
     { label: 'Rush Yds/Att', value: stat => yardsPerAttempt(stat.rushing_yards, stat.carries) },
     { label: 'Rush Yds', value: stat => displayStat(stat.rushing_yards) },
     { label: 'Rush TD', value: stat => displayStat(stat.rushing_tds) },
@@ -402,29 +406,38 @@ export default function WeeklyStatsTable({
                       fontSize: '0.875rem',
                     }}
                   />
+                ) : averageIndicatorByLabel[col.label] ? (
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
+                    <Tooltip title={averageIndicatorByLabel[col.label]} arrow>
+                      <Chip
+                        label="avg"
+                        size="small"
+                        variant="outlined"
+                        sx={{
+                          height: 18,
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          borderColor: 'divider',
+                          color: 'text.secondary',
+                        }}
+                      />
+                    </Tooltip>
+                    <span>{
+                      // Use filtered averages for these columns
+                      col.label === 'EPA/Play' ? epaPerPlay(seasonTotals.passing_epa, seasonTotals.attempts) :
+                      col.label === 'Rush EPA/Play' ? epaPerPlay(seasonTotals.rushing_epa, seasonTotals.carries) :
+                      col.label === 'Rec EPA/Rec' ? epaPerPlay(seasonTotals.receiving_epa, seasonTotals.receptions) :
+                      col.label === 'CPOE' ? (seasonTotals.cpoe_count > 0 ? (seasonTotals.cpoe_sum / seasonTotals.cpoe_count).toFixed(3) + '%' : '-') :
+                      col.label === 'Rush Yds/Att' ? (seasonTotals.carries > 0 ? (seasonTotals.rushing_yards / seasonTotals.carries).toFixed(2) : '-') :
+                      col.label === 'Yds/Att' ? (seasonTotals.attempts > 0 ? (seasonTotals.passing_yards / seasonTotals.attempts).toFixed(2) : '-') :
+                      col.label === 'Catch %' ? (seasonTotals.targets > 0 ? ((seasonTotals.receptions / seasonTotals.targets) * 100).toFixed(1) + '%' : '-') :
+                      col.label === 'Yds/Catch' ? (seasonTotals.receptions > 0 ? (seasonTotals.receiving_yards / seasonTotals.receptions).toFixed(2) : '-') :
+                      col.value(seasonTotalsForDisplay)
+                    }</span>
+                  </Box>
                 ) : (
-                  // For totals, use seasonTotalsForDisplay for stat values
-                  averageIndicatorByLabel[col.label] ? (
-                    <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
-                      <Tooltip title={averageIndicatorByLabel[col.label]} arrow>
-                        <Chip
-                          label="avg"
-                          size="small"
-                          variant="outlined"
-                          sx={{
-                            height: 18,
-                            fontSize: '0.7rem',
-                            fontWeight: 600,
-                            borderColor: 'divider',
-                            color: 'text.secondary',
-                          }}
-                        />
-                      </Tooltip>
-                      <span>{col.value(seasonTotalsForDisplay)}</span>
-                    </Box>
-                  ) : (
-                    col.value(seasonTotalsForDisplay)
-                  )
+                  // Always use col.value(seasonTotalsForDisplay) for non-average columns
+                  col.value(seasonTotalsForDisplay)
                 )}
               </TableCell>
             ))}

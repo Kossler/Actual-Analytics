@@ -32,7 +32,7 @@ export default function Header() {
                   letterSpacing: '-0.5px',
                 }}
               >
-                Actual NFL Analytics
+                Second Level Analytics
               </span>
             }
             subheader="Search for a player to view their stats across all years since 1999"
