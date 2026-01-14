@@ -15,7 +15,7 @@ export default function Header() {
         <Box
           component="img"
           src="/logo-alt.svg"
-          alt="Actual NFL Analytics Logo"
+          alt="Second Level Analytics Logo"
           sx={{
             height: { xs: '60px', sm: '80px' },
             width: 'auto',

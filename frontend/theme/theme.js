@@ -1,7 +1,7 @@
 import { createTheme } from '@mui/material/styles';
 
 /**
- * Main theme configuration for Actual NFL Analytics
+ * Main theme configuration for Second Level Analytics
  * Uses a dark, modern NFL-inspired color scheme with emphasis on usability
  */
 const theme = createTheme({
