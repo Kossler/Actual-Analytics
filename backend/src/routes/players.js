@@ -78,6 +78,36 @@ router.get('/:gsis_id', async (req, res) => {
   }
 });
 
+// Get contract history for a player by GSIS ID
+router.get('/:gsis_id/contracts', async (req, res) => {
+  const gsis_id = req.params.gsis_id;
+  if (!gsis_id) {
+    return res.status(400).json({ error: 'Missing player GSIS ID' });
+  }
+
+  try {
+    const player = await prisma.players.findFirst({
+      where: { gsis_id },
+      select: { gsis_id: true, otc_id: true },
+    });
+
+    // If the player isn't in the players table, still allow a best-effort lookup by gsis_id.
+    const where = player?.otc_id
+      ? { OR: [{ gsis_id }, { otc_id: player.otc_id }] }
+      : { gsis_id };
+
+    const contracts = await prisma.contracts.findMany({
+      where,
+      orderBy: [{ year_signed: 'desc' }],
+    });
+
+    res.json(convertBigInts(contracts));
+  } catch (err) {
+    console.error('[PlayerContracts] error:', err);
+    res.status(500).json({ error: 'Failed to fetch player contract history' });
+  }
+});
+
 // Get advanced metrics for a specific player (EPA, CPOE, success rates, etc.)
 router.get('/:gsis_id/advanced', async (req, res) => {
   const gsis_id = req.params.gsis_id;

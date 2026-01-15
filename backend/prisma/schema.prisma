@@ -37,7 +37,7 @@ model contracts {
   cols                String?
   id                  Int      @id @default(autoincrement())
 
-  @@unique([otc_id, gsis_id], map: "contracts_unique")
+  @@unique([otc_id, gsis_id, year_signed, team], map: "contracts_unique")
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.

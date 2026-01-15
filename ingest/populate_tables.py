@@ -94,7 +94,7 @@ def get_selected_funcs():
 # Table unique keys mapping
 TABLE_UNIQUE_KEYS = {
     "combine": ["pfr_id"],
-    "contracts": ["otc_id", "gsis_id"],
+    "contracts": ["otc_id", "gsis_id", "year_signed", "team"],
     "depth_charts": ["gsis_id", "season", "week", "elias_id"],
     "draft_picks": ["season", "round", "pick", "pfr_player_id"],
     "ff_opportunity": ["game_id", "player_id"],

@@ -1,0 +1,4 @@
+-- Placeholder migration.
+--
+-- This directory existed without a migration.sql, which blocks Prisma's migrate tooling.
+-- If your database already has the intended performance indexes, keep this as a no-op and baseline it via `prisma migrate resolve`.
