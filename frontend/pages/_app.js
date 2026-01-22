@@ -3,6 +3,7 @@ import '../utils/ensureNextCssAnchor';
 import '../styles/globals.css';
 import { useEffect } from 'react';
 import Head from 'next/head';
+import Footer from '../components/Footer';
 
 function MyApp({ Component, pageProps }) {
   useEffect(() => {
@@ -18,8 +19,9 @@ function MyApp({ Component, pageProps }) {
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
-      <div className="dark" style={{ backgroundColor: '#18181b', minHeight: '100vh' }}>
+      <div className="dark" style={{ backgroundColor: '#18181b', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <Component {...pageProps} />
+        <Footer />
       </div>
     </NextUIProvider>
   );
