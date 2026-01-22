@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { TableHead, TableBody, TableRow, TableCell, TableSortLabel, Box } from '@mui/material';
+import { TableHead, TableBody, TableRow, TableCell, TableSortLabel, Box, Skeleton } from '@mui/material';
 import StatsTableWrapper from './StatsTableWrapper';
 import { displayStat } from '../utils/statsUtils';
 
@@ -119,42 +119,43 @@ function playerLinkCell(row) {
   );
 }
 
-export default function HomeSeasonTables({ season, allStats, loading }) {
-  const normalized = useMemo(() => {
-    if (!Array.isArray(allStats)) return [];
-    return allStats.map((s) => ({
-      ...s,
-      game_count: toNum(s.game_count),
-      completions: toNum(s.completions),
-      attempts: toNum(s.attempts),
-      passing_yards: toNum(s.passing_yards),
-      passing_tds: toNum(s.passing_tds),
-      passing_interceptions: toNum(s.passing_interceptions),
-      sacks_suffered: toNum(s.sacks_suffered),
-      passing_epa: toNum(s.passing_epa),
-      passing_cpoe: s.passing_cpoe,
-      carries: toNum(s.carries),
-      rushing_yards: toNum(s.rushing_yards),
-      rushing_tds: toNum(s.rushing_tds),
-      rushing_epa: toNum(s.rushing_epa),
-      receptions: toNum(s.receptions),
-      targets: toNum(s.targets),
-      receiving_yards: toNum(s.receiving_yards),
-      receiving_tds: toNum(s.receiving_tds),
-      receiving_epa: toNum(s.receiving_epa),
-      // For display
-      completionPct: s.attempts ? (toNum(s.completions) / toNum(s.attempts)) * 100 : 0,
-      catchPct: s.targets ? (toNum(s.receptions) / toNum(s.targets)) * 100 : 0,
-      passing_epa_per_play: s.attempts ? toNum(s.passing_epa) / toNum(s.attempts) : 0,
-      rushing_epa_per_play: s.carries ? toNum(s.rushing_epa) / toNum(s.carries) : 0,
-      receiving_epa_per_play: s.receptions ? toNum(s.receiving_epa) / toNum(s.receptions) : 0,
-    }));
-  }, [allStats]);
+export default function HomeSeasonTables({ season, qbs = [], rbs = [], wrs = [], tes = [], loading }) {
+  // Normalize rows for display
+  const normalizeRows = (rows) =>
+    Array.isArray(rows)
+      ? rows.map((s) => ({
+          ...s,
+          game_count: toNum(s.game_count),
+          completions: toNum(s.completions),
+          attempts: toNum(s.attempts),
+          passing_yards: toNum(s.passing_yards),
+          passing_tds: toNum(s.passing_tds),
+          passing_interceptions: toNum(s.passing_interceptions),
+          sacks_suffered: toNum(s.sacks_suffered),
+          passing_epa: toNum(s.passing_epa),
+          passing_cpoe: s.passing_cpoe,
+          carries: toNum(s.carries),
+          rushing_yards: toNum(s.rushing_yards),
+          rushing_tds: toNum(s.rushing_tds),
+          rushing_epa: toNum(s.rushing_epa),
+          receptions: toNum(s.receptions),
+          targets: toNum(s.targets),
+          receiving_yards: toNum(s.receiving_yards),
+          receiving_tds: toNum(s.receiving_tds),
+          receiving_epa: toNum(s.receiving_epa),
+          // For display
+          completionPct: s.attempts ? (toNum(s.completions) / toNum(s.attempts)) * 100 : 0,
+          catchPct: s.targets ? (toNum(s.receptions) / toNum(s.targets)) * 100 : 0,
+          passing_epa_per_play: s.attempts ? toNum(s.passing_epa) / toNum(s.attempts) : 0,
+          rushing_epa_per_play: s.carries ? toNum(s.rushing_epa) / toNum(s.carries) : 0,
+          receiving_epa_per_play: s.receptions ? toNum(s.receiving_epa) / toNum(s.receptions) : 0,
+        }))
+      : [];
 
-  const qbRows = useMemo(() => normalized.filter((r) => String(r.position).toUpperCase() === 'QB'), [normalized]);
-  const rbRows = useMemo(() => normalized.filter((r) => String(r.position).toUpperCase() === 'RB'), [normalized]);
-  const wrRows = useMemo(() => normalized.filter((r) => String(r.position).toUpperCase() === 'WR'), [normalized]);
-  const teRows = useMemo(() => normalized.filter((r) => String(r.position).toUpperCase() === 'TE'), [normalized]);
+  const qbRows = useMemo(() => normalizeRows(qbs), [qbs]);
+  const rbRows = useMemo(() => normalizeRows(rbs), [rbs]);
+  const wrRows = useMemo(() => normalizeRows(wrs), [wrs]);
+  const teRows = useMemo(() => normalizeRows(tes), [tes]);
 
   const commonColumns = [
     {
@@ -200,8 +201,9 @@ export default function HomeSeasonTables({ season, allStats, loading }) {
     {
       key: 'cpoe',
       label: 'CPOE',
-      sortValue: (r) => toNum(r.passing_cpoe),
-      render: (r) => roundCPOE(r.passing_cpoe),
+      // Use the season average if available, else fallback to single value
+      sortValue: (r) => toNum(r.passing_cpoe_avg ?? r.passing_cpoe),
+      render: (r) => roundCPOE(r.passing_cpoe_avg ?? r.passing_cpoe),
     },
   ];
 
@@ -264,6 +266,16 @@ export default function HomeSeasonTables({ season, allStats, loading }) {
   ];
 
   if (!season) return null;
+  if (loading) {
+    return (
+      <Box>
+        <Skeleton variant="rectangular" height={60} sx={{ mb: 2, borderRadius: 2 }} />
+        <Skeleton variant="rectangular" height={60} sx={{ mb: 2, borderRadius: 2 }} />
+        <Skeleton variant="rectangular" height={60} sx={{ mb: 2, borderRadius: 2 }} />
+        <Skeleton variant="rectangular" height={60} sx={{ mb: 2, borderRadius: 2 }} />
+      </Box>
+    );
+  }
 
   return (
     <Box>

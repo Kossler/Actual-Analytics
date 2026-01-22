@@ -510,19 +510,28 @@ router.get('/available-years', async (req, res) => {
 
 // List players (simple, only using the players table)
 router.get('/', async (req, res) => {
-  // Pagination and search support
+  // Pagination and search support with strict type validation
   let page = 1;
-  if (typeof req.query.page === 'string' && /^\d+$/.test(req.query.page)) {
-    page = parseInt(req.query.page, 10);
+  if (Object.prototype.hasOwnProperty.call(req.query, 'page')) {
+    const pageVal = req.query.page;
+    if (typeof pageVal === 'string' && /^\d+$/.test(pageVal)) {
+      page = parseInt(pageVal, 10);
+    }
   }
   let pageSize = 100;
-  if (typeof req.query.pageSize === 'string' && /^\d+$/.test(req.query.pageSize)) {
-    pageSize = Math.min(parseInt(req.query.pageSize, 10), 500);
+  if (Object.prototype.hasOwnProperty.call(req.query, 'pageSize')) {
+    const pageSizeVal = req.query.pageSize;
+    if (typeof pageSizeVal === 'string' && /^\d+$/.test(pageSizeVal)) {
+      pageSize = Math.min(parseInt(pageSizeVal, 10), 500);
+    }
   }
   const skip = (page - 1) * pageSize;
   let search = null;
-  if (typeof req.query.search === 'string' && /^[\w\s-]{1,100}$/.test(req.query.search)) {
-    search = req.query.search.trim();
+  if (Object.prototype.hasOwnProperty.call(req.query, 'search')) {
+    const searchVal = req.query.search;
+    if (typeof searchVal === 'string' && /^[\w\s-]{1,100}$/.test(searchVal)) {
+      search = searchVal.trim();
+    }
   }
   const where = search
     ? { display_name: { contains: search, mode: 'insensitive' } }

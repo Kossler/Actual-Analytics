@@ -69,30 +69,21 @@ export default function Home() {
     apiUrl
   );
   const { advancedMetrics } = useAdvancedMetrics(selectedPlayer?.id, apiUrl);
-  const { allStats, loading: allStatsLoading } = useAllPlayerStats(apiUrl, selectedYear);
-  const { availableYears, loading: yearsLoading } = useAvailableYears(apiUrl);
 
-  const latestSeason = Array.isArray(availableYears) && availableYears.length
-    ? Math.max(...availableYears.map(y => Number(y) || 0))
-    : null;
-  const { allStats: latestAllStats, loading: latestStatsLoading } = useAllPlayerStats(apiUrl, latestSeason);
+  // Fetch homepage stats from new API
+  const [homeStats, setHomeStats] = useState({ season: null, qbs: [], rbs: [], wrs: [], tes: [] });
+  const [homeLoading, setHomeLoading] = useState(true);
 
-  // Update selectedYear when player changes to most recent available year
   useEffect(() => {
-    if (selectedPlayer && allWeeklyStats.length > 0) {
-      const years = [...new Set(allWeeklyStats.map(s => s.season))].sort((a, b) => b - a);
-      if (years.length > 0) {
-        setSelectedYear(years[0]);
-      }
-    }
-  }, [selectedPlayer, allWeeklyStats]);
-  // Process stats data
-  // `rawPlayerStats` already comes from the backend as season-aggregated rows.
-  // Re-aggregating it via groupStatsBySeason() drops newer fields (e.g. TFL, QB hits).
-  const playerStats = Array.isArray(rawPlayerStats)
-    ? [...rawPlayerStats].sort((a, b) => (Number(b.season) || 0) - (Number(a.season) || 0))
-    : [];
-  const weeklyStats = sortWeeklyStats(rawWeeklyStats);
+    setHomeLoading(true);
+    fetch(`${apiUrl}/playerstats/home`)
+      .then((res) => res.json())
+      .then((data) => {
+        setHomeStats(data);
+        setHomeLoading(false);
+      })
+      .catch(() => setHomeLoading(false));
+  }, [apiUrl]);
 
   // Helper to normalize player object for UI compatibility
   function normalizePlayer(player) {
@@ -112,9 +103,7 @@ export default function Home() {
 
   // Handle player selection
   const handleSelectPlayer = (player) => {
-    console.log('[handleSelectPlayer] raw player:', player);
     const normalized = normalizePlayer(player);
-    console.log('[handleSelectPlayer] normalized player:', normalized);
     setSelectedPlayer(normalized);
     setSearchQuery('');
 
@@ -165,11 +154,13 @@ export default function Home() {
           />
 
           <HomeSeasonTables
-            season={latestSeason}
-            allStats={latestAllStats}
-            loading={yearsLoading || latestStatsLoading}
+            season={homeStats.season}
+            qbs={homeStats.qbs}
+            rbs={homeStats.rbs}
+            wrs={homeStats.wrs}
+            tes={homeStats.tes}
+            loading={homeLoading}
           />
-          
         </Container>
       </Box>
     </ThemeProvider>
