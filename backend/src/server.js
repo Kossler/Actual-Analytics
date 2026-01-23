@@ -1,9 +1,7 @@
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
-// Removed cluster/worker logic for Railway stability
 
 const playersRouter = require('./routes/players');
 const apiRouter = require('./routes/api');
@@ -38,4 +36,4 @@ app.use('/', apiRouter);
 
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => console.log(`Server listening on ${port}`));
+app.listen(port, () => {});

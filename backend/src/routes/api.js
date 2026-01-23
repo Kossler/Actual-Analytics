@@ -30,27 +30,20 @@ router.get('/gamestats/:id', async (req, res) => {
 
 // PlayerStats CRUD
 
-// Optimized homepage stats endpoint (must be before /playerstats/:id)
 router.get('/playerstats/home', async (req, res) => {
   try {
-    console.log('[HOME] Fetching latest season from player_stats...');
     const latestSeason = await prisma.player_stats.findMany({
       orderBy: { season: 'desc' },
       take: 1,
       select: { season: true },
     });
-    console.log('[HOME] Latest season query result:', latestSeason);
     let season = latestSeason[0]?.season;
     if (!season) {
-      console.warn('[HOME] No season found in player_stats!');
       return res.status(404).json({ error: 'No season found' });
     }
 
-    // Convert BigInt season to Number if needed
     if (typeof season === 'bigint') season = Number(season);
-    console.log('[HOME] Using season:', season);
 
-    // Helper to get top 12 for a position, converting BigInt fields to Number
     function convertBigInts(obj) {
       if (Array.isArray(obj)) {
         return obj.map(convertBigInts);
@@ -71,8 +64,6 @@ router.get('/playerstats/home', async (req, res) => {
 
 
     async function getTop(position, orderByField) {
-      console.log(`[HOME] Aggregating REGULAR season totals for position ${position} by ${orderByField} in season ${season}`);
-      // Only regular season games
       const stats = await prisma.player_stats.findMany({
         where: { season, position, season_type: 'REG' },
         select: {
@@ -101,18 +92,6 @@ router.get('/playerstats/home', async (req, res) => {
         },
       });
 
-      // DEBUG: Print all weekly CPOE values for Drake Maye (player_id = '00-0046944')
-      if (position === 'QB' && Array.isArray(stats)) {
-        const drakeMayeStats = stats.filter(s => s.player_id === '00-0039851');
-        console.log('[DEBUG][Drake Maye] Weekly CPOE values:', drakeMayeStats.map(s => ({ week: s.week, cpoe: s.passing_cpoe })));
-        // Print all QB player_ids and display names for the season
-        console.log('[DEBUG][QB List] player_ids and names:', stats.map(s => ({ player_id: s.player_id, name: s.player_display_name })));
-        // Print any QB with 'Drake' or 'Maye' in their name for the season
-        const drakeCandidates = stats.filter(s => (s.player_display_name && (s.player_display_name.toLowerCase().includes('drake') || s.player_display_name.toLowerCase().includes('maye'))));
-        console.log('[DEBUG][QB Drake Candidates] player_ids and names:', drakeCandidates.map(s => ({ player_id: s.player_id, name: s.player_display_name })));
-      }
-
-      // Aggregate by player_id
       const playerMap = new Map();
       for (const stat of stats) {
         const pid = stat.player_id;
@@ -216,11 +195,9 @@ router.get('/playerstats/home', async (req, res) => {
       getTop('TE', 'receiving_yards'),
     ]);
 
-    console.log('[HOME] Returning home stats:', { season, qbsCount: qbs.length, rbsCount: rbs.length, wrsCount: wrs.length, tesCount: tes.length });
     res.json({ season, qbs, rbs, wrs, tes });
   } catch (err) {
-    console.error('[HOME] Error in /playerstats/home:', err);
-    res.status(500).json({ error: 'Internal server error', details: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

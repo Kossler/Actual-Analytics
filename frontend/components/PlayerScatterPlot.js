@@ -151,8 +151,6 @@ export default function PlayerScatterPlot({
     return allPlayerStats.find(p => p.player_id === selectedPlayerId);
   }, [allPlayerStats, selectedPlayerId]);
 
-  // ...existing code...
-
   // Set default axes based on player position
   const getDefaultAxes = (position) => {
     if (!position) return { x: 'attempts', y: 'passing_epa' };
@@ -355,7 +353,6 @@ export default function PlayerScatterPlot({
       
       return dataUrl;
     } catch (error) {
-      console.error('Error capturing chart:', error);
       return null;
     }
   };
@@ -374,34 +371,23 @@ export default function PlayerScatterPlot({
   // Copy chart to clipboard
   const handleCopy = async () => {
     setCopySuccess(false);
-    
     try {
       const dataUrl = await captureChart();
       if (!dataUrl) {
-        console.error('Failed to capture chart');
         return;
       }
-      
-      console.log('Chart captured, data URL length:', dataUrl.length);
-      
       // Convert PNG data URL to blob
       const response = await fetch(dataUrl);
       const blob = await response.blob();
-      
-      console.log('Blob created, size:', blob.size, 'type:', blob.type);
-      
       // Write to clipboard with PNG type (more compatible)
       await navigator.clipboard.write([
         new ClipboardItem({ 
           'image/png': blob
         })
       ]);
-      
-      console.log('Successfully copied to clipboard');
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
     } catch (error) {
-      console.error('Error copying to clipboard:', error);
       alert('Failed to copy image to clipboard. Error: ' + error.message);
     }
   };
@@ -752,18 +738,6 @@ export default function PlayerScatterPlot({
             <Box sx={{ textAlign: 'center', p: 4, color: 'text.secondary' }}>
               No players meet the threshold criteria
               <pre style={{textAlign:'left',margin:'1em auto',background:'#222',color:'#fff',padding:'1em',borderRadius:'8px',maxWidth:'700px',overflowX:'auto'}}>
-{(() => {
-  // Debug info
-  const selectedPlayerData = combinedData.find(p => p.playerId === selectedPlayerId);
-  const selectedGroup = selectedPlayerData?.positionGroup;
-  const groupPlayers = combinedData.filter(p => p.positionGroup === selectedGroup);
-  return `Selected PlayerId: ${selectedPlayerId}\n` +
-    `Selected Player Name: ${selectedPlayerData?.name || 'N/A'}\n` +
-    `Selected Player Position: ${selectedPlayerData?.position || 'N/A'}\n` +
-    `Selected Player PositionGroup: ${selectedGroup || 'N/A'}\n` +
-    `Players in Group: ${groupPlayers.length}\n` +
-    `AllPlayerStats count: ${allPlayerStats?.length || 0}`;
-})()}
               </pre>
             </Box>
           ) : (

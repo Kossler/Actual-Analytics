@@ -2,13 +2,10 @@ const express = require('express');
 const prisma = require('../db');
 const router = express.Router();
 
-// --- NON-PARAMETERIZED ROUTES FIRST ---
-
 // Player search with join to teams for team_name, always return gsis_id
 router.get('/search', async (req, res) => {
   const search = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   if (!search) {
-    console.log('[SEARCH] No search query provided');
     return res.json([]);
   }
   try {
@@ -28,13 +25,9 @@ router.get('/search', async (req, res) => {
     // $1: prefix search, $2: substring search
     const prefix = search + '%';
     const substring = '%' + search + '%';
-    console.log('[SEARCH] Query:', query);
-    console.log('[SEARCH] Params:', prefix, substring);
     const results = await prisma.$queryRawUnsafe(query, prefix, substring);
-    console.log('[SEARCH] Results:', results);
     res.json(convertBigInts(results));
   } catch (err) {
-    console.error('[SEARCH] Error:', err);
     res.status(500).json({ error: 'Failed to search players' });
   }
 });
@@ -45,20 +38,14 @@ router.get('/available-years', async (req, res) => {
     // Use raw SQL to fetch distinct seasons, ordered descending
     const query = `SELECT DISTINCT season FROM player_stats WHERE season IS NOT NULL ORDER BY season DESC`;
     const { Prisma } = require('@prisma/client');
-    console.log('[AVAILABLE-YEARS] Query:', query);
     const years = await prisma.$queryRawUnsafe(query);
-    console.log('[AVAILABLE-YEARS] Raw years:', years);
     // years will be array of objects: [{ season: 2025n }, ...]
     const availableYears = years.map(y => typeof y.season === 'bigint' ? Number(y.season) : y.season).filter(Boolean);
-    console.log('[AVAILABLE-YEARS] Parsed years:', availableYears);
     res.json(availableYears);
   } catch (err) {
-    console.error('[AvailableYears] error:', err);
     res.status(500).json({ error: 'Failed to fetch available years' });
   }
 });
-
-// --- PARAMETERIZED ROUTES BELOW ---
 
 // Get player metadata by GSIS ID
 router.get('/:gsis_id', async (req, res) => {
@@ -73,7 +60,6 @@ router.get('/:gsis_id', async (req, res) => {
     }
     res.json(convertBigInts(player));
   } catch (err) {
-    console.error('[PlayerMeta] error:', err);
     res.status(500).json({ error: 'Failed to fetch player metadata' });
   }
 });
@@ -103,7 +89,6 @@ router.get('/:gsis_id/contracts', async (req, res) => {
 
     res.json(convertBigInts(contracts));
   } catch (err) {
-    console.error('[PlayerContracts] error:', err);
     res.status(500).json({ error: 'Failed to fetch player contract history' });
   }
 });
@@ -111,9 +96,7 @@ router.get('/:gsis_id/contracts', async (req, res) => {
 // Get advanced metrics for a specific player (EPA, CPOE, success rates, etc.)
 router.get('/:gsis_id/advanced', async (req, res) => {
   const gsis_id = req.params.gsis_id;
-  console.log('[API] /:gsis_id/advanced called with gsis_id:', gsis_id);
   if (!gsis_id) {
-    console.warn('[API] Missing player GSIS ID in /:gsis_id/advanced');
     return res.status(400).json({ error: 'Missing player GSIS ID' });
   }
   try {
@@ -149,11 +132,7 @@ router.get('/:gsis_id/advanced', async (req, res) => {
     const metrics = await prisma.$queryRawUnsafe(query, gsis_id);
     res.json(convertBigInts(metrics));
   } catch (err) {
-    console.error('[AdvancedMetrics] error:', err);
-    if (err && err.stack) {
-      console.error('[AdvancedMetrics] stack:', err.stack);
-    }
-    res.status(500).json({ error: 'Failed to fetch advanced metrics', details: err && err.message ? err.message : err });
+    res.status(500).json({ error: 'Failed to fetch advanced metrics' });
   }
 });
 
@@ -219,7 +198,6 @@ router.get('/:gsis_id/all-weekly', async (req, res) => {
     const stats = await prisma.$queryRawUnsafe(query, gsis_id);
     res.json(convertBigInts(stats));
   } catch (err) {
-    console.error('[AllWeeklyStats] error:', err);
     res.status(500).json({ error: 'Failed to fetch all weekly stats' });
   }
 });
@@ -287,7 +265,6 @@ router.get('/:gsis_id/weekly', async (req, res) => {
     const stats = await prisma.$queryRawUnsafe(query, gsis_id, season);
     res.json(convertBigInts(stats));
   } catch (err) {
-    console.error('[WeeklyStats] error:', err);
     res.status(500).json({ error: 'Failed to fetch player weekly stats' });
   }
 });
@@ -295,9 +272,7 @@ router.get('/:gsis_id/weekly', async (req, res) => {
 // Get yearly stats for a specific player
 router.get('/:gsis_id/stats', async (req, res) => {
   const gsis_id = req.params.gsis_id;
-  console.log('[API] /:gsis_id/stats called with gsis_id:', gsis_id);
   if (!gsis_id) {
-    console.warn('[API] Missing player GSIS ID in /:gsis_id/stats');
     return res.status(400).json({ error: 'Missing player GSIS ID' });
   }
   try {
@@ -349,7 +324,6 @@ router.get('/:gsis_id/stats', async (req, res) => {
     const stats = await prisma.$queryRawUnsafe(query, gsis_id);
     res.json(convertBigInts(stats));
   } catch (err) {
-    console.error('[YearlyStats] error:', err);
     res.status(500).json({ error: 'Failed to fetch player yearly stats' });
   }
 });
