@@ -10,11 +10,6 @@ import theme from '../theme/theme';
 import Header from '../components/Header';
 import SearchBar from '../components/SearchBar';
 import HomeSeasonTables from '../components/HomeSeasonTables';
-import PlayerInfo from '../components/PlayerInfo';
-import WeeklyStatsTable from '../components/WeeklyStatsTable';
-import YearlyStatsTable from '../components/YearlyStatsTable';
-import AdvancedMetricsTable from '../components/AdvancedMetricsTable';
-import PlayerScatterPlot from '../components/PlayerScatterPlot';
 
 // Custom Hooks
 import {
@@ -24,13 +19,8 @@ import {
   useAllWeeklyStats,
   useAdvancedMetrics,
   useBackgroundImage,
-  useAllPlayerStats,
-  useAvailableYears,
 } from '../hooks/usePlayerData';
 import { usePlayerSearch } from '../hooks/usePlayerSearch';
-
-// Utils
-import { sortWeeklyStats } from '../utils/statsUtils';
 
 /**
  * Main application component
@@ -53,22 +43,6 @@ export default function Home() {
   // Data fetching hooks
   const { players: searchPlayers, loading: searchLoading } = usePlayerSearch(apiUrl, searchQuery);
   const { players: allPlayers } = useAllPlayers(apiUrl);
-
-  // No player is selected by default. Only setSelectedPlayer when a player is searched/selected.
-  const { stats: rawPlayerStats, loading: statsLoading } = usePlayerStats(
-    selectedPlayer?.gsis_id,
-    apiUrl
-  );
-  const { weeklyStats: rawWeeklyStats } = useWeeklyStats(
-    selectedPlayer?.gsis_id,
-    apiUrl,
-    selectedYear
-  );
-  const { allWeeklyStats } = useAllWeeklyStats(
-    selectedPlayer?.gsis_id,
-    apiUrl
-  );
-  const { advancedMetrics } = useAdvancedMetrics(selectedPlayer?.id, apiUrl);
 
   // Fetch homepage stats from new API
   const [homeStats, setHomeStats] = useState({ season: null, qbs: [], rbs: [], wrs: [], tes: [] });

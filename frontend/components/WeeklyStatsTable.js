@@ -2,11 +2,6 @@ import { TableHead, TableBody, TableRow, TableCell, Chip, Select, MenuItem, Form
 import StatsTableWrapper from './StatsTableWrapper';
 import {
   displayStat,
-  formatNumber,
-  calculateCompletionPercentage,
-  shouldShowPassingColumns,
-  shouldShowRushingColumns,
-  shouldShowReceivingColumns,
 } from '../utils/statsUtils';
 
 /**
@@ -15,7 +10,6 @@ import {
 export default function WeeklyStatsTable({ 
   weeklyStats, 
   position, 
-  playerStats, 
   loading,
   selectedYear,
   onYearChange,
@@ -23,10 +17,6 @@ export default function WeeklyStatsTable({
 }) {
   // Debug: print the weeklyStats data to verify structure and values
   console.log('[WeeklyStatsTable] weeklyStats:', weeklyStats);
-
-  const showPassing = shouldShowPassingColumns(position);
-  const showRushing = shouldShowRushingColumns(position, playerStats);
-  const showReceiving = shouldShowReceivingColumns(position);
 
   if (!weeklyStats || weeklyStats.length === 0) return null;
 

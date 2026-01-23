@@ -136,9 +136,6 @@ const buildQualificationText = (xMetric, yMetric) => {
 };
 
 export default function PlayerScatterPlot({ 
-  playerStats, 
-  weeklyStats, 
-  advancedMetrics, 
   selectedPlayerId, 
   allPlayerStats,
   selectedYear,

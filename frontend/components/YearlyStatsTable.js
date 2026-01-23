@@ -2,7 +2,6 @@ import { TableHead, TableBody, TableRow, TableCell, Box, Chip, Tooltip } from '@
 import StatsTableWrapper from './StatsTableWrapper';
 import {
   displayStat,
-  calculateCompletionPercentage,
   shouldShowPassingColumns,
   shouldShowRushingColumns,
   shouldShowReceivingColumns,
@@ -12,9 +11,6 @@ import {
  * YearlyStatsTable component - displays season-aggregated stats
  */
 export default function YearlyStatsTable({ playerStats, position, loading }) {
-  const showPassing = shouldShowPassingColumns(position);
-  const showRushing = shouldShowRushingColumns(position, playerStats);
-  const showReceiving = shouldShowReceivingColumns(position);
 
   const toNumber = (value) => {
     const num = Number(value);
