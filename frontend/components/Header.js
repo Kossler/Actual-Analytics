@@ -10,37 +10,43 @@ export default function Header() {
   void router;
 
   return (
-    <Card sx={{ mb: 4 }}>
+    <Card sx={{ mb: 4, position: 'relative' }}
+      className="header-fade-container"
+    >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 2, px: { xs: 2, sm: 3 } }}>
-        <Box
-          component="img"
-          src="/logo-alt.svg"
-          alt="Second Level Analytics Logo"
-          sx={{
-            height: { xs: '60px', sm: '80px' },
-            width: 'auto',
-          }}
-        />
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <CardHeader
-            title={
-              <span
-                style={{
-                  color: '#ffffff',
-                  fontWeight: 900,
-                  fontSize: 'clamp(1.5rem, 4vw, 2.5rem)',
-                  letterSpacing: '-0.5px',
-                }}
-              >
-                Second Level Analytics
-              </span>
-            }
-            subheader="Search for a player to view their stats across all years since 1999"
-            titleTypographyProps={{ variant: 'h4', sx: { fontWeight: 900 } }}
-            sx={{ p: 0 }}
+        <Box sx={{ position: 'relative', width: { xs: 'auto', sm: '20%' }, height: 'auto', minWidth: 0, maxWidth: { xs: '100vw', sm: 'none' } }}>
+          <img
+            src="/logo-main.png"
+            alt="Second Level Analytics Logo"
+            className="header-fade-img-main header-logo-img"
+            style={{
+              maxHeight: '200px',
+              width: 'auto',
+              height: '100%',
+              objectFit: 'contain',
+              display: 'block',
+              position: 'relative',
+              zIndex: 1,
+            }}
+          />
+          <img
+            src="/logo-alt.png"
+            alt="Second Level Analytics Logo Alt"
+            className="header-fade-img-alt header-logo-img"
+            style={{
+              maxHeight: '200px',
+              width: 'auto',
+              height: '100%',
+              objectFit: 'contain',
+              display: 'block',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              zIndex: 2,
+            }}
           />
         </Box>
-
+        <Box sx={{ flex: 1, minWidth: 0 }} />
         <Button
           component={Link}
           href="/"

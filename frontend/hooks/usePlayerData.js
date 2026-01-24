@@ -217,7 +217,7 @@ export function useAdvancedMetrics(playerId, apiUrl) {
  * @returns {string} CSS background string
  */
 export function useBackgroundImage(specialChance = 0.01) {
-  const [backgroundImage, setBackgroundImage] = useState('url("/Background.webp")');
+  const [backgroundImage, setBackgroundImage] = useState('url("/BackgroundV2.webp")');
 
   useEffect(() => {
     const isSpecial = Math.random() < specialChance;

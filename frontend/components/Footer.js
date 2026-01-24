@@ -96,7 +96,7 @@ export default function Footer() {
 
               <IconButton
                 component="a"
-                href="https://bsky.app/profile/secondleveldata.bsky.social"
+                href="https://bsky.app/profile/secondlevelanalytics.com"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="BlueSky"

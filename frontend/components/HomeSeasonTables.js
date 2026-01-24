@@ -108,11 +108,35 @@ function PositionSeasonTable({ title, subtitle, season, rows, defaultSortKey, co
 
 function playerLinkCell(row) {
   const name = row.player_display_name || 'Unknown';
+  const buttonHoverBlue = '#42a5f5ff';
   return (
     <Link
       href={{ pathname: '/players/[id]', query: { id: row.player_id } }}
       as={`/players/${row.player_id}`}
-      style={{ color: 'inherit', textDecoration: 'underline' }}
+      className="player-link-mobile-underline"
+      style={{
+        color: 'inherit',
+        textDecoration: 'none',
+        fontWeight: 500,
+        transition: 'color 0.2s, font-weight 0.2s, transform 0.2s',
+        display: 'inline-block',
+      }}
+      onMouseOver={e => {
+        e.currentTarget.style.color = buttonHoverBlue;
+        e.currentTarget.style.textDecoration = 'underline';
+      }}
+      onFocus={e => {
+        e.currentTarget.style.color = buttonHoverBlue;
+        e.currentTarget.style.textDecoration = 'underline';
+      }}
+      onMouseOut={e => {
+        e.currentTarget.style.color = '';
+        e.currentTarget.style.textDecoration = 'none';
+      }}
+      onBlur={e => {
+        e.currentTarget.style.color = '';
+        e.currentTarget.style.textDecoration = 'none';
+      }}
     >
       {name}
     </Link>

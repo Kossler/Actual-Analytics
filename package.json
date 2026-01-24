@@ -14,6 +14,6 @@
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "devDependencies": {
-    "@cloudflare/next-on-pages": "^1.13.16"
+    "@cloudflare/next-on-pages": "^1.8.0"
   }
 }

@@ -1,6 +1,47 @@
+/* Ensure header logo images always maintain aspect ratio */
+.header-logo-img {
+  object-fit: contain;
+  width: auto;
+  height: 100%;
+  max-height: 200px;
+  display: block;
+}
+/* Always underline player links on mobile */
+.player-link-mobile-underline {
+  text-decoration: none;
+}
+@media (max-width: 700px) {
+  .player-link-mobile-underline {
+    text-decoration: underline !important;
+    text-underline-offset: 2px;
+  }
+}
+/* Header logo fade effect */
+.header-fade-container {
+  position: relative;
+}
+.header-fade-img-main {
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity 0.5s;
+}
+.header-fade-img-alt {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s;
+}
+.header-fade-container:hover .header-fade-img-main,
+.header-fade-container:focus-within .header-fade-img-main {
+  opacity: 0;
+}
+.header-fade-container:hover .header-fade-img-alt,
+.header-fade-container:focus-within .header-fade-img-alt {
+  opacity: 1;
+}
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 
 html.dark,
 html.dark body {
@@ -11,4 +52,21 @@ html.dark body {
 body {
   background-color: #18181b;
   color: #fafafa;
+}
+
+html, body {
+  font-family: 'Manrope', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+}
+
+h1 {
+  font-family: 'Manrope', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+  font-weight: 800; /* ExtraBold */
+}
+h2 {
+  font-family: 'Manrope', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+  font-weight: 700; /* Bold */
+}
+h3, h4, h5, h6 {
+  font-family: 'Manrope', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+  font-weight: 600; /* SemiBold */
 }
