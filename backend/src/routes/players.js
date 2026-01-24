@@ -12,14 +12,14 @@ router.get('/search', async (req, res) => {
     // Use raw SQL for fast join and trigram search
     const { Prisma } = require('@prisma/client');
     const query = `
-      SELECT p.display_name, p.position, p.gsis_id, p.pfr_id, p.latest_team, t.team_name
+      SELECT DISTINCT ON (p.gsis_id) p.display_name, p.position, p.gsis_id, p.pfr_id, p.latest_team, t.team_name
       FROM players p
       LEFT JOIN teams t ON p.latest_team = t.team_abbr
       WHERE (
         p.display_name ILIKE $1
         OR p.display_name ILIKE $2
       )
-      ORDER BY p.display_name ASC
+      ORDER BY p.gsis_id, p.display_name ASC
       LIMIT 20
     `;
     // $1: prefix search, $2: substring search
@@ -110,7 +110,12 @@ router.get('/:gsis_id/advanced', async (req, res) => {
           SUM(COALESCE(ps.receiving_epa, 0)::FLOAT) AS receiving_epa,
           AVG(ps.passing_cpoe::FLOAT) AS cpoe,
           SUM(COALESCE(ps.attempts, 0)::FLOAT) AS attempts,
-          SUM(COALESCE(ps.carries, 0)::FLOAT) AS carries
+          SUM(COALESCE(ps.carries, 0)::FLOAT) AS carries,
+          SUM(COALESCE(ps.passing_yards, 0)::FLOAT) AS passing_yards,
+          SUM(COALESCE(ps.passing_tds, 0)::FLOAT) AS passing_tds,
+          SUM(COALESCE(ps.passing_interceptions, 0)::FLOAT) AS passing_interceptions,
+          SUM(COALESCE(ps.sacks_suffered, 0)::FLOAT) AS sacks_suffered,
+          SUM(COALESCE(ps.sack_yards_lost, 0)::FLOAT) AS sack_yards_lost
         FROM player_stats ps
         WHERE ps.player_id = $1 AND ps.season_type = 'REG'
         GROUP BY ps.season
@@ -123,6 +128,13 @@ router.get('/:gsis_id/advanced', async (req, res) => {
         rushing_epa,
         receiving_epa,
         cpoe,
+        attempts,
+        carries,
+        passing_yards,
+        passing_tds,
+        passing_interceptions,
+        sacks_suffered,
+        sack_yards_lost,
         CASE WHEN attempts > 0 THEN (passing_epa / attempts) ELSE NULL END AS passing_epa_per_play,
         CASE WHEN carries > 0 THEN (rushing_epa / carries) ELSE NULL END AS rushing_epa_per_play
       FROM season_agg
@@ -153,6 +165,7 @@ router.get('/:gsis_id/all-weekly', async (req, res) => {
         passing_tds::FLOAT AS passing_tds,
         passing_interceptions::FLOAT AS passing_interceptions,
         sacks_suffered::FLOAT AS sacks_suffered,
+        sack_yards_lost::FLOAT AS sack_yards_lost,
         passing_epa::FLOAT AS passing_epa,
         passing_cpoe::FLOAT AS passing_cpoe,
         carries::FLOAT AS carries,
@@ -220,6 +233,7 @@ router.get('/:gsis_id/weekly', async (req, res) => {
         passing_tds::FLOAT AS passing_tds,
         passing_interceptions::FLOAT AS passing_interceptions,
         sacks_suffered::FLOAT AS sacks_suffered,
+        sack_yards_lost::FLOAT AS sack_yards_lost,
         passing_epa::FLOAT AS passing_epa,
         passing_cpoe::FLOAT AS passing_cpoe,
         carries::FLOAT AS carries,

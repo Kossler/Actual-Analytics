@@ -15,8 +15,6 @@ export default function WeeklyStatsTable({
   onYearChange,
   availableYears = [2025]
 }) {
-  // Debug: print the weeklyStats data to verify structure and values
-  console.log('[WeeklyStatsTable] weeklyStats:', weeklyStats);
 
   if (!weeklyStats || weeklyStats.length === 0) return null;
 
@@ -37,6 +35,7 @@ export default function WeeklyStatsTable({
     def_fumbles_forced: stat.def_fumbles_forced != null ? stat.def_fumbles_forced : (stat.fumbles_forced != null ? stat.fumbles_forced : 0),
     def_sacks: stat.def_sacks != null ? stat.def_sacks : (stat.sacks != null ? stat.sacks : 0),
     def_sack_yards: stat.def_sack_yards != null ? stat.def_sack_yards : (stat.sack_yards != null ? stat.sack_yards : 0),
+    sack_yards_lost: stat.sack_yards_lost != null ? stat.sack_yards_lost : (stat.sack_yards != null ? stat.sack_yards : 0),
     def_qb_hits: stat.def_qb_hits != null ? stat.def_qb_hits : (stat.qb_hits != null ? stat.qb_hits : 0),
     def_interceptions: stat.def_interceptions != null ? stat.def_interceptions : (stat.ints != null ? stat.ints : 0),
     def_interception_yards: stat.def_interception_yards != null ? stat.def_interception_yards : (stat.int_yards != null ? stat.int_yards : 0),
@@ -58,7 +57,6 @@ export default function WeeklyStatsTable({
   }));
 
   // Calculate season totals and averages using new schema
-  // Calculate season totals and averages using new schema
   const seasonTotals = weeklyData.reduce((totals, stat) => {
     const gamesPlayed = (totals.gamesPlayed || 0) + 1;
     return {
@@ -68,6 +66,7 @@ export default function WeeklyStatsTable({
       passing_tds: (totals.passing_tds || 0) + (stat.passing_tds || 0),
       passing_interceptions: (totals.passing_interceptions || 0) + (stat.passing_interceptions || 0),
       sacks_suffered: (totals.sacks_suffered || 0) + (stat.sacks_suffered || 0),
+      sack_yards_lost: (totals.sack_yards_lost || 0) + (stat.sack_yards_lost || 0),
       attempts: (totals.attempts || 0) + (stat.attempts || 0),
       completions: (totals.completions || 0) + (stat.completions || 0),
       passing_epa: (totals.passing_epa || 0) + (Number(stat.passing_epa) || 0),
@@ -187,6 +186,20 @@ export default function WeeklyStatsTable({
   );
 
   // QB columns
+  // ANY/A calculation for a stat row
+  const calcAnya = (stat) => {
+    const passYds = Number(stat.passing_yards) || 0;
+    const passTDs = Number(stat.passing_tds) || 0;
+    const ints = Number(stat.passing_interceptions) || 0;
+    const sackYds = Number(stat.sack_yards_lost) || 0;
+    const atts = Number(stat.attempts) || 0;
+    const sacks = Number(stat.sacks_suffered) || 0;
+    const denom = atts + sacks;
+    if (denom === 0) return '-';
+    const anya = (passYds + 20 * passTDs - 45 * ints - sackYds) / denom;
+    return anya.toFixed(2);
+  };
+
   const columnsQB = [
     { label: 'Week', value: stat => `Wk ${stat.week}` },
     { label: 'Cmp', value: stat => displayStat(stat.completions) },
@@ -197,6 +210,7 @@ export default function WeeklyStatsTable({
     { label: 'Pass TD', value: stat => displayStat(stat.passing_tds) },
     { label: 'INT', value: stat => displayStat(stat.passing_interceptions) },
     { label: 'Sacks', value: stat => displayStat(stat.sacks_suffered) },
+    { label: 'ANY/A', value: stat => calcAnya(stat) },
     { label: 'Pass EPA', value: stat => roundEPA(stat.passing_epa) },
     { label: 'EPA/Play', value: stat => epaPerPlay(stat.passing_epa, stat.attempts) },
     { label: 'CPOE', value: stat => roundCPOE(stat.cpoe) },
@@ -420,6 +434,18 @@ export default function WeeklyStatsTable({
                       col.label === 'CPOE' ? (seasonTotals.cpoe_count > 0 ? (seasonTotals.cpoe_sum / seasonTotals.cpoe_count).toFixed(3) + '%' : '-') :
                       col.label === 'Rush Yds/Att' ? (seasonTotals.carries > 0 ? (seasonTotals.rushing_yards / seasonTotals.carries).toFixed(2) : '-') :
                       col.label === 'Yds/Att' ? (seasonTotals.attempts > 0 ? (seasonTotals.passing_yards / seasonTotals.attempts).toFixed(2) : '-') :
+                      col.label === 'ANY/A' ? (() => {
+                        const passYds = Number(seasonTotals.passing_yards) || 0;
+                        const passTDs = Number(seasonTotals.passing_tds) || 0;
+                        const ints = Number(seasonTotals.passing_interceptions) || 0;
+                        const sackYds = Number(seasonTotals.sack_yards_lost) || 0;
+                        const atts = Number(seasonTotals.attempts) || 0;
+                        const sacks = Number(seasonTotals.sacks_suffered) || 0;
+                        const denom = atts + sacks;
+                        if (denom === 0) return '-';
+                        const anya = (passYds + 20 * passTDs - 45 * ints - sackYds) / denom;
+                        return anya.toFixed(2);
+                      })() :
                       col.label === 'Catch %' ? (seasonTotals.targets > 0 ? ((seasonTotals.receptions / seasonTotals.targets) * 100).toFixed(1) + '%' : '-') :
                       col.label === 'Yds/Catch' ? (seasonTotals.receptions > 0 ? (seasonTotals.receiving_yards / seasonTotals.receptions).toFixed(2) : '-') :
                       col.value(seasonTotalsForDisplay)

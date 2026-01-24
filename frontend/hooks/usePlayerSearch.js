@@ -35,7 +35,9 @@ export function usePlayerSearch(apiUrl, query) {
         const filtered = data.filter(p =>
           p.display_name && p.display_name.toLowerCase().includes(debouncedQuery.toLowerCase())
         );
-        setPlayers(filtered);
+        // Deduplicate by gsis_id
+        const unique = Array.from(new Map(filtered.map(p => [p.gsis_id, p])).values());
+        setPlayers(unique);
         setError(null);
       })
       .catch(err => {

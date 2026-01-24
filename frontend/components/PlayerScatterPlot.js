@@ -26,6 +26,15 @@ import {
 import { Download, ContentCopy } from '@mui/icons-material';
 
 const METRICS = [
+  // Kicker Stats
+  { value: 'fg_made', label: 'FG Made', category: 'kicking', threshold: 1 },
+  { value: 'fg_att', label: 'FG Att', category: 'kicking', threshold: 1 },
+  { value: 'xp_made', label: 'XP Made', category: 'kicking', threshold: 1 },
+  { value: 'xp_att', label: 'XP Att', category: 'kicking', threshold: 1 },
+  { value: 'kicking_points', label: 'Kicking Points', category: 'kicking', threshold: 1 },
+
+  // Snap Stats
+  { value: 'snaps', label: 'Snaps', category: 'overall', threshold: 1 },
   // Passing Stats
   { value: 'passing_yards', label: 'Passing Yards', category: 'passing', threshold: 150 },
   { value: 'passing_tds', label: 'Passing TDs', category: 'passing', threshold: 150 },
@@ -34,9 +43,11 @@ const METRICS = [
   { value: 'completions', label: 'Completions', category: 'passing', threshold: 150 },
   { value: 'completionPct', label: 'Completion %', category: 'passing', threshold: 150 },
   { value: 'sacks_suffered', label: 'Sacks Taken', category: 'passing', threshold: 150 },
+  { value: 'sack_yards_lost', label: 'Sack Yards Lost', category: 'passing', threshold: 150 },
   { value: 'passing_epa', label: 'Passing EPA', category: 'passing', threshold: 150 },
   { value: 'passing_epa_per_play', label: 'Passing EPA/Play', category: 'passing', threshold: 150 },
   { value: 'cpoe', label: 'CPOE %', category: 'passing', threshold: 150 },
+  { value: 'anya', label: 'ANY/A', category: 'passing', threshold: 150 },
 
   // Rushing Stats
   { value: 'rushing_yards', label: 'Rushing Yards', category: 'rushing', threshold: 120 },
@@ -93,6 +104,7 @@ const QUALIFIER_BY_CATEGORY = {
   receiving: { field: 'targets', label: 'targets' },
   defense: { field: 'defense_snaps', label: 'def snaps' },
   returns: { field: 'return_attempts', label: 'returns' },
+  kicking: { field: 'fg_att', label: 'FG attempts' },
   overall: { field: null, label: 'qualifying stat' },
 };
 
@@ -412,6 +424,18 @@ export default function PlayerScatterPlot({
       const position = stat.position;
       const puntReturns = Number(stat.punt_returns) || 0;
       const kickoffReturns = Number(stat.kickoff_returns) || 0;
+      // Calculate ANY/A
+      const passingYards = Number(stat.passing_yards) || 0;
+      const passingTDs = Number(stat.passing_tds) || 0;
+      const interceptions = Number(stat.passing_interceptions) || 0;
+      const sackYardsLost = Number(stat.sack_yards_lost) || 0;
+      const passAttempts = Number(stat.attempts) || 0;
+      const sacksSuffered = Number(stat.sacks_suffered) || 0;
+      const anyaDenom = passAttempts + sacksSuffered;
+      let anya = 0;
+      if (anyaDenom > 0) {
+        anya = (passingYards + 20 * passingTDs - 45 * interceptions - sackYardsLost) / anyaDenom;
+      }
       return {
         playerId: stat.player_id,
         name: stat.player_display_name,
@@ -468,6 +492,7 @@ export default function PlayerScatterPlot({
         completionPct: stat.attempts > 0 ? (Number(stat.completions) / Number(stat.attempts) * 100) : 0,
         epa: (Number(stat.passing_epa) || 0) + (Number(stat.rushing_epa) || 0) + (Number(stat.receiving_epa) || 0),
         game_count: Number(stat.game_count) || 0,
+        anya,
       };
     });
   }, [allPlayerStats]);

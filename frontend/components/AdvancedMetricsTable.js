@@ -5,6 +5,7 @@ import {
   shouldShowPassingColumns,
   shouldShowRushingColumns,
 } from '../utils/statsUtils';
+import { m } from 'framer-motion';
 
 /**
  * AdvancedMetricsTable component - displays EPA and success rate metrics
@@ -23,6 +24,19 @@ export default function AdvancedMetricsTable({ advancedMetrics, position, player
     return values.reduce((sum, v) => sum + v, 0) / values.length;
   };
 
+  // ANY/A calculation for a metric (yearly, per row) with debug logging
+  const calcAnya = (m) => {
+    const passYds = Number(m.passing_yards) || 0;
+    const passTDs = Number(m.passing_tds) || 0;
+    const ints = Number(m.passing_interceptions) || 0;
+    const sackYds = Number(m.sack_yards_lost ?? m.sack_yards) || 0;
+    const atts = Number(m.attempts) || 0;
+    const sacks = Number(m.sacks_suffered) || 0;
+    const denom = atts + sacks;
+    if (denom === 0) return null;
+    return (passYds + 20 * passTDs - 45 * ints - sackYds) / denom;
+  };
+
   const averages = {
     epa: avgOf(advancedMetrics, (m) => m.epa),
     passing_epa: avgOf(advancedMetrics, (m) => m.passing_epa),
@@ -30,6 +44,7 @@ export default function AdvancedMetricsTable({ advancedMetrics, position, player
     rushing_epa: avgOf(advancedMetrics, (m) => m.rushing_epa),
     rushing_epa_per_play: avgOf(advancedMetrics, (m) => m.rushing_epa_per_play),
     cpoe: avgOf(advancedMetrics, (m) => m.cpoe),
+    anya: avgOf(advancedMetrics, calcAnya), // This is now the average of yearly ANY/A, not weekly
   };
 
   const formatPercent = (value, decimals = 3) => {
@@ -53,6 +68,7 @@ export default function AdvancedMetricsTable({ advancedMetrics, position, player
             <>
               <TableCell align="right">Pass EPA</TableCell>
               <TableCell align="right">Pass EPA/Play</TableCell>
+              <TableCell align="right">ANY/A</TableCell>
             </>
           )}
           {showRushing && (
@@ -94,6 +110,7 @@ export default function AdvancedMetricsTable({ advancedMetrics, position, player
               <>
                 <TableCell align="right">{formatNumber(metric.passing_epa)}</TableCell>
                 <TableCell align="right">{formatNumber(metric.passing_epa_per_play, 3)}</TableCell>
+                <TableCell align="right">{calcAnya(metric) !== null ? calcAnya(metric).toFixed(2) : '-'}</TableCell>
               </>
             )}
             {showRushing && (
@@ -135,6 +152,7 @@ export default function AdvancedMetricsTable({ advancedMetrics, position, player
               <>
                 <TableCell align="right">{formatNumber(averages.passing_epa)}</TableCell>
                 <TableCell align="right">{formatNumber(averages.passing_epa_per_play, 3)}</TableCell>
+                <TableCell align="right">{averages.anya !== null ? averages.anya.toFixed(2) : '-'}</TableCell>
               </>
             )}
             {showRushing && (
