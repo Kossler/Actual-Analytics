@@ -230,6 +230,7 @@ export default function WeeklyStatsTable({
     { label: 'Catch %', value: stat => catchPct(stat.receptions, stat.targets) },
     { label: 'Yds/Catch', value: stat => receivingYdsPerAttempt(stat.receiving_yards, stat.receptions) },
     { label: 'Receiving Yds', value: stat => displayStat(stat.receiving_yards) },
+    { label: 'Receiving TD', value: stat => displayStat(stat.receiving_tds) },
     { label: 'Rec EPA', value: stat => roundEPA(stat.receiving_epa) },
     { label: 'Rec EPA/Rec', value: stat => epaPerPlay(stat.receiving_epa, stat.receptions) },
   ];
@@ -242,6 +243,7 @@ export default function WeeklyStatsTable({
     { label: 'Catch %', value: stat => catchPct(stat.receptions, stat.targets) },
     { label: 'Yds/Catch', value: stat => receivingYdsPerAttempt(stat.receiving_yards, stat.receptions) },
     { label: 'Receiving Yds', value: stat => displayStat(stat.receiving_yards) },
+    { label: 'Receiving TD', value: stat => displayStat(stat.receiving_tds) },
     { label: 'Rec EPA', value: stat => roundEPA(stat.receiving_epa) },
     { label: 'Rec EPA/Rec', value: stat => epaPerPlay(stat.receiving_epa, stat.receptions) },
     { label: 'Carries', value: stat => displayStat(stat.carries) },
