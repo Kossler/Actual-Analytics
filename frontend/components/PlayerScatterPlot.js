@@ -504,29 +504,65 @@ export default function PlayerScatterPlot({
     const yMetric = METRICS.find(m => m.value === yAxis);
     if (!xMetric || !yMetric) return [];
 
+    // If "All Time" is selected, compare best seasons ever (top 32 by yMetric)
+    if (selectedYear === 'all-time') {
+      // Only include one season per player (the best season for that player by yMetric)
+      const bestSeasonByPlayer = {};
+      for (const stat of combinedData) {
+        if (!meetsQualification(stat, xMetric) || !meetsQualification(stat, yMetric)) continue;
+        const key = stat.playerId;
+        if (!bestSeasonByPlayer[key] || (stat[yAxis] || 0) > (bestSeasonByPlayer[key][yAxis] || 0)) {
+          bestSeasonByPlayer[key] = stat;
+        }
+      }
+      // Only compare to same position group as selected player
+      const selectedPlayerData = combinedData.find(p => p.playerId === selectedPlayerId);
+      const selectedGroup = selectedPlayerData?.positionGroup;
+      if (!selectedGroup) return [];
+      let groupPlayers = Object.values(bestSeasonByPlayer).filter(player => player.positionGroup === selectedGroup);
+      // Sort by yMetric
+      groupPlayers = groupPlayers.sort((a, b) => (b[yAxis] || 0) - (a[yAxis] || 0));
+      // Take top 32
+      let topPlayers = groupPlayers.slice(0, 32);
+      // Add the selected player if not present
+      if (selectedPlayerData && !topPlayers.some(p => p.playerId === selectedPlayerId)) {
+        topPlayers = [selectedPlayerData, ...topPlayers.slice(0, 31)];
+      }
+      // Remove accidental duplicates
+      const seen = new Set();
+      const result = topPlayers.filter(player => {
+        if (seen.has(player.playerId)) return false;
+        seen.add(player.playerId);
+        return true;
+      });
+      // Label year next to player name
+      return result.map(player => ({
+        name: `${player.name} (${player.season})`,
+        position: player.position,
+        playerId: player.playerId,
+        x: player[xAxis] || 0,
+        y: player[yAxis] || 0,
+        isSelected: player.playerId === selectedPlayerId,
+      }));
+    }
+
+    // Default: single season mode
     // Get selected player's position group
-    const selectedPlayerData = combinedData.find(p => p.playerId === selectedPlayerId);
+    const selectedPlayerData = combinedData.find(p => p.playerId === selectedPlayerId && p.season === selectedYear);
     const selectedGroup = selectedPlayerData?.positionGroup;
     if (!selectedGroup) return [];
-
     // Only compare to same position group
-    let groupPlayers = combinedData.filter(player => player.positionGroup === selectedGroup);
-
+    let groupPlayers = combinedData.filter(player => player.positionGroup === selectedGroup && player.season === selectedYear);
     // Remove the selected player from the group
     let others = groupPlayers.filter(player => player.playerId !== selectedPlayerId);
-
     // Enforce qualification thresholds for both selected axes (by category)
     others = others.filter(player => meetsQualification(player, xMetric) && meetsQualification(player, yMetric));
-
     // Sort the rest by y-axis value (descending)
     others = others.sort((a, b) => (b[yAxis] || 0) - (a[yAxis] || 0));
-
     // Take the top 31
     let topOthers = others.slice(0, 31);
-
     // Add the selected player back in
     let result = selectedPlayerData ? [selectedPlayerData, ...topOthers] : topOthers;
-
     // Remove accidental duplicates (shouldn't happen, but for safety)
     const seen = new Set();
     result = result.filter(player => {
@@ -534,7 +570,6 @@ export default function PlayerScatterPlot({
       seen.add(player.playerId);
       return true;
     });
-
     return result.map(player => ({
       name: player.name,
       position: player.position,
@@ -543,7 +578,7 @@ export default function PlayerScatterPlot({
       y: player[yAxis] || 0,
       isSelected: player.playerId === selectedPlayerId,
     }));
-  }, [combinedData, xAxis, yAxis, selectedPlayerId]);
+  }, [combinedData, xAxis, yAxis, selectedPlayerId, selectedYear]);
 
   const xMetricLabel = METRICS.find(m => m.value === xAxis)?.label || 'X-Axis';
   const yMetricLabel = METRICS.find(m => m.value === yAxis)?.label || 'Y-Axis';
@@ -631,6 +666,7 @@ export default function PlayerScatterPlot({
                 onChange={(e) => onYearChange(e.target.value)}
                 label="Year"
               >
+                <MenuItem key="all-time" value="all-time">All Time</MenuItem>
                 {availableYears.map(year => (
                   <MenuItem key={year} value={year}>{year}</MenuItem>
                 ))}

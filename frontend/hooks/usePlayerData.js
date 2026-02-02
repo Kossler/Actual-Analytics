@@ -118,7 +118,12 @@ export function useWeeklyStats(playerId, apiUrl, season = 2025) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!playerId || !apiUrl) return;
+    if (!playerId || !apiUrl || season === 'all-time') {
+      setWeeklyStats([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     fetch(`${apiUrl}/api/players/${playerId}/weekly?season=${season}`)
