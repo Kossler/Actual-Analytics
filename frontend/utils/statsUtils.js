@@ -245,5 +245,5 @@ export function getPositionColor(position) {
  * @returns {string} Formatted label
  */
 export function formatPlayerLabel(player) {
-  return `${player.display_name} - ${player.position} (${player.team})`;
+  return `${player.display_name} - ${player.position} (${player.team_name || player.latest_team || player.team || ''})`;
 }

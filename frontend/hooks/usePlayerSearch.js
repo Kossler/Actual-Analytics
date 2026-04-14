@@ -25,19 +25,13 @@ export function usePlayerSearch(apiUrl, query) {
       return;
     }
     setLoading(true);
-    fetch(`${apiUrl}/api/players/search?q=${encodeURIComponent(debouncedQuery)}`)
+    fetch(`${apiUrl}/api/player-search?q=${encodeURIComponent(debouncedQuery)}`)
       .then(r => {
         if (!r.ok) throw new Error('Failed to fetch players');
         return r.json();
       })
       .then(data => {
-        // Client-side filter for display_name match
-        const filtered = data.filter(p =>
-          p.display_name && p.display_name.toLowerCase().includes(debouncedQuery.toLowerCase())
-        );
-        // Deduplicate by gsis_id
-        const unique = Array.from(new Map(filtered.map(p => [p.gsis_id, p])).values());
-        setPlayers(unique);
+        setPlayers(Array.isArray(data) ? data : []);
         setError(null);
       })
       .catch(err => {

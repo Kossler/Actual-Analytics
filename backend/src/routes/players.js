@@ -3,29 +3,30 @@ const prisma = require('../db');
 const router = express.Router();
 
 // Player search with join to teams for team_name, always return gsis_id
+// Fuzzy player search using trigram similarity
 router.get('/search', async (req, res) => {
   const search = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   if (!search) {
     return res.json([]);
   }
   try {
-    // Use raw SQL for fast join and trigram search
     const { Prisma } = require('@prisma/client');
     const query = `
-      SELECT DISTINCT ON (p.gsis_id) p.display_name, p.position, p.gsis_id, p.pfr_id, p.latest_team, t.team_name
-      FROM players p
-      LEFT JOIN teams t ON p.latest_team = t.team_abbr
-      WHERE (
-        p.display_name ILIKE $1
-        OR p.display_name ILIKE $2
+      WITH ranked_players AS (
+        SELECT p.display_name, p.position, p.gsis_id, p.pfr_id, p.latest_team, t.team_name,
+               similarity(p.display_name, $1) AS name_similarity,
+               ROW_NUMBER() OVER (PARTITION BY p.gsis_id ORDER BY similarity(p.display_name, $1) DESC, p.display_name ASC) AS rn
+        FROM players p
+        LEFT JOIN teams t ON p.latest_team = t.team_abbr
+        WHERE similarity(p.display_name, $1) > 0.2
       )
-      ORDER BY p.gsis_id, p.display_name ASC
+      SELECT display_name, position, gsis_id, pfr_id, latest_team, team_name, name_similarity
+      FROM ranked_players
+      WHERE rn = 1
+      ORDER BY name_similarity DESC, display_name ASC
       LIMIT 20
     `;
-    // $1: prefix search, $2: substring search
-    const prefix = search + '%';
-    const substring = '%' + search + '%';
-    const results = await prisma.$queryRawUnsafe(query, prefix, substring);
+    const results = await prisma.$queryRawUnsafe(query, search);
     res.json(convertBigInts(results));
   } catch (err) {
     res.status(500).json({ error: 'Failed to search players' });

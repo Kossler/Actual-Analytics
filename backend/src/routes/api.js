@@ -2,9 +2,63 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../db');
 
+// Player search endpoint: returns player names, positions, team, and gsis_id
+router.get('/player-search', async (req, res) => {
+  const search = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  console.log('[player-search] Query:', search);
+  if (!search) {
+    console.log('[player-search] Empty search string, returning empty array.');
+    return res.json([]);
+  }
+  try {
+    // Use raw SQL for fast join and trigram search
+    const { Prisma } = require('@prisma/client');
+    const query = `
+      SELECT p.display_name, p.position, p.gsis_id, p.latest_team, t.team_name,
+             similarity(p.display_name, $1) AS name_similarity
+      FROM players p
+      LEFT JOIN teams t ON p.latest_team = t.team_abbr
+      WHERE similarity(p.display_name, $1) > 0.2
+      ORDER BY name_similarity DESC, p.display_name ASC
+      LIMIT 20
+    `;
+    const results = await prisma.$queryRawUnsafe(query, search);
+    console.log('[player-search] Results count:', results.length);
+    if (results.length === 0) {
+      console.log('[player-search] No results found for query:', search);
+    } else {
+      console.log('[player-search] First result:', results[0]);
+    }
+    // Convert BigInt values if present
+    function convertBigInts(obj) {
+      if (Array.isArray(obj)) {
+        return obj.map(convertBigInts);
+      } else if (obj && typeof obj === 'object') {
+        const newObj = {};
+        for (const key in obj) {
+          if (typeof obj[key] === 'bigint') {
+            newObj[key] = obj[key].toString();
+          } else {
+            newObj[key] = obj[key];
+          }
+        }
+        return newObj;
+      }
+      return obj;
+    }
+    res.json(convertBigInts(results));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to search players' });
+  }
+});
+
 // --- Player CRUD ---
 
 // Player CRUD
+router.get('/players/name', async (req, res) => {
+  const { name } = req.query;
+});
+
 router.get('/players', async (req, res) => {
   const players = await prisma.Player.findMany();
   res.json(players);

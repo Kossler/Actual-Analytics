@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Card, CardContent, Box, TextField, Autocomplete, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import SearchIcon from '@mui/icons-material/Search';
@@ -6,24 +6,49 @@ import { formatPlayerLabel } from '../utils/statsUtils';
 
 /**
  * SearchBar component for player search
- * @param {Array} players - List of all players
  * @param {object} selectedPlayer - Currently selected player
  * @param {function} onSelectPlayer - Callback when a player is selected
  * @param {string} searchQuery - Current search query
  * @param {function} onSearchChange - Callback when search query changes
  */
 export default function SearchBar({ 
-  players, 
   selectedPlayer, 
   onSelectPlayer, 
   searchQuery, 
   onSearchChange 
 }) {
+  const [players, setPlayers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const debounceRef = useRef();
   // Focus input on mount for better UX
   useEffect(() => {
     const input = document.querySelector('input[placeholder="Search for a player..."]');
     if (input) input.focus();
   }, []);
+
+  // Fetch players from API as user types
+  useEffect(() => {
+    if (!searchQuery) {
+      setPlayers([]);
+      return;
+    }
+    setLoading(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+      fetch(`${apiBase}/api/players/search?q=${encodeURIComponent(searchQuery)}`)
+        .then((res) => res.json())
+        .then((data) => {
+          setPlayers(Array.isArray(data) ? data : []);
+          setLoading(false);
+        })
+        .catch(() => {
+          setPlayers([]);
+          setLoading(false);
+        });
+    }, 200);
+    return () => clearTimeout(debounceRef.current);
+  }, [searchQuery]);
 
   return (
     <Card sx={{ mb: 4 }}>
@@ -34,6 +59,7 @@ export default function SearchBar({
             getOptionLabel={formatPlayerLabel}
             filterOptions={(options, state) => options}
             value={null}
+            loading={loading}
             slotProps={{
               listbox: {
                 sx: (theme) => {

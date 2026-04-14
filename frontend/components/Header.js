@@ -1,6 +1,12 @@
+
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { Card, CardHeader, Box, Button } from '@mui/material';
+import { Card, Box } from '@mui/material';
+const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+const navItems = [
+  { label: 'Home', href: '/' },
+  { label: 'Predictive Models', href: '/predictive-models' },
+];
 
 /**
  * Header component with logo and title
@@ -47,15 +53,22 @@ export default function Header() {
           />
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }} />
-        <Button
-          component={Link}
-          href="/"
-          variant="outlined"
-          size="small"
-          sx={{ ml: 'auto', flexShrink: 0 }}
-        >
-          Home
-        </Button>
+        <nav style={{ display: 'flex', gap: 8 }}>
+          {navItems.map((item) => (
+            <Link key={item.href} href={item.href} legacyBehavior>
+              <a
+                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
+                  useRouter().pathname === item.href || (item.href.startsWith('/#') && useRouter().asPath === item.href)
+                    ? 'bg-gray-800 text-cyan-400'
+                    : 'hover:bg-gray-800 hover:text-cyan-300'
+                }`}
+                style={{ textDecoration: 'none' }}
+              >
+                {item.label}
+              </a>
+            </Link>
+          ))}
+        </nav>
       </Box>
     </Card>
   );
