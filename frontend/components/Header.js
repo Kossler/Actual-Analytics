@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import { Card, Box } from '@mui/material';
 const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 const navItems = [
-  { label: 'Home', href: '/' },
+  { label: 'Players', href: '/' },
   { label: 'Predictive Models', href: '/predictive-models' },
 ];
 
