@@ -58,15 +58,17 @@ jobs:
           UPSERT: '0'
           PROCESSES: '4'
           CHUNK_SIZE: '50000'
-        continue-on-error: true
+        # A failed loader fails the run (and GitHub emails you); tables that did load are still saved.
         run: |
           cd ingest
-          python populate_tables.py || echo "⚠️  Warning: Data update encountered errors"
+          python populate_tables.py
 
       # Purge the API from Cloudflare's edge cache so visitors get the new data.
       # Skipped until the API is served through a Cloudflare-proxied hostname and these secrets exist:
       #   CLOUDFLARE_ZONE_ID, CLOUDFLARE_API_TOKEN (Zone > Cache Purge permission), API_HOSTNAME (e.g. api.secondlevelanalytics.com)
       - name: Purge API edge cache
+        # Run even if some loaders failed: the tables that loaded still changed the data.
+        if: ${{ !cancelled() }}
         env:
           CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

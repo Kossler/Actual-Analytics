@@ -1,0 +1,27 @@
+name: Keep Scheduled Workflows Alive
+
+# GitHub disables scheduled workflows in public repositories after 60 days without repository
+# activity. The ingestion schedule only runs September-February, so without commits in the
+# offseason it gets switched off before the season starts (this happened in September 2026).
+# Re-enabling the workflows through the API each month resets that inactivity timer.
+
+on:
+  schedule:
+    - cron: "0 12 1 * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Re-enable scheduled workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh workflow enable daily-ingestion.yml
+          gh workflow enable keepalive.yml
+          gh workflow list --all

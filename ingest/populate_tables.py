@@ -4,6 +4,7 @@ import psycopg2
 import os
 import re
 import inspect
+import sys
 from datetime import datetime
 from multiprocessing import Pool, cpu_count
 
@@ -127,6 +128,7 @@ def get_default_args(func):
     return args
 
 def process_table(fname, creds):
+    """Load one nflreadpy dataset into its table. Returns False if the table failed to load."""
     import numpy as np
     import json
     from psycopg2.extras import execute_values
@@ -178,12 +180,12 @@ def process_table(fname, creds):
                 print(f"No data available for {fname}.")
                 cur.close()
                 conn.close()
-                return
+                return True
         except Exception as e:
             print(f"Error loading {fname} data: {e}")
             cur.close()
             conn.close()
-            return
+            return False
     else:
         print(f"Loading {fname} with default arguments...")
         try:
@@ -192,7 +194,7 @@ def process_table(fname, creds):
             print(f"Skipping {fname}: {e}")
             cur.close()
             conn.close()
-            return
+            return False
     table_name = fname.replace('load_', '')
     upsert = upsert_all if upsert_tables is None else (table_name in upsert_tables)
     columns = df.columns
@@ -205,7 +207,7 @@ def process_table(fname, creds):
         print(f"  WARNING: Not all ON CONFLICT columns are present in DataFrame for {table_name}. Skipping table.")
         cur.close()
         conn.close()
-        return
+        return False
     if table_name == 'players':
         # One row per player; a batch with repeated keys would make ON CONFLICT DO UPDATE fail.
         df = df.filter(pl.col('gsis_id').is_not_null()).unique(subset=['gsis_id'], keep='last', maintain_order=True)
@@ -255,16 +257,24 @@ def process_table(fname, creds):
         print(f"Table {table_name} populated.")
     except Exception as e:
         print(f"Error populating table {table_name}: {e}")
+        cur.close()
+        conn.close()
+        return False
     cur.close()
     conn.close()
+    return True
 
 
 # Move worker to top-level for multiprocessing compatibility
 def worker(fname):
     # Each process must create its own DB connection
-    db_url = get_database_url()
-    creds = parse_database_url(db_url)
-    process_table(fname, creds)
+    try:
+        db_url = get_database_url()
+        creds = parse_database_url(db_url)
+        return process_table(fname, creds)
+    except Exception as e:
+        print(f"Error processing {fname}: {e}")
+        return False
 
 def main():
     selected_funcs = get_selected_funcs()
@@ -277,9 +287,18 @@ def main():
     if requested.isdigit():
         processes = max(1, min(int(requested), len(selected_funcs)))
     with Pool(processes=processes) as pool:
-        pool.map(worker, selected_funcs)
+        results = pool.map(worker, selected_funcs)
 
-    finalize_load([f.replace('load_', '') for f in selected_funcs])
+    # Finalize even after partial failures: the tables that did load still need fresh stats,
+    # the season view refreshed and the API cache invalidated.
+    finalized = finalize_load([f.replace('load_', '') for f in selected_funcs])
+
+    failed = [f for f, ok in zip(selected_funcs, results) if not ok]
+    if failed or not finalized:
+        # Exit non-zero so the workflow run is marked as failed.
+        print(f"Ingestion finished with errors. Failed loaders: {', '.join(failed) or 'none'}; "
+              f"finalize {'succeeded' if finalized else 'failed'}.")
+        sys.exit(1)
 
 
 # Tables the player_season_stats materialized view is built from.
@@ -288,7 +307,7 @@ VIEW_SOURCE_TABLES = {'player_stats', 'players', 'snap_counts'}
 
 def finalize_load(tables):
     """Refresh planner statistics after bulk loads so the API's queries get good plans, then
-    bump app_meta.data_version so the API drops its cached responses."""
+    bump app_meta.data_version so the API drops its cached responses. Returns False on any error."""
     creds = parse_database_url(get_database_url())
     conn = psycopg2.connect(
         dbname=creds['dbname'],
@@ -299,12 +318,14 @@ def finalize_load(tables):
     )
     conn.autocommit = True
     cur = conn.cursor()
+    ok = True
     for table_name in tables:
         try:
             cur.execute(f'ANALYZE "{table_name}"')
             print(f"Analyzed {table_name}")
         except Exception as e:
             print(f"Error analyzing {table_name}: {e}")
+            ok = False
     # Season totals the API reads; must be current before data_version tells the API to re-cache.
     if VIEW_SOURCE_TABLES & set(tables):
         try:
@@ -313,6 +334,7 @@ def finalize_load(tables):
             print("Refreshed player_season_stats")
         except Exception as e:
             print(f"Error refreshing player_season_stats: {e}")
+            ok = False
     try:
         cur.execute(
             "INSERT INTO app_meta (key, value, updated_at) "
@@ -322,8 +344,10 @@ def finalize_load(tables):
         print("Bumped data_version")
     except Exception as e:
         print(f"Error bumping data_version: {e}")
+        ok = False
     cur.close()
     conn.close()
+    return ok
 
 if __name__ == "__main__":
     main()
