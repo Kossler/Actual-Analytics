@@ -13,14 +13,12 @@ import HomeSeasonTables from '../components/HomeSeasonTables';
 
 // Custom Hooks
 import {
-  useAllPlayers,
   usePlayerStats,
   useWeeklyStats,
   useAllWeeklyStats,
   useAdvancedMetrics,
   useBackgroundImage,
 } from '../hooks/usePlayerData';
-import { usePlayerSearch } from '../hooks/usePlayerSearch';
 
 /**
  * Main application component
@@ -39,10 +37,6 @@ export default function Home() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState(2025);
-
-  // Data fetching hooks
-  const { players: searchPlayers, loading: searchLoading } = usePlayerSearch(apiUrl, searchQuery);
-  const { players: allPlayers } = useAllPlayers(apiUrl);
 
   // Fetch homepage stats from new API
   const [homeStats, setHomeStats] = useState({ season: null, qbs: [], rbs: [], wrs: [], tes: [] });
@@ -70,10 +64,6 @@ export default function Home() {
       gsis_id: player.gsis_id,
     };
   }
-
-  // Normalize player arrays for SearchBar
-  const normalizedSearchPlayers = searchPlayers.map(normalizePlayer);
-  const normalizedAllPlayers = allPlayers.map(normalizePlayer);
 
   // Handle player selection
   const handleSelectPlayer = (player) => {
@@ -120,7 +110,6 @@ export default function Home() {
 
           {/* Search Bar */}
           <SearchBar
-            players={searchQuery ? normalizedSearchPlayers : normalizedAllPlayers}
             selectedPlayer={selectedPlayer}
             onSelectPlayer={handleSelectPlayer}
             searchQuery={searchQuery}

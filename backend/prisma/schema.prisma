@@ -38,6 +38,7 @@ model contracts {
   id                  Int      @id @default(autoincrement())
 
   @@unique([otc_id, gsis_id, year_signed, team], map: "contracts_unique")
+  @@index([gsis_id], map: "contracts_gsis_id_idx")
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -999,6 +1000,7 @@ model player_stats {
   id                          Int     @id @default(autoincrement())
 
   @@unique([player_id, season, week], map: "player_stats_unique")
+  @@index([season, season_type, position], map: "player_stats_season_type_position_idx")
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -1045,8 +1047,9 @@ model players {
   id                           Int     @id @default(autoincrement())
 
   @@index([display_name], map: "players_display_name_idx")
+  @@index([display_name(ops: raw("gin_trgm_ops"))], map: "players_display_name_trgm_idx", type: Gin)
 
-  @@unique([gsis_id, esb_id, nfl_id, pfr_id, pff_id, otc_id, espn_id, smart_id], map: "players_unique")
+  @@unique([gsis_id], map: "players_gsis_id_key")
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -1209,6 +1212,7 @@ model snap_counts {
   id            Int     @id @default(autoincrement())
 
   @@unique([game_id, pfr_game_id, pfr_player_id, season, week], map: "snap_counts_unique")
+  @@index([season, pfr_player_id, week], map: "snap_counts_season_player_week_idx")
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -1358,4 +1362,11 @@ model trades {
   id          Int       @id @default(autoincrement())
 
   @@unique([trade_id, pfr_id], map: "trades_unique")
+}
+
+/// Key/value metadata written by the ingest (e.g. data_version, used for API cache invalidation).
+model app_meta {
+  key        String   @id
+  value      String
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
 }

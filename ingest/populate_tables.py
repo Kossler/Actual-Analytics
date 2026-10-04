@@ -106,7 +106,9 @@ TABLE_UNIQUE_KEYS = {
     "participation": ["nflverse_game_id", "play_id"],
     "pbp": ["game_id", "play_id"],
     "player_stats": ["player_id", "season", "week"],
-    "players": ["gsis_id", "esb_id", "nfl_id", "pfr_id", "pff_id", "otc_id", "espn_id", "smart_id"],
+    # gsis_id alone: the old 8-column key was mostly NULL, so ON CONFLICT never matched and
+    # every run appended a duplicate of every player.
+    "players": ["gsis_id"],
     "rosters": ["season", "team", "gsis_id", "espn_id", "sportradar_id", "yahoo_id", "rotowire_id", "pff_id", "pfr_id", "fantasy_data_id", "sleeper_id"],
     "rosters_weekly": ["season", "team", "gsis_id", "espn_id", "sportradar_id", "yahoo_id", "rotowire_id", "pff_id", "pfr_id", "fantasy_data_id", "sleeper_id", "week"],
     "schedules": ["game_id", "season", "week"],
@@ -204,6 +206,9 @@ def process_table(fname, creds):
         cur.close()
         conn.close()
         return
+    if table_name == 'players':
+        # One row per player; a batch with repeated keys would make ON CONFLICT DO UPDATE fail.
+        df = df.filter(pl.col('gsis_id').is_not_null()).unique(subset=['gsis_id'], keep='last', maintain_order=True)
     if unique_cols:
         conflict_cols = ', '.join([f'"{col}"' for col in unique_cols])
         if upsert:
@@ -273,6 +278,52 @@ def main():
         processes = max(1, min(int(requested), len(selected_funcs)))
     with Pool(processes=processes) as pool:
         pool.map(worker, selected_funcs)
+
+    finalize_load([f.replace('load_', '') for f in selected_funcs])
+
+
+# Tables the player_season_stats materialized view is built from.
+VIEW_SOURCE_TABLES = {'player_stats', 'players', 'snap_counts'}
+
+
+def finalize_load(tables):
+    """Refresh planner statistics after bulk loads so the API's queries get good plans, then
+    bump app_meta.data_version so the API drops its cached responses."""
+    creds = parse_database_url(get_database_url())
+    conn = psycopg2.connect(
+        dbname=creds['dbname'],
+        user=creds['user'],
+        password=creds['password'],
+        host=creds['host'],
+        port=creds['port']
+    )
+    conn.autocommit = True
+    cur = conn.cursor()
+    for table_name in tables:
+        try:
+            cur.execute(f'ANALYZE "{table_name}"')
+            print(f"Analyzed {table_name}")
+        except Exception as e:
+            print(f"Error analyzing {table_name}: {e}")
+    # Season totals the API reads; must be current before data_version tells the API to re-cache.
+    if VIEW_SOURCE_TABLES & set(tables):
+        try:
+            cur.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY player_season_stats')
+            cur.execute('ANALYZE player_season_stats')
+            print("Refreshed player_season_stats")
+        except Exception as e:
+            print(f"Error refreshing player_season_stats: {e}")
+    try:
+        cur.execute(
+            "INSERT INTO app_meta (key, value, updated_at) "
+            "VALUES ('data_version', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), now()) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at"
+        )
+        print("Bumped data_version")
+    except Exception as e:
+        print(f"Error bumping data_version: {e}")
+    cur.close()
+    conn.close()
 
 if __name__ == "__main__":
     main()

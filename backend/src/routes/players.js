@@ -1,107 +1,10 @@
 const express = require('express');
 const prisma = require('../db');
+const { searchPlayers } = require('../playerSearch');
 const router = express.Router();
 
-// Player search with join to teams for team_name, always return gsis_id
-// Fuzzy player search using trigram similarity
-router.get('/search', async (req, res) => {
-  const search = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-  if (!search) {
-    return res.json([]);
-  }
-  try {
-    const { Prisma } = require('@prisma/client');
-    const query = `
-      WITH ranked_players AS (
-        SELECT p.display_name, p.position, p.gsis_id, p.pfr_id, p.latest_team, t.team_name,
-               similarity(p.display_name, $1) AS name_similarity,
-               ROW_NUMBER() OVER (PARTITION BY p.gsis_id ORDER BY similarity(p.display_name, $1) DESC, p.display_name ASC) AS rn
-        FROM players p
-        LEFT JOIN teams t ON p.latest_team = t.team_abbr
-        WHERE similarity(p.display_name, $1) > 0.2
-      )
-      SELECT display_name, position, gsis_id, pfr_id, latest_team, team_name, name_similarity
-      FROM ranked_players
-      WHERE rn = 1
-      ORDER BY name_similarity DESC, display_name ASC
-      LIMIT 20
-    `;
-    const results = await prisma.$queryRawUnsafe(query, search);
-    res.json(convertBigInts(results));
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to search players' });
-  }
-});
-
-// Get available years from the GameStat or PlayerStats table
-router.get('/available-years', async (req, res) => {
-  try {
-    // Use raw SQL to fetch distinct seasons, ordered descending
-    const query = `SELECT DISTINCT season FROM player_stats WHERE season IS NOT NULL ORDER BY season DESC`;
-    const { Prisma } = require('@prisma/client');
-    const years = await prisma.$queryRawUnsafe(query);
-    // years will be array of objects: [{ season: 2025n }, ...]
-    const availableYears = years.map(y => typeof y.season === 'bigint' ? Number(y.season) : y.season).filter(Boolean);
-    res.json(availableYears);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch available years' });
-  }
-});
-
-// Get player metadata by GSIS ID
-router.get('/:gsis_id', async (req, res) => {
-  const gsis_id = req.params.gsis_id;
-  if (!gsis_id) {
-    return res.status(400).json({ error: 'Missing player GSIS ID' });
-  }
-  try {
-    const player = await prisma.players.findFirst({ where: { gsis_id } });
-    if (!player) {
-      return res.status(404).json({ error: 'Player not found' });
-    }
-    res.json(convertBigInts(player));
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch player metadata' });
-  }
-});
-
-// Get contract history for a player by GSIS ID
-router.get('/:gsis_id/contracts', async (req, res) => {
-  const gsis_id = req.params.gsis_id;
-  if (!gsis_id) {
-    return res.status(400).json({ error: 'Missing player GSIS ID' });
-  }
-
-  try {
-    const player = await prisma.players.findFirst({
-      where: { gsis_id },
-      select: { gsis_id: true, otc_id: true },
-    });
-
-    // If the player isn't in the players table, still allow a best-effort lookup by gsis_id.
-    const where = player?.otc_id
-      ? { OR: [{ gsis_id }, { otc_id: player.otc_id }] }
-      : { gsis_id };
-
-    const contracts = await prisma.contracts.findMany({
-      where,
-      orderBy: [{ year_signed: 'desc' }],
-    });
-
-    res.json(convertBigInts(contracts));
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch player contract history' });
-  }
-});
-
-// Get advanced metrics for a specific player (EPA, CPOE, success rates, etc.)
-router.get('/:gsis_id/advanced', async (req, res) => {
-  const gsis_id = req.params.gsis_id;
-  if (!gsis_id) {
-    return res.status(400).json({ error: 'Missing player GSIS ID' });
-  }
-  try {
-    const query = `
+// Per-player queries, shared by the individual endpoints and /:gsis_id/profile.
+const ADVANCED_SQL = `
       WITH season_agg AS (
         SELECT
           ps.season,
@@ -141,22 +44,8 @@ router.get('/:gsis_id/advanced', async (req, res) => {
       FROM season_agg
       ORDER BY season DESC
     `;
-    const { Prisma } = require('@prisma/client');
-    const metrics = await prisma.$queryRawUnsafe(query, gsis_id);
-    res.json(convertBigInts(metrics));
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch advanced metrics' });
-  }
-});
 
-// Get all weekly stats for a specific player (across all seasons)
-router.get('/:gsis_id/all-weekly', async (req, res) => {
-  const gsis_id = req.params.gsis_id;
-  if (!gsis_id) {
-    return res.status(400).json({ error: 'Missing player GSIS ID' });
-  }
-  try {
-    const query = `
+const ALL_WEEKLY_SQL = `
       SELECT
         ps.week,
         ps.season,
@@ -208,6 +97,180 @@ router.get('/:gsis_id/all-weekly', async (req, res) => {
       WHERE ps.player_id = $1 AND ps.season_type = 'REG'
       ORDER BY ps.season DESC, ps.week ASC
     `;
+
+const YEARLY_STATS_SQL = `
+      SELECT
+        player_stats.season AS season,
+        COALESCE(SUM(completions::FLOAT),0) AS completions,
+        COALESCE(SUM(attempts::FLOAT),0) AS attempts,
+        -- removed passing_attempts and rushing_attempts, use attempts and carries instead
+        COALESCE(SUM(passing_yards::FLOAT),0) AS passing_yards,
+        COALESCE(SUM(passing_tds::FLOAT),0) AS passing_tds,
+        COALESCE(SUM(passing_interceptions::FLOAT),0) AS passing_interceptions,
+        COALESCE(SUM(sacks_suffered::FLOAT),0) AS sacks_suffered,
+        COALESCE(SUM(passing_epa::FLOAT),0) AS passing_epa,
+        COALESCE(AVG(passing_cpoe::FLOAT),0) AS passing_cpoe,
+        COALESCE(SUM(carries::FLOAT),0) AS carries,
+        COALESCE(SUM(rushing_yards::FLOAT),0) AS rushing_yards,
+        COALESCE(SUM(rushing_tds::FLOAT),0) AS rushing_tds,
+        COALESCE(SUM(rushing_epa::FLOAT),0) AS rushing_epa,
+        COALESCE(SUM(receptions::FLOAT),0) AS receptions,
+        COALESCE(SUM(targets::FLOAT),0) AS targets,
+        COALESCE(SUM(receiving_yards::FLOAT),0) AS receiving_yards,
+        COALESCE(SUM(receiving_tds::FLOAT),0) AS receiving_tds,
+        COALESCE(SUM(receiving_epa::FLOAT),0) AS receiving_epa,
+        COALESCE(SUM(target_share::FLOAT),0) AS target_share,
+        COALESCE(SUM(def_tackles_solo::FLOAT),0) AS def_tackles_solo,
+        COALESCE(SUM(def_tackle_assists::FLOAT),0) AS def_tackle_assists,
+        COALESCE(SUM(def_sacks::FLOAT),0) AS def_sacks,
+        COALESCE(SUM(def_interceptions::FLOAT),0) AS def_interceptions,
+        COALESCE(SUM(fumble_recovery_own::FLOAT),0) AS fumble_recovery_own,
+        COALESCE(SUM(fumble_recovery_opp::FLOAT),0) AS fumble_recovery_opp,
+        COALESCE(SUM(def_tds::FLOAT),0) AS def_tds,
+        COALESCE(SUM(def_tackles_for_loss::FLOAT),0) AS def_tackles_for_loss,
+        COALESCE(SUM(def_tackles_for_loss_yards::FLOAT),0) AS def_tackles_for_loss_yards,
+        COALESCE(SUM(def_fumbles_forced::FLOAT),0) AS def_fumbles_forced,
+        COALESCE(SUM(def_sack_yards::FLOAT),0) AS def_sack_yards,
+        COALESCE(SUM(def_qb_hits::FLOAT),0) AS def_qb_hits,
+        COALESCE(SUM(def_interception_yards::FLOAT),0) AS def_interception_yards,
+        COALESCE(SUM(def_pass_defended::FLOAT),0) AS def_pass_defended,
+        COALESCE(SUM(def_fumbles::FLOAT),0) AS def_fumbles,
+        COALESCE(SUM(def_safeties::FLOAT),0) AS def_safeties,
+        COUNT(*) AS game_count
+      FROM player_stats
+      WHERE player_id = $1 AND season_type = 'REG'
+      GROUP BY player_stats.season
+      ORDER BY player_stats.season DESC
+    `;
+
+// Fuzzy player search (trigram similarity + substring), joined to teams for team_name
+router.get('/search', async (req, res) => {
+  const search = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (!search) {
+    return res.json([]);
+  }
+  try {
+    const results = await searchPlayers(search);
+    res.json(convertBigInts(results));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to search players' });
+  }
+});
+
+// Get available years from the GameStat or PlayerStats table
+router.get('/available-years', async (req, res) => {
+  try {
+    // Distinct seasons, descending. A recursive "loose index scan" walks the season index
+    // one value at a time (~27 lookups) instead of reading all ~480k rows like DISTINCT does.
+    const query = `
+      WITH RECURSIVE seasons AS (
+        (SELECT season FROM player_stats WHERE season IS NOT NULL ORDER BY season DESC LIMIT 1)
+        UNION ALL
+        SELECT (SELECT ps.season FROM player_stats ps WHERE ps.season < seasons.season ORDER BY ps.season DESC LIMIT 1)
+        FROM seasons
+        WHERE seasons.season IS NOT NULL
+      )
+      SELECT season FROM seasons WHERE season IS NOT NULL
+    `;
+    const years = await prisma.$queryRawUnsafe(query);
+    // years will be array of objects: [{ season: 2025n }, ...]
+    const availableYears = years.map(y => typeof y.season === 'bigint' ? Number(y.season) : y.season).filter(Boolean);
+    res.json(availableYears);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch available years' });
+  }
+});
+
+// Get player metadata by GSIS ID
+router.get('/:gsis_id', async (req, res) => {
+  const gsis_id = req.params.gsis_id;
+  if (!gsis_id) {
+    return res.status(400).json({ error: 'Missing player GSIS ID' });
+  }
+  try {
+    const player = await prisma.players.findFirst({ where: { gsis_id } });
+    if (!player) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+    res.json(convertBigInts(player));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch player metadata' });
+  }
+});
+
+// Everything the player page needs in one request: metadata, season totals, every weekly row
+// (the page filters these per season), and advanced metrics.
+router.get('/:gsis_id/profile', async (req, res) => {
+  const gsis_id = req.params.gsis_id;
+  try {
+    const [player, seasons, weekly, advanced] = await Promise.all([
+      prisma.players.findUnique({ where: { gsis_id } }),
+      prisma.$queryRawUnsafe(YEARLY_STATS_SQL, gsis_id),
+      prisma.$queryRawUnsafe(ALL_WEEKLY_SQL, gsis_id),
+      prisma.$queryRawUnsafe(ADVANCED_SQL, gsis_id),
+    ]);
+    if (!player) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+    res.json(convertBigInts({ player, seasons, weekly, advanced }));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch player profile' });
+  }
+});
+
+// Get contract history for a player by GSIS ID
+router.get('/:gsis_id/contracts', async (req, res) => {
+  const gsis_id = req.params.gsis_id;
+  if (!gsis_id) {
+    return res.status(400).json({ error: 'Missing player GSIS ID' });
+  }
+
+  try {
+    const player = await prisma.players.findFirst({
+      where: { gsis_id },
+      select: { gsis_id: true, otc_id: true },
+    });
+
+    // If the player isn't in the players table, still allow a best-effort lookup by gsis_id.
+    const where = player?.otc_id
+      ? { OR: [{ gsis_id }, { otc_id: player.otc_id }] }
+      : { gsis_id };
+
+    const contracts = await prisma.contracts.findMany({
+      where,
+      orderBy: [{ year_signed: 'desc' }],
+    });
+
+    res.json(convertBigInts(contracts));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch player contract history' });
+  }
+});
+
+// Get advanced metrics for a specific player (EPA, CPOE, success rates, etc.)
+router.get('/:gsis_id/advanced', async (req, res) => {
+  const gsis_id = req.params.gsis_id;
+  if (!gsis_id) {
+    return res.status(400).json({ error: 'Missing player GSIS ID' });
+  }
+  try {
+    const query = ADVANCED_SQL;
+    const { Prisma } = require('@prisma/client');
+    const metrics = await prisma.$queryRawUnsafe(query, gsis_id);
+    res.json(convertBigInts(metrics));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch advanced metrics' });
+  }
+});
+
+// Get all weekly stats for a specific player (across all seasons)
+router.get('/:gsis_id/all-weekly', async (req, res) => {
+  const gsis_id = req.params.gsis_id;
+  if (!gsis_id) {
+    return res.status(400).json({ error: 'Missing player GSIS ID' });
+  }
+  try {
+    const query = ALL_WEEKLY_SQL;
     const { Prisma } = require('@prisma/client');
     const stats = await prisma.$queryRawUnsafe(query, gsis_id);
     res.json(convertBigInts(stats));
@@ -291,90 +354,12 @@ router.get('/:gsis_id/stats', async (req, res) => {
     return res.status(400).json({ error: 'Missing player GSIS ID' });
   }
   try {
-    const query = `
-      SELECT
-        player_stats.season AS season,
-        COALESCE(SUM(completions::FLOAT),0) AS completions,
-        COALESCE(SUM(attempts::FLOAT),0) AS attempts,
-        -- removed passing_attempts and rushing_attempts, use attempts and carries instead
-        COALESCE(SUM(passing_yards::FLOAT),0) AS passing_yards,
-        COALESCE(SUM(passing_tds::FLOAT),0) AS passing_tds,
-        COALESCE(SUM(passing_interceptions::FLOAT),0) AS passing_interceptions,
-        COALESCE(SUM(sacks_suffered::FLOAT),0) AS sacks_suffered,
-        COALESCE(SUM(passing_epa::FLOAT),0) AS passing_epa,
-        COALESCE(AVG(passing_cpoe::FLOAT),0) AS passing_cpoe,
-        COALESCE(SUM(carries::FLOAT),0) AS carries,
-        COALESCE(SUM(rushing_yards::FLOAT),0) AS rushing_yards,
-        COALESCE(SUM(rushing_tds::FLOAT),0) AS rushing_tds,
-        COALESCE(SUM(rushing_epa::FLOAT),0) AS rushing_epa,
-        COALESCE(SUM(receptions::FLOAT),0) AS receptions,
-        COALESCE(SUM(targets::FLOAT),0) AS targets,
-        COALESCE(SUM(receiving_yards::FLOAT),0) AS receiving_yards,
-        COALESCE(SUM(receiving_tds::FLOAT),0) AS receiving_tds,
-        COALESCE(SUM(receiving_epa::FLOAT),0) AS receiving_epa,
-        COALESCE(SUM(target_share::FLOAT),0) AS target_share,
-        COALESCE(SUM(def_tackles_solo::FLOAT),0) AS def_tackles_solo,
-        COALESCE(SUM(def_tackle_assists::FLOAT),0) AS def_tackle_assists,
-        COALESCE(SUM(def_sacks::FLOAT),0) AS def_sacks,
-        COALESCE(SUM(def_interceptions::FLOAT),0) AS def_interceptions,
-        COALESCE(SUM(fumble_recovery_own::FLOAT),0) AS fumble_recovery_own,
-        COALESCE(SUM(fumble_recovery_opp::FLOAT),0) AS fumble_recovery_opp,
-        COALESCE(SUM(def_tds::FLOAT),0) AS def_tds,
-        COALESCE(SUM(def_tackles_for_loss::FLOAT),0) AS def_tackles_for_loss,
-        COALESCE(SUM(def_tackles_for_loss_yards::FLOAT),0) AS def_tackles_for_loss_yards,
-        COALESCE(SUM(def_fumbles_forced::FLOAT),0) AS def_fumbles_forced,
-        COALESCE(SUM(def_sack_yards::FLOAT),0) AS def_sack_yards,
-        COALESCE(SUM(def_qb_hits::FLOAT),0) AS def_qb_hits,
-        COALESCE(SUM(def_interception_yards::FLOAT),0) AS def_interception_yards,
-        COALESCE(SUM(def_pass_defended::FLOAT),0) AS def_pass_defended,
-        COALESCE(SUM(def_fumbles::FLOAT),0) AS def_fumbles,
-        COALESCE(SUM(def_safeties::FLOAT),0) AS def_safeties,
-        COUNT(*) AS game_count
-      FROM player_stats
-      WHERE player_id = $1 AND season_type = 'REG'
-      GROUP BY player_stats.season
-      ORDER BY player_stats.season DESC
-    `;
+    const query = YEARLY_STATS_SQL;
     const { Prisma } = require('@prisma/client');
     const stats = await prisma.$queryRawUnsafe(query, gsis_id);
     res.json(convertBigInts(stats));
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch player yearly stats' });
-  }
-});
-
-// Player search with join to teams for team_name, always return gsis_id
-router.get('/search', async (req, res) => {
-  const search = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-  if (!search) {
-    console.log('[SEARCH] No search query provided');
-    return res.json([]);
-  }
-  try {
-    // Use raw SQL for fast join and trigram search
-    const { Prisma } = require('@prisma/client');
-    const query = `
-      SELECT p.display_name, p.position, p.gsis_id, p.pfr_id, p.latest_team, t.team_name
-      FROM players p
-      LEFT JOIN teams t ON p.latest_team = t.team_abbr
-      WHERE (
-        p.display_name ILIKE $1
-        OR p.display_name ILIKE $2
-      )
-      ORDER BY p.display_name ASC
-      LIMIT 20
-    `;
-    // $1: prefix search, $2: substring search
-    const prefix = search + '%';
-    const substring = '%' + search + '%';
-    console.log('[SEARCH] Query:', query);
-    console.log('[SEARCH] Params:', prefix, substring);
-    const results = await prisma.$queryRawUnsafe(query, prefix, substring);
-    console.log('[SEARCH] Results:', results);
-    res.json(convertBigInts(results));
-  } catch (err) {
-    console.error('[SEARCH] Error:', err);
-    res.status(500).json({ error: 'Failed to search players' });
   }
 });
 
@@ -396,104 +381,19 @@ router.get('/season/:season/all-stats', async (req, res) => {
   if (isNaN(season)) {
     return res.status(400).json({ error: 'Invalid season' });
   }
-  // Aggregate stats by player for the season
+  // Season totals per player, precomputed in the player_season_stats materialized view
   try {
     const query = `
-      SELECT
-        ps.player_id,
-        MAX(ps.player_display_name) AS player_display_name,
-        MAX(ps.position) AS position,
-        MAX(ps.season) AS season,
-        MAX(ps.team) AS team,
-        SUM(ps.completions::FLOAT) AS completions,
-        SUM(ps.attempts::FLOAT) AS attempts,
-        SUM(ps.passing_yards::FLOAT) AS passing_yards,
-        SUM(ps.passing_tds::FLOAT) AS passing_tds,
-        SUM(ps.passing_interceptions::FLOAT) AS passing_interceptions,
-        SUM(ps.sacks_suffered::FLOAT) AS sacks_suffered,
-        SUM(ps.passing_epa::FLOAT) AS passing_epa,
-        AVG(ps.passing_cpoe::FLOAT) AS passing_cpoe,
-        SUM(ps.carries::FLOAT) AS carries,
-        SUM(ps.rushing_yards::FLOAT) AS rushing_yards,
-        SUM(ps.rushing_tds::FLOAT) AS rushing_tds,
-        SUM(ps.rushing_epa::FLOAT) AS rushing_epa,
-        SUM(ps.receptions::FLOAT) AS receptions,
-        SUM(ps.targets::FLOAT) AS targets,
-        SUM(ps.receiving_yards::FLOAT) AS receiving_yards,
-        SUM(ps.receiving_tds::FLOAT) AS receiving_tds,
-        SUM(ps.receiving_epa::FLOAT) AS receiving_epa,
-        SUM(ps.target_share::FLOAT) AS target_share,
-        SUM(ps.def_tackles_solo::FLOAT) AS def_tackles_solo,
-        SUM(ps.def_tackle_assists::FLOAT) AS def_tackle_assists,
-        SUM(ps.def_sacks::FLOAT) AS def_sacks,
-        SUM(ps.def_interceptions::FLOAT) AS def_interceptions,
-        SUM(ps.def_pass_defended::FLOAT) AS def_pass_defended,
-        SUM(ps.def_qb_hits::FLOAT) AS def_qb_hits,
-        SUM(ps.def_tackles_for_loss::FLOAT) AS def_tackles_for_loss,
-        SUM(ps.def_fumbles_forced::FLOAT) AS def_fumbles_forced,
-        SUM(ps.def_tds::FLOAT) AS def_tds,
-        SUM(ps.penalties::FLOAT) AS penalties,
-        SUM(ps.penalty_yards::FLOAT) AS penalty_yards,
-        SUM(ps.punt_returns::FLOAT) AS punt_returns,
-        SUM(ps.punt_return_yards::FLOAT) AS punt_return_yards,
-        SUM(ps.kickoff_returns::FLOAT) AS kickoff_returns,
-        SUM(ps.kickoff_return_yards::FLOAT) AS kickoff_return_yards,
-        SUM(ps.fumble_recovery_own::FLOAT) AS fumble_recovery_own,
-        SUM(ps.fumble_recovery_yards_own::FLOAT) AS fumble_recovery_yards_own,
-        SUM(ps.fumble_recovery_opp::FLOAT) AS fumble_recovery_opp,
-        SUM(ps.fumble_recovery_yards_opp::FLOAT) AS fumble_recovery_yards_opp,
-        SUM(ps.fumble_recovery_tds::FLOAT) AS fumble_recovery_tds,
-        COALESCE(SUM(sc.defense_snaps), 0) AS defense_snaps,
-        COUNT(DISTINCT ps.week) AS game_count
-      FROM player_stats ps
-      LEFT JOIN (
-        SELECT
-          gsis_id,
-          MAX(pfr_id) AS pfr_id
-        FROM players
-        GROUP BY gsis_id
-      ) p ON p.gsis_id = ps.player_id
-      LEFT JOIN (
-        SELECT
-          pfr_player_id,
-          season,
-          week,
-          game_type,
-          SUM(defense_snaps::FLOAT) AS defense_snaps
-        FROM snap_counts
-        GROUP BY pfr_player_id, season, week, game_type
-      ) sc ON sc.pfr_player_id = p.pfr_id
-        AND sc.season = ps.season
-        AND sc.week = ps.week
-        AND sc.game_type = 'REG'
-      WHERE ps.season = $1 AND ps.season_type = 'REG'
-      GROUP BY ps.player_id
-      ORDER BY ps.player_id ASC
+      SELECT *
+      FROM player_season_stats
+      WHERE season = $1
+      ORDER BY player_id ASC
     `;
     const { Prisma } = require('@prisma/client');
     const stats = await prisma.$queryRawUnsafe(query, season);
     res.json(convertBigInts(stats));
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch player stats' });
-  }
-});
-
-// Get available years from the GameStat or PlayerStats table
-router.get('/available-years', async (req, res) => {
-  try {
-    // Use raw SQL to fetch distinct seasons, ordered descending
-    const query = `SELECT DISTINCT season FROM player_stats WHERE season IS NOT NULL ORDER BY season DESC`;
-    const { Prisma } = require('@prisma/client');
-    console.log('[AVAILABLE-YEARS] Query:', query);
-    const years = await prisma.$queryRawUnsafe(query);
-    console.log('[AVAILABLE-YEARS] Raw years:', years);
-    // years will be array of objects: [{ season: 2025n }, ...]
-    const availableYears = years.map(y => typeof y.season === 'bigint' ? Number(y.season) : y.season).filter(Boolean);
-    console.log('[AVAILABLE-YEARS] Parsed years:', availableYears);
-    res.json(availableYears);
-  } catch (err) {
-    console.error('[AvailableYears] error:', err);
-    res.status(500).json({ error: 'Failed to fetch available years' });
   }
 });
 

@@ -1,7 +1,8 @@
 export const runtime = 'experimental-edge';
 // Enable Edge Runtime for Cloudflare Pages Functions (Next.js 15.x)
 import { useRouter } from 'next/router';
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import dynamic from 'next/dynamic';
+import { useState, useMemo, useCallback } from 'react';
 import { Container, Box } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
 import theme from '../../theme/theme';
@@ -11,143 +12,91 @@ import PlayerInfo from '../../components/PlayerInfo';
 import WeeklyStatsTable from '../../components/WeeklyStatsTable';
 import YearlyStatsTable from '../../components/YearlyStatsTable';
 import AdvancedMetricsTable from '../../components/AdvancedMetricsTable';
-import PlayerScatterPlot from '../../components/PlayerScatterPlot';
 import { sortWeeklyStats } from '../../utils/statsUtils';
 import {
-  usePlayerStats,
-  useWeeklyStats,
-  useAllWeeklyStats,
-  useAdvancedMetrics,
   useAllPlayerStats,
   useAvailableYears,
   useBackgroundImage,
 } from '../../hooks/usePlayerData';
-import { usePlayerSearch } from '../../hooks/usePlayerSearch';
 
+// The scatter plot sits below the fold and pulls in recharts; load it after the tables.
+const PlayerScatterPlot = dynamic(() => import('../../components/PlayerScatterPlot'), {
+  ssr: false,
+  loading: () => <Box sx={{ minHeight: 480 }} />,
+});
 
+function normalizePlayer(player) {
+  if (!player) return null;
+  return {
+    ...player,
+    id: player.gsis_id,
+    gsis_id: player.gsis_id,
+    name: player.display_name || player.name || 'Unknown Player',
+    display_name: player.display_name || player.name || 'Unknown Player',
+    team: player.latest_team || player.team || player.team_name || 'Unknown',
+    team_name: player.latest_team || player.team || player.team_name || 'Unknown',
+    position: player.position || 'N/A',
+  };
+}
 
-
-export default function PlayerPage({ initialPlayer }) {
+export default function PlayerPage({ profile }) {
   const router = useRouter();
-  const { id: gsis_id } = router.query;
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-  const lastResolvedPlayerIdRef = useRef(null);
 
   // Background image (with 1% chance of special variant)
   const backgroundImage = useBackgroundImage(0.01);
 
-  // Search and player selection state
-  const [selectedPlayer, setSelectedPlayer] = useState(initialPlayer || null);
+  // Everything except the league-wide scatter data arrives server-side in one /profile request.
+  const { seasons = [], weekly: allWeeklyStats = [], advanced = [] } = profile;
+  const normalizedSelectedPlayer = useMemo(() => normalizePlayer(profile.player), [profile.player]);
+  const playerId = normalizedSelectedPlayer.gsis_id;
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const { players: searchPlayers } = usePlayerSearch(apiUrl, searchQuery);
-  const { stats: rawPlayerStats, loading: statsLoading } = usePlayerStats(selectedPlayer?.gsis_id || gsis_id, apiUrl);
-  const { weeklyStats: rawWeeklyStats } = useWeeklyStats(selectedPlayer?.gsis_id || gsis_id, apiUrl, selectedYear);
-  const { allWeeklyStats } = useAllWeeklyStats(selectedPlayer?.gsis_id || gsis_id, apiUrl);
-  const { advancedMetrics } = useAdvancedMetrics(selectedPlayer?.gsis_id || gsis_id, apiUrl);
+
+  const availableYearsFromWeekly = useMemo(
+    () => [...new Set(allWeeklyStats.map((s) => s.season))].sort((a, b) => Number(b) - Number(a)),
+    [allWeeklyStats]
+  );
+  // Only needed as a fallback for players without any weekly rows.
+  const { availableYears } = useAvailableYears(availableYearsFromWeekly.length > 0 ? null : apiUrl);
+
+  // The year picker resets to the player's latest season whenever the player changes. Deriving it
+  // (instead of syncing it in an effect) avoids fetching the scatter data for a stale year first.
+  const [yearChoice, setYearChoice] = useState({ playerId, year: null });
+  const defaultYear = availableYearsFromWeekly[0] ?? availableYears[0];
+  const selectedYear = yearChoice.playerId === playerId && yearChoice.year != null ? yearChoice.year : defaultYear;
+  const setSelectedYear = useCallback((year) => setYearChoice({ playerId, year }), [playerId]);
+
   const { allStats } = useAllPlayerStats(apiUrl, selectedYear);
-  const { availableYears } = useAvailableYears(apiUrl);
 
-  // Resolve selected player when navigating directly to /players/:id.
-  // Prefer SSR-provided initialPlayer; otherwise fetch minimal metadata once per gsis_id.
-  useEffect(() => {
-    if (!gsis_id) return;
-
-    const currentId = String(gsis_id);
-    if (lastResolvedPlayerIdRef.current === currentId) return;
-
-    // If SSR already provided the correct player, use it and skip fetch.
-    if (initialPlayer && initialPlayer.gsis_id === currentId) {
-      setSelectedPlayer(initialPlayer);
-      lastResolvedPlayerIdRef.current = currentId;
-      return;
-    }
-
-    const controller = new AbortController();
-    (async () => {
-      try {
-        const res = await fetch(`${apiUrl}/api/players/${currentId}`, { signal: controller.signal });
-        if (!res.ok) return;
-        const player = await res.json();
-        setSelectedPlayer(player);
-        lastResolvedPlayerIdRef.current = currentId;
-      } catch (err) {
-        if (err?.name === 'AbortError') return;
-        // eslint-disable-next-line no-console
-        console.error('[PlayerPage] Error fetching player by gsis_id:', err);
-      }
-    })();
-
-    return () => controller.abort();
-  }, [gsis_id, apiUrl, initialPlayer]);
-
-  const availableYearsFromWeekly = useMemo(() => {
-    if (!allWeeklyStats || allWeeklyStats.length === 0) return [];
-    return [...new Set(allWeeklyStats.map(s => s.season))].sort((a, b) => b - a);
-  }, [allWeeklyStats]);
-
-  // Update selectedYear when player changes to most recent available year (but don't fight user changes).
-  useEffect(() => {
-    const playerId = selectedPlayer?.gsis_id || gsis_id;
-    if (!playerId || availableYearsFromWeekly.length === 0) return;
-    if (lastResolvedPlayerIdRef.current !== String(playerId)) return;
-
-    if (!availableYearsFromWeekly.includes(selectedYear)) {
-      setSelectedYear(availableYearsFromWeekly[0]);
-    }
-  }, [selectedPlayer?.gsis_id, gsis_id, availableYearsFromWeekly, selectedYear]);
-
-    // Process stats data
-    // `rawPlayerStats` already comes from the backend as season-aggregated rows.
-    // Re-aggregating it via groupStatsBySeason() drops newer fields (e.g. TFL, QB hits).
-  const playerStats = useMemo(() => {
-    if (!Array.isArray(rawPlayerStats)) return [];
-    return [...rawPlayerStats].sort((a, b) => (Number(b.season) || 0) - (Number(a.season) || 0));
-  }, [rawPlayerStats]);
-
-  const weeklyStats = useMemo(() => sortWeeklyStats(rawWeeklyStats), [rawWeeklyStats]);
-
-  const normalizePlayer = useCallback((player) => {
-    if (!player) return null;
-    return {
-      ...player,
-      id: player.gsis_id,
-      gsis_id: player.gsis_id,
-      name: player.display_name || player.name || 'Unknown Player',
-      display_name: player.display_name || player.name || 'Unknown Player',
-      team: player.latest_team || player.team || player.team_name || 'Unknown',
-      team_name: player.latest_team || player.team || player.team_name || 'Unknown',
-      position: player.position || 'N/A',
-    };
-  }, []);
-
-  const normalizedSearchPlayers = useMemo(
-    () => (Array.isArray(searchPlayers) ? searchPlayers.map(normalizePlayer) : []),
-    [searchPlayers, normalizePlayer]
+  // `seasons` already comes from the backend as season-aggregated rows.
+  // Re-aggregating it via groupStatsBySeason() drops newer fields (e.g. TFL, QB hits).
+  const playerStats = useMemo(
+    () => [...seasons].sort((a, b) => (Number(b.season) || 0) - (Number(a.season) || 0)),
+    [seasons]
   );
 
-    // Handle player selection
+  const weeklyStats = useMemo(
+    () => sortWeeklyStats(allWeeklyStats.filter((s) => String(s.season) === String(selectedYear))),
+    [allWeeklyStats, selectedYear]
+  );
+
+  const advancedMetrics = useMemo(
+    () => [...advanced].sort((a, b) => b.season - a.season),
+    [advanced]
+  );
+
   const handleSelectPlayer = useCallback(
     (player) => {
-      const normalized = normalizePlayer(player);
-      setSelectedPlayer(normalized);
       setSearchQuery('');
-
-      if (normalized && normalized.gsis_id) {
-        lastResolvedPlayerIdRef.current = String(normalized.gsis_id);
+      if (player?.gsis_id) {
         router.push(
-          { pathname: '/players/[id]', query: { id: normalized.gsis_id } },
-          `/players/${normalized.gsis_id}`
+          { pathname: '/players/[id]', query: { id: player.gsis_id } },
+          `/players/${player.gsis_id}`
         );
       }
     },
-    [normalizePlayer, router]
-  );
-
-    // Always normalize selectedPlayer before passing to UI components
-  const normalizedSelectedPlayer = useMemo(
-    () => normalizePlayer(selectedPlayer),
-    [selectedPlayer, normalizePlayer]
+    [router]
   );
 
   const isDefensivePlayer = useMemo(() => {
@@ -200,20 +149,11 @@ export default function PlayerPage({ initialPlayer }) {
 
             {/* Search Bar */}
             <SearchBar
-              players={normalizedSearchPlayers}
               selectedPlayer={normalizedSelectedPlayer}
               onSelectPlayer={handleSelectPlayer}
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
             />
-
-            {/* If no player is selected, show a message and link to homepage */}
-            {!normalizedSelectedPlayer && (
-              <Box sx={{ mt: 4, textAlign: 'center' }}>
-                <h2>Select a player to view stats</h2>
-                <a href="/" style={{ color: '#42a5f5', textDecoration: 'underline' }}>Back to homepage</a>
-              </Box>
-            )}
 
             {/* Selected Player Info and Stats */}
             {normalizedSelectedPlayer && (
@@ -223,7 +163,7 @@ export default function PlayerPage({ initialPlayer }) {
                   weeklyStats={weeklyStats}
                   position={normalizedSelectedPlayer.position}
                   playerStats={playerStats}
-                  loading={statsLoading}
+                  loading={false}
                   selectedYear={selectedYear}
                   onYearChange={setSelectedYear}
                   availableYears={availableYearsFromWeekly}
@@ -231,7 +171,7 @@ export default function PlayerPage({ initialPlayer }) {
                 <YearlyStatsTable
                   playerStats={playerStats}
                   position={normalizedSelectedPlayer.position}
-                  loading={statsLoading}
+                  loading={false}
                 />
                 {!isDefensivePlayer && (
                   <AdvancedMetricsTable
@@ -242,7 +182,7 @@ export default function PlayerPage({ initialPlayer }) {
                   />
                 )}
                 <PlayerScatterPlot
-                  playerStats={rawPlayerStats}
+                  playerStats={seasons}
                   weeklyStats={weeklyStats}
                   advancedMetrics={advancedMetrics}
                   selectedPlayerId={normalizedSelectedPlayer.gsis_id}
@@ -264,17 +204,18 @@ export async function getServerSideProps(context) {
   const { id } = context.params;
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-  // Fetch player data from your backend API
-  const res = await fetch(`${apiUrl}/api/players/${id}`);
-  if (!res.ok) {
-    // If not found, show 404
+  // One request for metadata, season totals, weekly rows and advanced metrics.
+  const res = await fetch(`${apiUrl}/api/players/${encodeURIComponent(id)}/profile`);
+  if (res.status === 404) {
     return { notFound: true };
   }
-  const player = await res.json();
+  if (!res.ok) {
+    throw new Error(`Failed to load player ${id}: ${res.status}`);
+  }
 
   return {
     props: {
-      initialPlayer: player,
+      profile: await res.json(),
     },
   };
 }

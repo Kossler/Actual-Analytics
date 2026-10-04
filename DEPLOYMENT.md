@@ -138,3 +138,25 @@ NEXT_PUBLIC_API_URL=https://your-railway-backend.up.railway.app
 - Verify root directory is set to `frontend`
 - Run `npm run build` locally to test
 - Ensure the build logs include `@cloudflare/next-on-pages` output and that `.vercel/output` is produced
+
+## API caching
+
+The backend caches every data response in memory (`backend/src/responseCache.js`) until the
+ingest bumps `app_meta.data_version`; the API polls it every 60 seconds and then clears and
+re-warms the cache. Responses also carry `Cache-Control` and `ETag` headers, so browsers revalidate
+with cheap `304`s.
+
+Optional settings (Railway variables): `RESPONSE_CACHE_MAX_BYTES` (default 64 MB) and
+`DATA_VERSION_POLL_MS` (default 60000). `GET /health` reports cache size and the current data version.
+
+### Edge caching with Cloudflare (optional, recommended)
+
+Responses are marked `s-maxage=86400`, so a CDN can serve them without reaching Railway:
+
+1. In Railway, add a custom domain for the backend, e.g. `api.secondlevelanalytics.com`.
+2. In Cloudflare DNS, create the CNAME Railway asks for with the proxy (orange cloud) **on**.
+3. Add a Cache Rule for that hostname: *Eligible for cache*, edge TTL *use cache-control header*.
+   (Cloudflare does not cache JSON by default.)
+4. Point the frontend's `NEXT_PUBLIC_API_URL` at the new hostname and redeploy it.
+5. Add the GitHub secrets `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_API_TOKEN` (Zone > Cache Purge) and
+   `API_HOSTNAME`. The ingestion workflow then purges the edge cache after each data update.
