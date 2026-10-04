@@ -35,5 +35,5 @@ WORKDIR /app
 # Expose ports
 EXPOSE 5000 3000 8080
 
-# Start backend server (which includes scheduler)
-CMD ["node", "backend/src/server.js"]
+# Apply pending Prisma migrations, then start the backend server
+CMD ["node", "backend/migrate-and-start.js"]

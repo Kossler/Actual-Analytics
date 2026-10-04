@@ -135,8 +135,11 @@ function startDataVersionWatcher(onRefresh) {
       return;
     }
     if (version === dataVersion) return;
-    const isFirstRead = dataVersion === null;
+    // Responses cached while app_meta was unreadable (e.g. before migrations ran) may predate
+    // the current schema, so the first successful read after a failure also clears them.
+    const isFirstRead = dataVersion === null && !warnedMissingTable;
     dataVersion = version;
+    warnedMissingTable = false;
     if (!isFirstRead) {
       console.log(`[cache] Data version changed to ${version}; clearing ${entries.size} cached responses`);
       clear();
