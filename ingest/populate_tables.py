@@ -127,6 +127,25 @@ def get_default_args(func):
             args[name] = param.default
     return args
 
+def select_table_columns(cur, table_name, df):
+    """Keep only the DataFrame columns the table has.
+
+    nflverse adds columns over time (e.g. player_stats.game_id in 2026); inserting an unknown
+    column fails the whole table, so new upstream columns are dropped with a warning instead.
+    """
+    cur.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = %s",
+        (table_name,),
+    )
+    table_columns = {row[0] for row in cur.fetchall()}
+    if not table_columns:
+        return df
+    extra = [c for c in df.columns if c not in table_columns]
+    if extra:
+        print(f"  WARNING: Ignoring columns not in table {table_name}: {extra}")
+    return df.select([c for c in df.columns if c in table_columns])
+
+
 def process_table(fname, creds):
     """Load one nflreadpy dataset into its table. Returns False if the table failed to load."""
     import numpy as np
@@ -197,6 +216,7 @@ def process_table(fname, creds):
             return False
     table_name = fname.replace('load_', '')
     upsert = upsert_all if upsert_tables is None else (table_name in upsert_tables)
+    df = select_table_columns(cur, table_name, df)
     columns = df.columns
     col_names = ', '.join([f'"{col}"' for col in columns])
     unique_cols = TABLE_UNIQUE_KEYS.get(table_name, [])
