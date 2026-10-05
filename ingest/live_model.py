@@ -20,8 +20,10 @@ import numpy as np
 VERSION = 'live-wp-v1'
 FIRST_SEASON = 2007  # walk-forward pregame probabilities need at least one earlier season
 
-GBM_PARAMS = dict(n_estimators=400, learning_rate=0.06, num_leaves=63, min_child_samples=200,
-                  subsample=0.8, subsample_freq=1, colsample_bytree=0.9, verbose=-1,
+# LightGBM's native API (its scikit-learn wrapper would need scikit-learn installed).
+GBM_ROUNDS = 400
+GBM_PARAMS = dict(objective='binary', learning_rate=0.06, num_leaves=63, min_data_in_leaf=200,
+                  bagging_fraction=0.8, bagging_freq=1, feature_fraction=0.9, verbose=-1, seed=0,
                   # diff, sec, poss, yl, down, togo, to_diff, prior, adj, adj*scale, ot, prior*t, diff*scale
                   monotone_constraints=[1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1])
 
@@ -73,6 +75,11 @@ def load_states(cur, first, last):
         'poss': as_float(4), 'yl': as_float(5), 'down': as_float(6), 'togo': as_float(7), 'to_diff': as_float(8),
         'neutral': as_float(9), 'game_id': list(cols[10]), 'final_margin': as_float(11),
     }
+
+
+def fit_gbm(X, y):
+    import lightgbm as lgb
+    return lgb.train(GBM_PARAMS, lgb.Dataset(X, label=y), num_boost_round=GBM_ROUNDS)
 
 
 def fit_logistic(X, y, ridge=1e-3):
@@ -144,8 +151,6 @@ def score(p, y):
 
 def run(conn, features_list, fit_game_model, predict_game, current_season):
     """Train and store the model when a newer completed season is available."""
-    import lightgbm as lgb
-
     cur = conn.cursor()
     last_complete = current_season - 1
     cur.execute("SELECT metrics->>'trained_through' FROM live_models ORDER BY id DESC LIMIT 1")
@@ -175,13 +180,13 @@ def run(conn, features_list, fit_game_model, predict_game, current_season):
     inner = season <= last_complete - 8
     blend_rows = (~test) & (~inner)
     b_inner = fit_logistic(x_logit[inner], y[inner])
-    g_inner = lgb.LGBMClassifier(**GBM_PARAMS).fit(x_gbm[inner], y[inner])
+    g_inner = fit_gbm(x_gbm[inner], y[inner])
     weights = fit_logistic(stack(1 / (1 + np.exp(-x_logit[blend_rows] @ b_inner)),
-                                 g_inner.predict_proba(x_gbm[blend_rows])[:, 1], t[blend_rows]), y[blend_rows])
+                                 g_inner.predict(x_gbm[blend_rows]), t[blend_rows]), y[blend_rows])
     b_train = fit_logistic(x_logit[~test], y[~test])
-    g_train = lgb.LGBMClassifier(**GBM_PARAMS).fit(x_gbm[~test], y[~test])
+    g_train = fit_gbm(x_gbm[~test], y[~test])
     p_test = 1 / (1 + np.exp(-stack(1 / (1 + np.exp(-x_logit[test] @ b_train)),
-                                    g_train.predict_proba(x_gbm[test])[:, 1], t[test]) @ weights))
+                                    g_train.predict(x_gbm[test]), t[test]) @ weights))
     late = t[test] <= 120 / 3600
     metrics = {
         'trained_through': last_complete,
@@ -192,11 +197,11 @@ def run(conn, features_list, fit_game_model, predict_game, current_season):
 
     # Final models on every completed season.
     beta = fit_logistic(x_logit, y)
-    gbm = lgb.LGBMClassifier(**GBM_PARAMS).fit(x_gbm, y)
-    trees = compact_trees(gbm.booster_)
+    gbm = fit_gbm(x_gbm, y)
+    trees = compact_trees(gbm)
     # The exported trees must reproduce LightGBM's own predictions.
     sample = x_gbm[:: max(1, len(x_gbm) // 200)]
-    assert np.allclose(predict_compact(trees, sample), gbm.predict_proba(sample)[:, 1], atol=1e-6)
+    assert np.allclose(predict_compact(trees, sample), gbm.predict(sample), atol=1e-6)
 
     model = {'logistic': beta.tolist(), 'trees': trees, 'blend': weights.tolist()}
     cur.execute(
