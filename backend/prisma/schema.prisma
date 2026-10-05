@@ -1683,3 +1683,28 @@ model source_files {
   version    String
   loaded_at  DateTime @default(now()) @db.Timestamptz(6)
 }
+
+/// Season award models (ingest/award_model.py) with their backtest metrics.
+model award_models {
+  id         Int      @id @default(autoincrement())
+  version    String
+  model      Json
+  metrics    Json
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// Weekly award probabilities: the top candidates per award.
+model award_predictions {
+  season      Int
+  week        Int
+  award       String
+  rank        Int
+  player_id   String?
+  name        String
+  team        String?
+  position    String?
+  probability Float
+  stats       Json    @default("{}")
+
+  @@id([season, week, award, rank])
+}

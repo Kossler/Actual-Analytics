@@ -8,3 +8,5 @@ python-dotenv
 schedule
 pytz
 lightgbm>=4.0
+pandas>=2.0
+scipy>=1.10

@@ -880,6 +880,8 @@ def run(conn):
     # In-game win probability model (retrained only when a new completed season is available).
     import live_model
     live_model.run(conn, features, fit_game_model, predict_game, current_season)
+    import award_model
+    award_model.run(conn, current_season)
 
 
 if __name__ == '__main__':

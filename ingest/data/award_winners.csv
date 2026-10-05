@@ -1,0 +1,185 @@
+award,season,name,team,position
+coy,2000,Jim Haslett,New Orleans Saints,
+coy,2001,Dick Jauron,Chicago Bears,
+coy,2002,Andy Reid,Philadelphia Eagles,
+coy,2003,Bill Belichick,New England Patriots,
+coy,2004,Marty Schottenheimer,San Diego Chargers,
+coy,2005,Lovie Smith,Chicago Bears,
+coy,2006,Sean Payton,New Orleans Saints,
+coy,2007,Bill Belichick,New England Patriots,
+coy,2008,Mike Smith,Atlanta Falcons,
+coy,2009,Marvin Lewis,Cincinnati Bengals,
+coy,2010,Bill Belichick,New England Patriots,
+coy,2011,Jim Harbaugh,San Francisco 49ers,
+coy,2012,Bruce Arians,Indianapolis Colts,
+coy,2013,Ron Rivera,Carolina Panthers,
+coy,2014,Bruce Arians,Arizona Cardinals,
+coy,2015,Ron Rivera,Carolina Panthers,
+coy,2016,Jason Garrett,Dallas Cowboys,
+coy,2017,Sean McVay,Los Angeles Rams,
+coy,2018,Matt Nagy,Chicago Bears,
+coy,2019,John Harbaugh,Baltimore Ravens,
+coy,2020,Kevin Stefanski,Cleveland Browns,
+coy,2021,Mike Vrabel,Tennessee Titans,
+coy,2022,Brian Daboll,New York Giants,
+coy,2023,Kevin Stefanski,Cleveland Browns,
+coy,2024,Kevin O'Connell,Minnesota Vikings,
+coy,2025,Mike Vrabel,New England Patriots,
+cpoy,2000,Joe Johnson,New Orleans,DE
+cpoy,2001,Garrison Hearst,San Francisco,RB
+cpoy,2002,Tommy Maddox,Pittsburgh,QB
+cpoy,2003,Jon Kitna,Cincinnati,QB
+cpoy,2004,Drew Brees,San Diego,QB
+cpoy,2005,Steve Smith Sr.,Carolina,WR
+cpoy,2005,Tedy Bruschi,New England,LB
+cpoy,2006,Chad Pennington,NY Jets,QB
+cpoy,2007,Greg Ellis,Dallas,DE
+cpoy,2008,Chad Pennington,Miami,QB
+cpoy,2009,Tom Brady,New England,QB
+cpoy,2010,Michael Vick,Philadelphia,QB
+cpoy,2011,Matthew Stafford,Detroit,QB
+cpoy,2012,Peyton Manning,Denver,QB
+cpoy,2013,Philip Rivers,San Diego,QB
+cpoy,2014,Rob Gronkowski,New England,TE
+cpoy,2015,Eric Berry,Kansas City,S
+cpoy,2016,Jordy Nelson,Green Bay,WR
+cpoy,2017,Keenan Allen,LA Chargers,WR
+cpoy,2018,Andrew Luck,Indianapolis,QB
+cpoy,2019,Ryan Tannehill,Tennessee,QB
+cpoy,2020,Alex Smith,Washington,QB
+cpoy,2021,Joe Burrow,Cincinnati,QB
+cpoy,2022,Geno Smith,Seattle,QB
+cpoy,2023,Joe Flacco,Cleveland,QB
+cpoy,2024,Joe Burrow,Cincinnati,QB
+cpoy,2025,Christian McCaffrey,San Francisco,RB
+dpoy,2000,Ray Lewis,Baltimore,LB
+dpoy,2001,Michael Strahan,NY Giants,DE
+dpoy,2002,Derrick Brooks,Tampa Bay,LB
+dpoy,2003,Ray Lewis,Baltimore,LB
+dpoy,2004,Ed Reed,Baltimore,S
+dpoy,2005,Brian Urlacher,Chicago,LB
+dpoy,2006,Jason Taylor,Miami,DE
+dpoy,2007,Bob Sanders,Indianapolis,S
+dpoy,2008,James Harrison,Pittsburgh,LB
+dpoy,2009,Charles Woodson,Green Bay,CB
+dpoy,2010,Troy Polamalu,Pittsburgh,S
+dpoy,2011,Terrell Suggs,Baltimore,LB
+dpoy,2012,J. J. Watt,Houston,DE
+dpoy,2013,Luke Kuechly,Carolina,LB
+dpoy,2014,J. J. Watt,Houston,DE
+dpoy,2015,J. J. Watt,Houston,DE
+dpoy,2016,Khalil Mack,Oakland,DE
+dpoy,2017,Aaron Donald,LA Rams,DT
+dpoy,2018,Aaron Donald,LA Rams,DT
+dpoy,2019,Stephon Gilmore,New England,CB
+dpoy,2020,Aaron Donald,LA Rams,DT
+dpoy,2021,T. J. Watt,Pittsburgh,LB
+dpoy,2022,Nick Bosa,San Francisco,DE
+dpoy,2023,Myles Garrett,Cleveland,DE
+dpoy,2024,Patrick Surtain II,Denver,CB
+dpoy,2025,Myles Garrett,Cleveland,DE
+droy,2000,Brian Urlacher,Chicago Bears,Linebacker
+droy,2001,Kendrell Bell,Pittsburgh Steelers,Linebacker
+droy,2002,Julius Peppers,Carolina Panthers,Defensive end
+droy,2003,Terrell Suggs,Baltimore Ravens,Linebacker
+droy,2004,Jonathan Vilma,New York Jets,Linebacker
+droy,2005,Shawne Merriman,San Diego Chargers,Linebacker
+droy,2006,DeMeco Ryans,Houston Texans,Linebacker
+droy,2007,Patrick Willis,San Francisco 49ers,Linebacker
+droy,2008,Jerod Mayo,New England Patriots,Linebacker
+droy,2009,Brian Cushing,Houston Texans,Linebacker
+droy,2010,Ndamukong Suh,Detroit Lions,Defensive tackle
+droy,2011,Von Miller,Denver Broncos,Linebacker
+droy,2012,Luke Kuechly,Carolina Panthers,Linebacker
+droy,2013,Sheldon Richardson,New York Jets,Defensive end
+droy,2014,Aaron Donald,St. Louis Rams,Defensive tackle
+droy,2015,Marcus Peters,Kansas City Chiefs,Cornerback
+droy,2016,Joey Bosa,San Diego Chargers,Defensive end
+droy,2017,Marshon Lattimore,New Orleans Saints,Cornerback
+droy,2018,Shaquille Leonard,Indianapolis Colts,Linebacker
+droy,2019,Nick Bosa,San Francisco 49ers,Defensive end
+droy,2020,Chase Young,Washington Football Team,Defensive end
+droy,2021,Micah Parsons,Dallas Cowboys,Linebacker
+droy,2022,Sauce Gardner,New York Jets,Cornerback
+droy,2023,Will Anderson Jr.,Houston Texans,Defensive end
+droy,2024,Jared Verse,Los Angeles Rams,Linebacker
+droy,2025,Carson Schwesinger,Cleveland Browns,Linebacker
+mvp,2000,Marshall Faulk,St. Louis Rams,Running back
+mvp,2001,Kurt Warner,St. Louis Rams,Quarterback
+mvp,2002,Rich Gannon,Oakland Raiders,Quarterback
+mvp,2003,Peyton Manning,Indianapolis Colts,Quarterback
+mvp,2003,Steve McNair,Tennessee Titans,Quarterback
+mvp,2004,Peyton Manning,Indianapolis Colts,Quarterback
+mvp,2005,Shaun Alexander,Seattle Seahawks,Running back
+mvp,2006,LaDainian Tomlinson,San Diego Chargers,Running back
+mvp,2007,Tom Brady,New England Patriots,Quarterback
+mvp,2008,Peyton Manning,Indianapolis Colts,Quarterback
+mvp,2009,Peyton Manning,Indianapolis Colts,Quarterback
+mvp,2010,Tom Brady,New England Patriots,Quarterback
+mvp,2011,Aaron Rodgers,Green Bay Packers,Quarterback
+mvp,2012,Adrian Peterson,Minnesota Vikings,Running back
+mvp,2013,Peyton Manning,Denver Broncos,Quarterback
+mvp,2014,Aaron Rodgers,Green Bay Packers,Quarterback
+mvp,2015,Cam Newton,Carolina Panthers,Quarterback
+mvp,2016,Matt Ryan,Atlanta Falcons,Quarterback
+mvp,2017,Tom Brady,New England Patriots,Quarterback
+mvp,2018,Patrick Mahomes,Kansas City Chiefs,Quarterback
+mvp,2019,Lamar Jackson,Baltimore Ravens,Quarterback
+mvp,2020,Aaron Rodgers,Green Bay Packers,Quarterback
+mvp,2021,Aaron Rodgers,Green Bay Packers,Quarterback
+mvp,2022,Patrick Mahomes,Kansas City Chiefs,Quarterback
+mvp,2023,Lamar Jackson,Baltimore Ravens,Quarterback
+mvp,2024,Josh Allen,Buffalo Bills,Quarterback
+mvp,2025,Matthew Stafford,Los Angeles Rams,Quarterback
+opoy,2000,Marshall Faulk,St. Louis Rams,Running back
+opoy,2001,Marshall Faulk,St. Louis Rams,Running back
+opoy,2002,Priest Holmes,Kansas City Chiefs,Running back
+opoy,2003,Jamal Lewis,Baltimore Ravens,Running back
+opoy,2004,Peyton Manning,Indianapolis Colts,Quarterback
+opoy,2005,Shaun Alexander,Seattle Seahawks,Running back
+opoy,2006,LaDainian Tomlinson,San Diego Chargers,Running back
+opoy,2007,Tom Brady,New England Patriots,Quarterback
+opoy,2008,Drew Brees,New Orleans Saints,Quarterback
+opoy,2009,Chris Johnson,Tennessee Titans,Running back
+opoy,2010,Tom Brady,New England Patriots,Quarterback
+opoy,2011,Drew Brees,New Orleans Saints,Quarterback
+opoy,2012,Adrian Peterson,Minnesota Vikings,Running back
+opoy,2013,Peyton Manning,Denver Broncos,Quarterback
+opoy,2014,DeMarco Murray,Dallas Cowboys,Running back
+opoy,2015,Cam Newton,Carolina Panthers,Quarterback
+opoy,2016,Matt Ryan,Atlanta Falcons,Quarterback
+opoy,2017,Todd Gurley,Los Angeles Rams,Running back
+opoy,2018,Patrick Mahomes,Kansas City Chiefs,Quarterback
+opoy,2019,Michael Thomas,New Orleans Saints,Wide receiver
+opoy,2020,Derrick Henry,Tennessee Titans,Running back
+opoy,2021,Cooper Kupp,Los Angeles Rams,Wide receiver
+opoy,2022,Justin Jefferson,Minnesota Vikings,Wide receiver
+opoy,2023,Christian McCaffrey,San Francisco 49ers,Running back
+opoy,2024,Saquon Barkley,Philadelphia Eagles,Running back
+opoy,2025,Jaxon Smith-Njigba,Seattle Seahawks,Wide receiver
+oroy,2000,Mike Anderson,Denver Broncos,Running back
+oroy,2001,Anthony Thomas,Chicago Bears,Running back
+oroy,2002,Clinton Portis,Denver Broncos,Running back
+oroy,2003,Anquan Boldin,Arizona Cardinals,Wide receiver
+oroy,2004,Ben Roethlisberger,Pittsburgh Steelers,Quarterback
+oroy,2005,Cadillac Williams,Tampa Bay Buccaneers,Running back
+oroy,2006,Vince Young,Tennessee Titans,Quarterback
+oroy,2007,Adrian Peterson,Minnesota Vikings,Running back
+oroy,2008,Matt Ryan,Atlanta Falcons,Quarterback
+oroy,2009,Percy Harvin,Minnesota Vikings,Wide receiver
+oroy,2010,Sam Bradford,St. Louis Rams,Quarterback
+oroy,2011,Cam Newton,Carolina Panthers,Quarterback
+oroy,2012,Robert Griffin III,Washington Redskins,Quarterback
+oroy,2013,Eddie Lacy,Green Bay Packers,Running back
+oroy,2014,Odell Beckham Jr.,New York Giants,Wide receiver
+oroy,2015,Todd Gurley,St. Louis Rams,Running back
+oroy,2016,Dak Prescott,Dallas Cowboys,Quarterback
+oroy,2017,Alvin Kamara,New Orleans Saints,Running back
+oroy,2018,Saquon Barkley,New York Giants,Running back
+oroy,2019,Kyler Murray,Arizona Cardinals,Quarterback
+oroy,2020,Justin Herbert,Los Angeles Chargers,Quarterback
+oroy,2021,Ja'Marr Chase,Cincinnati Bengals,Wide receiver
+oroy,2022,Garrett Wilson,New York Jets,Wide receiver
+oroy,2023,C. J. Stroud,Houston Texans,Quarterback
+oroy,2024,Jayden Daniels,Washington Commanders,Quarterback
+oroy,2025,Tetairoa McMillan,Carolina Panthers,Wide receiver

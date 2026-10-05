@@ -958,6 +958,50 @@ router.get('/models/projections', handle(async (req, res) => {
 
 // Team-seasons split into the first half (weeks 1-9) and the rest of the regular season, for
 // testing which first-half metrics predict second-half results.
+// Season award races (ingest/award_model.py): the top candidates per award after a week, their
+// change since the week before, and the models' backtest.
+const AWARDS = [
+  ['mvp', 'Most Valuable Player'], ['opoy', 'Offensive Player of the Year'], ['dpoy', 'Defensive Player of the Year'],
+  ['oroy', 'Offensive Rookie of the Year'], ['droy', 'Defensive Rookie of the Year'],
+  ['cpoy', 'Comeback Player of the Year'], ['coy', 'Coach of the Year'],
+];
+
+router.get('/models/awards', handle(async (req, res) => {
+  const [[latest], [model]] = await Promise.all([
+    query(`SELECT season, MAX(week)::INT AS week FROM award_predictions
+           WHERE season = (SELECT MAX(season) FROM award_predictions) GROUP BY season`),
+    query(`SELECT metrics, created_at FROM award_models ORDER BY id DESC LIMIT 1`),
+  ]);
+  if (!latest) return res.json({ season: null, week: null, weeks: [], awards: [], backtest: null });
+  const week = Math.min(intParam(req.query.week, latest.week), latest.week);
+  const [rows, previous, weeks] = await Promise.all([
+    query(`SELECT award, rank, player_id, name, team, position, probability, stats
+           FROM award_predictions WHERE season = $1 AND week = $2 ORDER BY award, rank`, latest.season, week),
+    query(`SELECT award, COALESCE(player_id, team) AS key, probability
+           FROM award_predictions WHERE season = $1 AND week = $2`, latest.season, week - 1),
+    query(`SELECT DISTINCT week::INT AS week FROM award_predictions WHERE season = $1 ORDER BY week`, latest.season),
+  ]);
+  const before = new Map(previous.map((p) => [`${p.award}|${p.key}`, p.probability]));
+  const metrics = model?.metrics || {};
+  res.json({
+    season: latest.season,
+    week,
+    weeks: weeks.map((w) => w.week),
+    awards: AWARDS.map(([key, label]) => ({
+      key,
+      label,
+      backtest: metrics[key] || null,
+      candidates: rows.filter((r) => r.award === key).map((r) => {
+        const prior = before.get(`${key}|${r.player_id || r.team}`);
+        return { ...r, change: week > 1 ? r.probability - (prior ?? 0) : null };
+      }),
+    })),
+    calibration: metrics.calibration_bands || null,
+    trained_through: metrics.trained_through ?? null,
+    trained_at: model?.created_at ?? null,
+  });
+}));
+
 router.get('/models/regression-lab', handle(async (req, res) => {
   const [epa, results] = await Promise.all([
     query(`

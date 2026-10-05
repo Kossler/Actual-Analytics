@@ -7,7 +7,7 @@ import ScatterPlot from '../components/charts/ScatterPlot';
 import DataTable, { sortRows } from '../components/DataTable';
 import { Card, EmptyState, Field, PageHeader, Segmented, Select, Tabs } from '../components/ui';
 import { loadProps, useApi } from '../lib/api';
-import { fixed, int, pctLabel, weekLabel } from '../lib/format';
+import { fixed, int, pctLabel, signed, weekLabel } from '../lib/format';
 import { TEAM_METRICS } from '../lib/metrics';
 
 export const runtime = 'experimental-edge';
@@ -15,6 +15,7 @@ export const runtime = 'experimental-edge';
 const TABS = [
   { value: 'win', label: 'Win probability', sub: 'Game outcomes' },
   { value: 'projections', label: 'Player projections', sub: 'Stat lines with ranges' },
+  { value: 'awards', label: 'Awards', sub: 'MVP and season award races' },
   { value: 'lab', label: 'Regression lab', sub: 'Which metrics predict wins' },
 ];
 
@@ -46,6 +47,7 @@ export default function PredictiveModels({ tab, win }) {
       </div>
       {tab === 'win' && <WinProbability data={win} />}
       {tab === 'projections' && <Projections />}
+      {tab === 'awards' && <Awards />}
       {tab === 'lab' && <RegressionLab />}
     </>
   );
@@ -457,6 +459,222 @@ function LabStat({ label, value, hint }) {
       <div className="text-xs text-muted">{label}</div>
       <div className="font-display text-xl font-bold">{value}</div>
       {hint && <div className="text-2xs text-faint">{hint}</div>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------------------------------------
+// Awards
+// ------------------------------------------------------------------------------------------------
+
+// The few stats that explain a candidate, in the order a fan would quote them.
+function awardStatLine(award, c) {
+  const s = c.stats || {};
+  const record = s.team_record ? `${c.team} ${s.team_record}` : c.team;
+  if (award === 'coy') {
+    return [`${s.record}`, s.prev_record && `was ${s.prev_record}`, `${s.point_diff > 0 ? '+' : ''}${s.point_diff} pt diff`].filter(Boolean).join(' · ');
+  }
+  if ('sacks' in s) {
+    return [
+      s.sacks && `${fixed(s.sacks, s.sacks % 1 ? 1 : 0)} sk`,
+      s.interceptions && `${s.interceptions} INT`,
+      `${s.tackles} tkl`,
+      s.tfl && `${s.tfl} TFL`,
+      s.forced_fumbles && `${s.forced_fumbles} FF`,
+      record,
+    ].filter(Boolean).join(' · ');
+  }
+  if ('pass_yards' in s) {
+    return [`${int(s.pass_yards)} yds`, `${s.pass_tds} TD`, `${s.interceptions} INT`, s.rush_yards >= 100 && `${int(s.rush_yards)} rush`,
+      `${signed(s.epa, 1)} EPA`, record].filter(Boolean).join(' · ');
+  }
+  const rushFirst = (s.rush_yards || 0) >= (s.rec_yards || 0);
+  return [
+    rushFirst ? `${int(s.rush_yards)} rush yds` : `${int(s.rec_yards)} rec yds`,
+    rushFirst ? s.rec_yards >= 50 && `${int(s.rec_yards)} rec` : s.rush_yards >= 50 && `${int(s.rush_yards)} rush`,
+    `${s.tds} TD`,
+    record,
+  ].filter(Boolean).join(' · ');
+}
+
+function Change({ value }) {
+  if (value == null || Math.abs(value) < 0.005) return <span className="w-10 text-right text-2xs text-faint">–</span>;
+  const up = value > 0;
+  return (
+    <span className={`w-10 whitespace-nowrap text-right text-2xs font-semibold ${up ? 'text-good' : 'text-bad'}`} title="Change since last week (percentage points)">
+      {up ? '▲' : '▼'} {Math.round(Math.abs(value) * 100)}
+    </span>
+  );
+}
+
+function Candidate({ award, c, max }) {
+  const name = award === 'coy' || !c.player_id ? (
+    <Link href={`/teams/${c.team}`} className="truncate font-semibold hover:underline">{c.name}</Link>
+  ) : (
+    <Link href={`/players/${c.player_id}`} className="truncate font-semibold hover:underline">{c.name}</Link>
+  );
+  return (
+    <li className="py-2.5">
+      <div className="flex items-baseline gap-2">
+        <span className="num w-4 shrink-0 text-right text-xs text-faint">{c.rank}</span>
+        <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+          {name}
+          <span className="shrink-0 text-2xs font-semibold text-faint">{award === 'coy' ? c.team : c.position}</span>
+        </span>
+        <span className="num shrink-0 font-semibold">{pctLabel(c.probability)}</span>
+        <Change value={c.change} />
+      </div>
+      <div className="ml-6 mt-1 h-1 overflow-hidden rounded-full bg-line">
+        <div className="h-full rounded-full bg-[#4a8ef0]" style={{ width: `${Math.max(1, (c.probability / max) * 100)}%` }} />
+      </div>
+      <div className="ml-6 mt-1 truncate text-xs text-muted">{awardStatLine(award, c)}</div>
+    </li>
+  );
+}
+
+function AwardCard({ award, count, className = '' }) {
+  const shown = award.candidates.slice(0, count);
+  const max = Math.max(...shown.map((c) => c.probability), 0.01);
+  const bt = award.backtest?.final;
+  return (
+    <Card
+      className={className}
+      title={award.label}
+      subtitle={bt ? `Backtest: the winner was our top pick ${bt.top_pick} of ${bt.seasons} seasons, top 3 in ${bt.top3}` : undefined}
+    >
+      {shown.length ? (
+        <ol className="-my-2.5 divide-y divide-line/60">
+          {shown.map((c) => (
+            <Candidate key={`${c.rank}-${c.name}`} award={award.key} c={c} max={max} />
+          ))}
+        </ol>
+      ) : (
+        <p className="text-sm text-muted">No candidates yet.</p>
+      )}
+    </Card>
+  );
+}
+
+function Awards() {
+  const [week, setWeek] = useState(null);
+  const { data, loading } = useApi(`/api/models/awards${week ? `?week=${week}` : ''}`);
+  if (loading || !data) return <EmptyState title="Loading award races…" />;
+  if (!data.awards.length || !data.week) return <EmptyState title="Award races start after week 1" />;
+  const [mvp, ...rest] = data.awards;
+  const early = data.week <= 4;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="font-sans text-[17px] font-bold">
+            {data.season} award races · through week {data.week}
+          </h2>
+          <p className="text-xs text-muted">
+            Each candidate&apos;s chance of winning, from their stats to date, their team&apos;s record and 26 seasons of voting.
+            {early && ' Early in the season these swing a lot, and hot starts tend to be overrated.'}
+          </p>
+        </div>
+        {data.weeks.length > 1 && (
+          <Field label="After week">
+            <Select value={data.week} onChange={(v) => setWeek(Number(v))} options={data.weeks.map((w) => ({ value: w, label: `Week ${w}` }))} className="w-28" />
+          </Field>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
+        <AwardCard award={mvp} count={8} />
+        <AwardsMethod data={data} />
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {rest.map((a) => (
+          <AwardCard key={a.key} award={a} count={5} />
+        ))}
+      </div>
+      <AwardsBacktest data={data} />
+    </div>
+  );
+}
+
+function AwardsMethod({ data }) {
+  return (
+    <Card title="How the award models work">
+      <div className="space-y-2.5 text-sm text-muted">
+        <p>
+          For each award, every candidate gets a share of 100%: a conditional logit on stats to date per team game, compared
+          with others at the same position, plus the team&apos;s record (and for defenders, the defense&apos;s rank and last
+          season&apos;s production; for rookies, draft slot; for coaches, the improvement on last year).
+        </p>
+        <p>
+          It is trained on every week of every season since 2000, labelled with the eventual winner, so it learns how much
+          a week-4 lead is worth compared with a week-16 one. Each season in the backtest was predicted by a model that never
+          saw it.
+        </p>
+        <p>
+          Voters also weigh narrative, which no box score has: comeback stories, coverage cornerbacks quarterbacks avoid,
+          a team nobody expected to win. Comeback Player and Defensive Player are the hardest to call.
+        </p>
+        <p className="text-xs text-faint">
+          Winners from Wikipedia&apos;s AP award lists{data.trained_through ? `; trained through ${data.trained_through}` : ''}.
+          ▲▼ change since the week before, in percentage points.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+function AwardsBacktest({ data }) {
+  const rows = data.awards.filter((a) => a.backtest);
+  if (!rows.length) return null;
+  const bands = (data.calibration || []).filter((b) => b.stage === 'Week 5 on');
+  const early = (data.calibration || []).filter((b) => b.stage === 'Weeks 1-4');
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <Card title="How the models have done" subtitle="Each season 2000-25 predicted by a model fitted without it" bodyClassName="p-0 pt-3">
+        <DataTable
+          rows={rows}
+          rowKey={(a) => a.key}
+          lead={{ header: 'Award', className: 'min-w-[200px]', render: (a) => a.label }}
+          columns={[
+            { key: 'top', short: 'TOP PICK', label: "Season's end: the winner was our top pick", group: "At season's end", value: (a) => a.backtest.final.top_pick, render: (a) => `${a.backtest.final.top_pick}/${a.backtest.final.seasons}` },
+            { key: 'top3', short: 'TOP 3', label: "Season's end: the winner was in our top three", group: "At season's end", value: (a) => a.backtest.final.top3, render: (a) => `${a.backtest.final.top3}/${a.backtest.final.seasons}` },
+            { key: 'mid', short: 'TOP PICK', label: 'Midseason: the winner was our top pick', group: 'Midseason', value: (a) => a.backtest.midseason.top_pick, render: (a) => `${a.backtest.midseason.top_pick}/${a.backtest.midseason.seasons}` },
+            { key: 'mid3', short: 'TOP 3', label: 'Midseason: the winner was in our top three', group: 'Midseason', value: (a) => a.backtest.midseason.top3, render: (a) => `${a.backtest.midseason.top3}/${a.backtest.midseason.seasons}` },
+          ]}
+          dense
+        />
+        <p className="px-5 py-3 text-xs text-faint">
+          Comeback Player counts only seasons whose winner fits the model&apos;s candidates (back from missing time or a down
+          year); defensive health stories like Tedy Bruschi&apos;s are beyond it.
+        </p>
+      </Card>
+      {bands.length > 0 && (
+        <Card title="Are the percentages honest?" subtitle="Candidates given each chance, and how often they won">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-2xs uppercase tracking-label text-faint">
+                <th className="pb-2 text-left font-semibold">Given</th>
+                <th className="pb-2 text-right font-semibold">Won, week 5 on</th>
+                <th className="pb-2 text-right font-semibold">Won, weeks 1-4</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/60">
+              {bands.map((b) => {
+                const e = early.find((x) => x.band === b.band);
+                return (
+                  <tr key={b.band}>
+                    <td className="py-2">{b.band}</td>
+                    <td className="num py-2 text-right">{pctLabel(b.won)}</td>
+                    <td className="num py-2 text-right text-muted">{e ? pctLabel(e.won) : '–'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="mt-3 text-xs text-faint">
+            From week 5 the chances hold up well; in the first month, leaders win less often than their percentage says.
+          </p>
+        </Card>
+      )}
     </div>
   );
 }
