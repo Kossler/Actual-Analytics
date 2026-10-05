@@ -76,6 +76,7 @@ funcs = [
     'load_rosters_weekly', 'load_schedules', 'load_snap_counts', 'load_team_stats', 'load_teams', 'load_trades',
     'load_nextgen_rushing', 'load_nextgen_receiving', 'load_depth_charts_current',
     'load_pfr_advstats_pass', 'load_pfr_advstats_rush', 'load_pfr_advstats_rec', 'load_pfr_advstats_def',
+    'load_depth_charts_sleeper',
 ]
 
 # Loaders that call an nflreadpy function with fixed arguments: loader name -> (function, kwargs).
@@ -90,9 +91,17 @@ LOADER_ALIASES = {
     'load_pfr_advstats_def': ('load_pfr_advstats', {'stat_type': 'def', 'summary_level': 'week'}),
 }
 
+# Loaders for sources other than nflreadpy: loader name -> function(creds) returning a DataFrame.
+def _sleeper_depth_charts(creds):
+    import depth_charts
+    return depth_charts.fetch(creds)
+
+
+CUSTOM_LOADERS = {'load_depth_charts_sleeper': _sleeper_depth_charts}
+
 # Datasets nflverse publishes as complete snapshots: the table is replaced on every load (inside
 # the load's transaction, so readers keep seeing the old rows until it commits).
-REPLACE_TABLES = {'contracts', 'depth_charts_current'}
+REPLACE_TABLES = {'contracts', 'depth_charts_current', 'depth_charts_sleeper'}
 
 # nflverse lists relocated and alias franchises (LAR for LA, OAK, SD, STL) next to the 32 current
 # teams; they share team_id, so keeping them would make the stored abbreviation depend on load order.
@@ -319,6 +328,8 @@ def insert_frame(cur, table_name, df, upsert, chunk_size):
 
 def loader_tasks(fname):
     """Split a loader into tasks: one per season for per-season files, otherwise one task."""
+    if fname in CUSTOM_LOADERS:
+        return [(fname, None)]
     base_name, _ = LOADER_ALIASES.get(fname, (fname, {}))
     func = getattr(nflreadpy, base_name)
     if 'seasons' not in inspect.signature(func).parameters:
@@ -333,9 +344,12 @@ def process_table(fname, creds, seasons=None):
     Env knobs: UPSERT / UPSERT_TABLES (update on conflict), CLEAR_BEFORE_LOAD (truncate first;
     REPLACE_TABLES always are), CHUNK_SIZE (max rows per insert statement).
     """
-    base_name, fixed_args = LOADER_ALIASES.get(fname, (fname, {}))
-    func = getattr(nflreadpy, base_name)
-    args = {**get_default_args(func), **fixed_args}
+    if fname in CUSTOM_LOADERS:
+        func, args = CUSTOM_LOADERS[fname], {'creds': creds}
+    else:
+        base_name, fixed_args = LOADER_ALIASES.get(fname, (fname, {}))
+        func = getattr(nflreadpy, base_name)
+        args = {**get_default_args(func), **fixed_args}
     table_name = fname.replace('load_', '')
     label = fname + (f" seasons={seasons}" if seasons is not None else "")
 

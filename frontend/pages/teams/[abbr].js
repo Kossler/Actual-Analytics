@@ -292,9 +292,11 @@ function DepthChart({ depth }) {
   const starters = depth.filter((d) => d.pos_rank === 1);
   const unit = (d) => (d.pos_grp === 'Special Teams' ? 'Special teams' : / D$/.test(d.pos_grp) ? 'Defense' : 'Offense');
   const units = ['Offense', 'Defense', 'Special teams'].map((u) => ({ u, rows: starters.filter((d) => unit(d) === u) })).filter((x) => x.rows.length);
-  const updated = depth[0]?.dt ? new Date(depth[0].dt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+  const latest = depth.reduce((a, d) => (d.dt > a ? d.dt : a), '');
+  const updated = latest ? new Date(latest).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+  const sources = [...new Set(depth.map((d) => d.source).filter(Boolean))].join(' and ');
   return (
-    <Card title="Depth chart" subtitle={`Starters${updated ? ` · updated ${updated}` : ''}`}>
+    <Card title="Depth chart" subtitle={`Starters${updated ? ` · updated ${updated}` : ''}${sources ? ` · ${sources}` : ''}`}>
       <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
         {units.map(({ u, rows }) => (
           <div key={u}>
