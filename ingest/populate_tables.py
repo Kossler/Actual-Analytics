@@ -7,7 +7,9 @@ import re
 import inspect
 import sys
 from datetime import datetime
-from multiprocessing import Pool, cpu_count
+import multiprocessing
+import time
+from multiprocessing import cpu_count
 
 # nflreadpy caches every download in memory by default. Each file is read once per run here, so the
 # cache only holds memory: during a multi-season backfill it would keep every season resident.
@@ -343,14 +345,24 @@ def process_table(fname, creds, seasons=None):
         upsert = env_flag('UPSERT')
     chunk_size = int(os.getenv('CHUNK_SIZE', '50000'))
 
-    try:
-        if seasons is None:
-            df = func(**args)
-        else:
-            df = func(seasons=seasons, **{k: v for k, v in args.items() if k != 'seasons'})
-    except Exception as e:
-        print(f"Error loading {label}: {e}")
-        return False, 0
+    df = None
+    for attempt in range(1, 4):
+        try:
+            if seasons is None:
+                df = func(**args)
+            else:
+                df = func(seasons=seasons, **{k: v for k, v in args.items() if k != 'seasons'})
+            break
+        except ConnectionError as e:
+            # GitHub release downloads occasionally drop; retry with backoff before giving up.
+            if attempt == 3:
+                print(f"Error loading {label} after {attempt} attempts: {e}")
+                return False, 0
+            print(f"Retrying {label} (attempt {attempt} failed: {str(e)[:120]})")
+            time.sleep(5 * attempt)
+        except Exception as e:
+            print(f"Error loading {label}: {e}")
+            return False, 0
     if df is None or len(df) == 0:
         print(f"No data for {label}.")
         return True, 0
@@ -408,7 +420,10 @@ def main():
     # process, so memory from one season (polars/pyarrow do not always return it to the OS) is
     # released before the next starts; a full-history backfill stays at one season's footprint.
     tasks = [task for fname in selected_funcs for task in loader_tasks(fname)]
-    with Pool(processes=processes, maxtasksperchild=1) as pool:
+    # 'spawn', not Linux's default 'fork': the parent has already downloaded the schedule (to find the
+    # current season), and forked workers would share its open TLS connection, corrupting each
+    # other's downloads (SSL "bad record mac" / "wrong version number" errors, then hangs).
+    with multiprocessing.get_context('spawn').Pool(processes=processes, maxtasksperchild=1) as pool:
         task_results = pool.map(worker, tasks, chunksize=1)
 
     results = []
