@@ -133,6 +133,20 @@ export const METRICS = {
   def_yds_per_tgt: { label: 'Yards per target allowed', short: 'Y/TGT', format: 'dec1', group: 'Defense', better: 'low', shade: true, value: (r) => (has(r.pfr_def_targets) ? div(n(r.pfr_def_yards), r.pfr_def_targets) : null), description: 'Receiving yards allowed per target in coverage.' },
   def_rating_allowed: { label: 'Passer rating allowed', short: 'RTG', format: 'dec1', group: 'Defense', better: 'low', value: (r) => passerRating(r.pfr_def_completions, r.pfr_def_targets, r.pfr_def_yards, r.pfr_def_td, r.pfr_def_ints), description: "NFL passer rating on throws into the defender's coverage, computed from completions, yards, touchdowns and interceptions allowed." },
   def_tds: { label: 'Defensive touchdowns', short: 'TD', format: 'int', group: 'Defense', better: 'high', value: (r) => r.def_tds, description: 'Touchdowns scored on defense.' },
+  def_snaps: { label: 'Defensive snaps', short: 'SNAPS', format: 'int', group: 'Defense', better: 'high', value: (r) => (has(r.def_snaps) ? r.def_snaps : null), description: 'Snaps played on defense (Pro Football Reference snap counts).' },
+  snap_share: { label: 'Snap share', short: 'SNAP%', format: 'pct', group: 'Defense', better: 'high', value: (r) => (has(r.def_snaps) && r.team_def_snaps ? r.def_snaps / r.team_def_snaps : null), description: "Share of the team's defensive snaps played, in the games the player appeared in." },
+  havoc: { label: 'Havoc plays', short: 'HAVOC', format: 'int', group: 'Defense', better: 'high', value: (r) => n(r.def_tackles_for_loss) + n(r.def_pass_defended) + n(r.def_fumbles_forced), description: 'Tackles for loss (sacks included), passes defended (interceptions included) and forced fumbles.' },
+  havoc_rate: { label: 'Havoc rate', short: 'HAVOC%', format: 'pct', group: 'Defense', better: 'high', shade: true, value: (r) => (r.def_snaps ? (n(r.def_tackles_for_loss) + n(r.def_pass_defended) + n(r.def_fumbles_forced)) / r.def_snaps : null), description: 'Havoc plays per defensive snap.' },
+  stops: { label: 'Stops', short: 'STOPS', format: 'int', group: 'Defense', better: 'high', value: (r) => (has(r.stops) ? r.stops : null), description: 'Tackles (solo or shared) that end a play the offense failed on, i.e. one with negative EPA. From play-by-play.' },
+  stop_rate: { label: 'Stop rate', short: 'STOP%', format: 'pct', group: 'Defense', better: 'high', shade: true, value: (r) => (r.def_snaps && has(r.stops) ? r.stops / r.def_snaps : null), description: 'Stops per defensive snap.' },
+  run_stops: { label: 'Run stops', short: 'RSTOP', format: 'int', group: 'Defense', better: 'high', value: (r) => (has(r.run_stops) ? r.run_stops : null), description: 'Tackles on designed runs and scrambles that the offense failed on (negative EPA).' },
+  run_tackle_depth: { label: 'Yards per run tackle', short: 'RTKL YDS', format: 'dec1', group: 'Defense', better: 'low', shade: true, value: (r) => (r.run_tackles ? n(r.run_tackle_yards) / r.run_tackles : null), description: 'Average gain on the runs the player tackled. Lower means the player makes tackles closer to (or behind) the line.' },
+  pressure_rate: { label: 'Pressure rate', short: 'PRSS%', format: 'pct', group: 'Defense', better: 'high', shade: true, value: (r) => (has(r.pfr_def_pressures) && r.def_snaps ? r.pfr_def_pressures / r.def_snaps : null), description: 'Pressures per defensive snap. Pass-rush snaps are not published, so run snaps count too; compare players at the same position.' },
+  def_blitzes: { label: 'Blitzes', short: 'BLTZ', format: 'int', group: 'Defense', value: (r) => (has(r.pfr_def_blitzes) ? r.pfr_def_blitzes : null), description: 'Times sent as a blitzer (Pro Football Reference).' },
+  def_missed_tackles: { label: 'Missed tackles', short: 'MTKL', format: 'int', group: 'Defense', better: 'low', value: (r) => (has(r.pfr_def_missed) ? r.pfr_def_missed : null), description: 'Missed tackles (Pro Football Reference).' },
+  def_td_allowed: { label: 'Touchdowns allowed', short: 'TD ALW', format: 'int', group: 'Defense', better: 'low', value: (r) => (has(r.pfr_def_targets) ? n(r.pfr_def_td) : null), description: "Receiving touchdowns allowed in the defender's coverage (Pro Football Reference)." },
+  def_yac_allowed: { label: 'YAC allowed per completion', short: 'YAC/C', format: 'dec1', group: 'Defense', better: 'low', value: (r) => (has(r.pfr_def_yac) && r.pfr_def_completions ? r.pfr_def_yac / r.pfr_def_completions : null), description: 'Yards after the catch allowed per completion in coverage (Pro Football Reference).' },
+  snaps_per_target: { label: 'Snaps per target', short: 'SNP/TGT', format: 'dec1', group: 'Defense', better: 'high', shade: true, value: (r) => (r.pfr_def_targets && r.def_snaps ? r.def_snaps / r.pfr_def_targets : null), description: 'Defensive snaps per pass thrown at the defender. Higher means quarterbacks avoid them (or they rarely cover).' },
 
   // ---- Kicking
   fg_made: { label: 'Field goals made', short: 'FGM', format: 'int', group: 'Kicking', better: 'high', value: (r) => r.fg_made, description: 'Field goals made.' },
@@ -215,6 +229,13 @@ export function shadeStyle(value, stats, better = 'high') {
   return { backgroundColor: goodness > 0 ? `rgba(61, 122, 214, ${alpha})` : `rgba(196, 110, 40, ${alpha})` };
 }
 
+// A player's group from the position in their latest game (what the leaderboards use), falling
+// back to the roster position; the two can disagree (e.g. edge rushers listed as LB on rosters).
+export function playerGroup(player, games = []) {
+  const latest = [...games].reverse().find((g) => g.position);
+  return positionGroup(latest?.position || player?.position);
+}
+
 export function positionGroup(position) {
   const p = String(position || '').toUpperCase();
   if (p === 'QB') return 'QB';
@@ -222,6 +243,10 @@ export function positionGroup(position) {
   if (p === 'WR') return 'WR';
   if (p === 'TE') return 'TE';
   if (p === 'K' || p === 'P') return 'K';
-  if (['CB', 'S', 'FS', 'SS', 'DB', 'LB', 'ILB', 'OLB', 'MLB', 'DL', 'DE', 'DT', 'NT', 'EDGE'].includes(p)) return 'DEF';
+  // nflverse has labelled safeties SAF since 2025 (S, FS, SS before); DB is an unspecified back.
+  if (['DE', 'DT', 'NT', 'DL', 'EDGE'].includes(p)) return 'DL';
+  if (['LB', 'ILB', 'OLB', 'MLB'].includes(p)) return 'LB';
+  if (['CB', 'DB'].includes(p)) return 'CB';
+  if (['SAF', 'S', 'FS', 'SS'].includes(p)) return 'S';
   return 'OTHER';
 }

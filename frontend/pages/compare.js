@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { EmptyState, Field, PageHeader, Select } from '../components/ui';
 import { fetchJson, loadProps } from '../lib/api';
 import { formatValue, initials } from '../lib/format';
-import { METRICS, aggregate, metricValue, positionGroup } from '../lib/metrics';
+import { METRICS, aggregate, metricValue, playerGroup } from '../lib/metrics';
 import { POSITIONS, flattenColumns } from '../lib/positions';
 import { seasonGames, seasonsOf } from '../lib/player';
 
@@ -32,7 +32,7 @@ export default function ComparePage({ players }) {
   const setIds = (next) => router.push({ pathname: '/compare', query: { ...router.query, ids: next.join(',') } }, undefined, { scroll: false });
 
   // Rows come from the first player's position; other positions' metrics show where they apply.
-  const group = positionGroup(players[0]?.player.position);
+  const group = playerGroup(players[0]?.player, players[0]?.games);
   const config = POSITIONS[group] || POSITIONS.OTHER;
   const metricKeys = [
     ...new Set([

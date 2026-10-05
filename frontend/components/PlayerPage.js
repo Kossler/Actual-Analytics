@@ -8,8 +8,8 @@ import DataTable from './DataTable';
 import { Breadcrumbs, Card, EmptyState, Segmented, Select, Tabs, RankTrack, toneOf } from './ui';
 import { useApi } from '../lib/api';
 import { formatValue, height as formatHeight, initials, money, ordinal, pctLabel, shortName } from '../lib/format';
-import { METRICS, aggregate, groupStats, metricValue, positionGroup } from '../lib/metrics';
-import { POSITIONS, flattenColumns, qualifierMinimum } from '../lib/positions';
+import { METRICS, aggregate, groupStats, metricValue, playerGroup } from '../lib/metrics';
+import { LEADERBOARD_POSITIONS, POSITIONS, flattenColumns, qualifierMinimum } from '../lib/positions';
 import { gameLabel, gameResult, ngsBySeason, opponentLabel, seasonGames, seasonsOf, splitRows } from '../lib/player';
 import { rememberPlayer } from '../lib/storage';
 
@@ -51,7 +51,7 @@ const BEST_GAME = {
 export default function PlayerPage({ data, board }) {
   const router = useRouter();
   const { player, games, ngs, contracts } = data;
-  const group = positionGroup(player.position);
+  const group = playerGroup(player, games);
   const config = POSITIONS[group] || POSITIONS.OTHER;
   const pc = config.player;
 
@@ -108,7 +108,7 @@ export default function PlayerPage({ data, board }) {
       <Breadcrumbs
         items={[
           { label: 'Players', href: '/' },
-          ...(['QB', 'RB', 'WR', 'TE'].includes(group) ? [{ label: config.plural, href: group === 'QB' ? '/' : `/?pos=${group}` }] : []),
+          ...(LEADERBOARD_POSITIONS.includes(group) ? [{ label: config.plural, href: group === 'QB' ? '/' : `/?pos=${group}` }] : []),
           { label: player.display_name },
         ]}
       />
@@ -307,8 +307,8 @@ function Overview({ player, games, regular, totals, previous, season, group, con
   );
 }
 
-function MetricCard({ metricKey, totals, previous, prevLabel, peers, self, pc, group }) {
-  const posLabel = group === 'RB' ? 'RBs' : group === 'WR' ? 'WRs' : group === 'TE' ? 'TEs' : group === 'QB' ? 'QBs' : '';
+function MetricCard({ metricKey, totals, previous, prevLabel, peers, self, pc, group, config }) {
+  const posLabel = config.rankLabel || (LEADERBOARD_POSITIONS.includes(group) ? `${group}s` : '');
   const m = METRICS[metricKey];
   const value = metricValue(metricKey, totals);
   const prev = previous ? metricValue(metricKey, previous) : null;

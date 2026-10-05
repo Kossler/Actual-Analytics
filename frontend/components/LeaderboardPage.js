@@ -7,7 +7,7 @@ import { ButtonGroup, EmptyState, Field, LeaderCard, PageHeader, Segmented, Sele
 import { loadProps, queryString } from '../lib/api';
 import { formatValue, shortName } from '../lib/format';
 import { METRICS, groupStats, metricValue, sortValue } from '../lib/metrics';
-import { LEADERBOARD_POSITIONS, POSITIONS, flattenColumns, qualifierMinimum } from '../lib/positions';
+import { DEFENSE_POSITIONS, LEADERBOARD_POSITIONS, OFFENSE_POSITIONS, POSITIONS, flattenColumns, qualifierMinimum } from '../lib/positions';
 import { downloadCsv, readStorage, recentPlayers, writeStorage } from '../lib/storage';
 
 export async function getLeaderboardProps({ query }) {
@@ -138,7 +138,16 @@ export default function LeaderboardPage({ meta, board }) {
                 </Link>
               </p>
             )}
-            <Segmented options={LEADERBOARD_POSITIONS} value={pos} onChange={(p) => navigate({ pos: p === 'QB' ? undefined : p, from: undefined, to: undefined })} />
+            <div className="flex flex-wrap gap-2">
+              {[OFFENSE_POSITIONS, DEFENSE_POSITIONS].map((options) => (
+                <Segmented
+                  key={options[0]}
+                  options={options}
+                  value={pos}
+                  onChange={(p) => navigate({ pos: p === 'QB' ? undefined : p, from: undefined, to: undefined })}
+                />
+              ))}
+            </div>
           </div>
         }
       />

@@ -450,6 +450,7 @@ def main():
 MATERIALIZED_VIEWS = {
     'player_season_stats': {'player_stats', 'players', 'snap_counts'},
     'player_week_pbp': {'pbp'},
+    'player_week_def_pbp': {'pbp'},
     'team_game_pbp': {'pbp'},
 }
 
