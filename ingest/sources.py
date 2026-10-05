@@ -12,6 +12,7 @@ touching GitHub's API rate limit), and a table is reloaded only when one of its 
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 import requests
 
@@ -40,7 +41,11 @@ SOURCE_FILES = {
     'pfr_advstats_def': ['pfr_advstats/advstats_week_def_{season}.parquet'],
     # Expected fantasy points, from ffverse rather than nflverse.
     'ff_opportunity': ['https://github.com/ffverse/ffopportunity/releases/download/latest-data/ep_weekly_{season}.parquet'],
+    # Sleeper's players file (depth charts). Sleeper asks for at most one fetch a day, so it isn't
+    # checked: its version is the UTC date, which makes it load on the first run of each day.
+    'depth_charts_sleeper': ['https://api.sleeper.app/v1/players/nfl'],
 }
+DAILY_FILES = {'https://api.sleeper.app/v1/players/nfl'}
 
 
 def source_urls(table, season):
@@ -67,8 +72,9 @@ def file_version(url, attempts=3):
 def current_versions(tables, season):
     """{table: {url: version}} for every table's files, checked in parallel."""
     pairs = [(t, url) for t in tables for url in source_urls(t, season)]
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     with ThreadPoolExecutor(max_workers=8) as pool:
-        versions = list(pool.map(lambda p: file_version(p[1]), pairs))
+        versions = list(pool.map(lambda p: today if p[1] in DAILY_FILES else file_version(p[1]), pairs))
     out = {t: {} for t in tables}
     for (t, url), version in zip(pairs, versions):
         out[t][url] = version

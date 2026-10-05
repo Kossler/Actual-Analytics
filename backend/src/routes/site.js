@@ -498,8 +498,8 @@ router.get('/players/:id/page', handle(async (req, res) => {
                   practice_status, practice_primary_injury
            FROM injuries WHERE gsis_id = $1
            ORDER BY season DESC, week DESC LIMIT 1`, id),
-    query(`SELECT team, pos_abb, pos_name, pos_rank::INT AS pos_rank, dt FROM depth_charts_current
-           WHERE gsis_id = $1 ORDER BY pos_rank`, id),
+    query(`SELECT team, pos_abb, pos_name, pos_rank, dt, source FROM depth_chart
+           WHERE gsis_id = $1 ORDER BY pos_rank, pos_slot`, id),
   ]);
   if (!players.length) return res.status(404).json({ error: 'Player not found' });
   res.json({ player: players[0], games, ngs, contracts, injury: injuries[0] || null, depth });
@@ -752,8 +752,8 @@ router.get('/teams/:abbr', handle(async (req, res) => {
       )
       SELECT t.*, pbp.dropbacks, pbp.dropback_epa, pbp.pbp_carries, pbp.pbp_rush_epa, pbp.pbp_targets, pbp.target_epa
       FROM totals t LEFT JOIN pbp USING (player_id)`, season, abbr),
-    query(`SELECT gsis_id, player_name, pos_grp, pos_abb, pos_slot::INT AS pos_slot, pos_rank::INT AS pos_rank, dt
-           FROM depth_charts_current WHERE team = $1 ORDER BY pos_grp, pos_abb, pos_slot, pos_rank`, abbr),
+    query(`SELECT gsis_id, player_name, pos_grp, pos_abb, pos_slot, pos_rank, dt, source
+           FROM depth_chart WHERE team = $1 ORDER BY pos_grp, pos_slot, pos_rank`, abbr),
     query(`SELECT i.gsis_id, i.full_name, i.position, i.week::INT AS week, i.report_status, i.report_primary_injury,
                   i.practice_status
            FROM injuries i

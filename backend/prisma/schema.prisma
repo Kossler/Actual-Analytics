@@ -1549,6 +1549,26 @@ model depth_charts_current {
   @@index([gsis_id], map: "depth_charts_current_gsis_id_idx")
 }
 
+/// Latest Sleeper depth chart (ingest/depth_charts.py), replaced on every load. The depth_chart
+/// view combines it with depth_charts_current.
+model depth_charts_sleeper {
+  id                   Int     @id @default(autoincrement())
+  dt                   String?
+  team                 String?
+  player_name          String?
+  sleeper_id           String?
+  gsis_id              String?
+  depth_chart_position String?
+  pos_grp              String?
+  pos_abb              String?
+  pos_name             String?
+  pos_slot             Int?
+  pos_rank             Int?
+
+  @@index([team], map: "depth_charts_sleeper_team_idx")
+  @@index([gsis_id], map: "depth_charts_sleeper_gsis_id_idx")
+}
+
 /// Pro Football Reference advanced passing per player-game.
 model pfr_advstats_pass {
   id                    Int     @id @default(autoincrement())

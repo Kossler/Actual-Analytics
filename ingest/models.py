@@ -681,7 +681,7 @@ def load_availability(cur, season, week):
         cur.execute(
             """
             SELECT gsis_id, team, pos_abb, MIN(pos_rank)::INT
-            FROM depth_charts_current
+            FROM depth_chart
             WHERE gsis_id IS NOT NULL AND pos_abb IN ('QB', 'RB', 'FB', 'WR', 'TE')
             GROUP BY gsis_id, team, pos_abb
             """

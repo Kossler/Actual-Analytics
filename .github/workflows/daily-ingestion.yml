@@ -34,8 +34,8 @@ concurrency:
 
 env:
   # The tables the site uses. participation is omitted: nflverse publishes it only after each
-  # season, and the app doesn't use it.
-  DEFAULT_TABLES: schedules,teams,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving,contracts,injuries,depth_charts_current,pfr_advstats_pass,pfr_advstats_rush,pfr_advstats_rec,pfr_advstats_def,ftn_charting,ff_opportunity
+  # season, and the app doesn't use it. depth_charts_sleeper comes from Sleeper, once a day.
+  DEFAULT_TABLES: schedules,teams,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving,contracts,injuries,depth_charts_current,depth_charts_sleeper,pfr_advstats_pass,pfr_advstats_rush,pfr_advstats_rec,pfr_advstats_def,ftn_charting,ff_opportunity
 
 jobs:
   # Which tables have new source files since they were last loaded (scheduled runs only).
