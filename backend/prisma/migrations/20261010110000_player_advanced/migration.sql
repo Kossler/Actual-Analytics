@@ -2,6 +2,11 @@
 -- win probability added, deep passing, scrambles, interception-worthy throws, explosive and
 -- stuffed runs, goal-line work, YAC over expected and red-zone / end-zone targets. Sums and counts
 -- only, so any range of weeks adds up. Same play set as player_week_pbp.
+
+-- Build without parallel workers: parallel hash joins need shared memory, which small Postgres
+-- containers (Docker's 64 MB /dev/shm default) don't have.
+SET max_parallel_workers_per_gather = 0;
+
 CREATE MATERIALIZED VIEW "player_week_adv" AS
 WITH plays AS (
   SELECT p.season::INT AS season, p.week::INT AS week, p.season_type,

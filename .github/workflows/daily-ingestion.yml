@@ -35,7 +35,7 @@ concurrency:
 env:
   # The tables the site uses. participation is omitted: nflverse publishes it only after each
   # season, and the app doesn't use it.
-  DEFAULT_TABLES: schedules,teams,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving,contracts,injuries,depth_charts_current,pfr_advstats_pass,pfr_advstats_rush,pfr_advstats_rec,pfr_advstats_def,ftn_charting
+  DEFAULT_TABLES: schedules,teams,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving,contracts,injuries,depth_charts_current,pfr_advstats_pass,pfr_advstats_rush,pfr_advstats_rec,pfr_advstats_def,ftn_charting,ff_opportunity
 
 jobs:
   # Which tables have new source files since they were last loaded (scheduled runs only).
@@ -89,7 +89,7 @@ jobs:
           # Re-checked at load time, which also reads the file versions to record after loading.
           CHANGED_ONLY: ${{ (github.event_name == 'schedule' || inputs.changed_only) && '1' || '0' }}
           # Upsert only the tables that can change as stats are recalculated.
-          UPSERT_TABLES: 'schedules,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving,injuries,pfr_advstats_pass,pfr_advstats_rush,pfr_advstats_rec,pfr_advstats_def,ftn_charting'
+          UPSERT_TABLES: 'schedules,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving,injuries,pfr_advstats_pass,pfr_advstats_rush,pfr_advstats_rec,pfr_advstats_def,ftn_charting,ff_opportunity'
           UPSERT: '0'
           PROCESSES: '4'
           CHUNK_SIZE: '50000'

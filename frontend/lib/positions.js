@@ -3,7 +3,8 @@ import { METRICS } from './metrics';
 
 export const OFFENSE_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
 export const DEFENSE_POSITIONS = ['DL', 'LB', 'CB', 'S'];
-export const LEADERBOARD_POSITIONS = [...OFFENSE_POSITIONS, ...DEFENSE_POSITIONS];
+export const SPECIAL_POSITIONS = ['K'];
+export const LEADERBOARD_POSITIONS = [...OFFENSE_POSITIONS, ...DEFENSE_POSITIONS, ...SPECIAL_POSITIONS];
 
 // Every defensive stat a defender's leaderboard, custom columns and player page can show.
 const DEFENSE_METRICS = ['games', 'def_snaps', 'snap_share', 'tackles', 'stops', 'stop_rate', 'run_stops', 'run_tackle_depth',
@@ -71,12 +72,17 @@ const RECEIVER = {
       { group: 'Big plays', columns: ['explosive_catches', 'explosive_catch_rate'] },
       { group: 'Chains & scoring', columns: ['fd_per_target', 'rz_targets', 'ez_targets'] },
     ],
+    Fantasy: [
+      { group: 'Scored', columns: ['fantasy_points_ppr', 'fp_per_game'] },
+      { group: 'Expected', columns: ['xfp', 'xfp_per_game', 'fpoe'] },
+      { group: 'Touchdowns', columns: ['xtd', 'td_oe'] },
+    ],
   },
   customOptions: ['games', 'targets', 'receptions', 'receiving_yards', 'receiving_tds', 'catch_pct', 'ypr', 'ypt',
     'receiving_epa', 'epa_per_target', 'target_success', 'target_share', 'air_yards_share', 'wopr', 'adot_rec',
     'yac_per_rec', 'separation', 'yac_over_expected', 'rec_drops', 'drop_rate', 'broken_tackles', 'carries', 'rushing_yards',
     'fantasy_points_ppr', 'rec_wpa', 'yac_oe_pbp', 'racr', 'explosive_catches', 'explosive_catch_rate', 'fd_per_target',
-    'rz_targets', 'ez_targets'],
+    'rz_targets', 'ez_targets', 'fp_per_game', 'xfp', 'xfp_per_game', 'fpoe', 'xtd', 'td_oe'],
   player: {
     cards: ['epa_per_target', 'catch_pct', 'ypt', 'target_share'],
     summary: { title: 'Receiving', main: 'receiving_yards', unit: 'yds', rate: 'epa_per_target', detail: ['receptions', 'targets', 'receiving_tds'] },
@@ -95,7 +101,7 @@ const RECEIVER = {
     scatterOptions: ['epa_per_target', 'ypt', 'catch_pct', 'adot_rec', 'target_share', 'yac_per_rec', 'separation', 'receiving_yards', 'targets', 'target_success'],
     splits: ['games', 'targets', 'receptions', 'receiving_yards', 'receiving_tds', 'catch_pct', 'ypt', 'epa_per_target'],
     advanced: ['target_success', 'epa_per_target', 'adot_rec', 'yac_per_rec', 'target_share', 'wopr', 'rec_drops', 'drop_rate', 'broken_tackles'],
-    impact: ['rec_wpa', 'yac_oe_pbp', 'racr', 'explosive_catches', 'explosive_catch_rate', 'fd_per_target', 'rz_targets', 'ez_targets'],
+    impact: ['rec_wpa', 'yac_oe_pbp', 'racr', 'explosive_catches', 'explosive_catch_rate', 'fd_per_target', 'rz_targets', 'ez_targets', 'xfp_per_game', 'fpoe', 'td_oe'],
     ngs: [
       { key: 'separation', label: 'Separation', format: 'dec1' },
       { key: 'cushion', label: 'Cushion', format: 'dec1' },
@@ -140,11 +146,16 @@ export const POSITIONS = {
         { group: 'Scrambling', columns: ['scramble_rate', 'scramble_epa_per'] },
         { group: 'Receiver help', columns: ['yac_share_pass'] },
       ],
+      Fantasy: [
+        { group: 'Scored', columns: ['fantasy_points_ppr', 'fp_per_game'] },
+        { group: 'Expected', columns: ['xfp', 'xfp_per_game', 'fpoe'] },
+        { group: 'Touchdowns', columns: ['xtd', 'td_oe'] },
+      ],
     },
     customOptions: ['games', 'completions', 'attempts', 'cmp_pct', 'passing_yards', 'passing_tds', 'interceptions', 'sacks',
       'ypa', 'anya', 'td_rate', 'int_rate', 'sack_rate', 'dropbacks', 'pass_epa', 'epa_per_play', 'cpoe', 'dropback_success',
       'adot', 'time_to_throw', 'aggressiveness', 'pressure_rate', 'bad_throw_pct', 'carries', 'rushing_yards', 'rushing_tds', 'rushing_epa', 'total_epa', 'fantasy_points_ppr',
-      'pass_wpa', 'total_wpa', 'deep_rate', 'deep_cmp_pct', 'deep_epa_per', 'iw_rate', 'scramble_rate', 'scramble_epa_per', 'yac_share_pass'],
+      'pass_wpa', 'total_wpa', 'deep_rate', 'deep_cmp_pct', 'deep_epa_per', 'iw_rate', 'scramble_rate', 'scramble_epa_per', 'yac_share_pass', 'fp_per_game', 'xfp', 'xfp_per_game', 'fpoe', 'xtd', 'td_oe'],
     player: {
       cards: ['epa_per_play', 'cpoe', 'ypa', 'int_rate'],
       cardDetail: { int_rate: (t) => `${Math.round(t.interceptions || 0)} INT / ${Math.round(t.attempts || 0)} att` },
@@ -164,7 +175,7 @@ export const POSITIONS = {
       scatterOptions: ['pass_epa', 'epa_per_play', 'cpoe', 'ypa', 'anya', 'adot', 'dropback_success', 'sack_rate', 'int_rate', 'passing_yards', 'attempts', 'time_to_throw'],
       splits: ['games', 'cmp_pct', 'passing_yards', 'ypa', 'anya', 'passing_tds', 'interceptions', 'epa_per_play', 'cpoe'],
       advanced: ['dropbacks', 'dropback_success', 'epa_per_play', 'cpoe', 'adot', 'pressure_rate', 'sack_rate', 'bad_throw_pct', 'int_rate'],
-      impact: ['pass_wpa', 'total_wpa', 'deep_rate', 'deep_cmp_pct', 'deep_epa_per', 'iw_rate', 'scramble_rate', 'scramble_epa_per', 'yac_share_pass'],
+      impact: ['pass_wpa', 'total_wpa', 'deep_rate', 'deep_cmp_pct', 'deep_epa_per', 'iw_rate', 'scramble_rate', 'scramble_epa_per', 'yac_share_pass', 'xfp_per_game', 'fpoe', 'td_oe'],
       ngs: [
         { key: 'time_to_throw', label: 'Time to throw', format: 'dec2' },
         { key: 'aggressiveness', label: 'Aggressiveness', format: 'dec1' },
@@ -208,11 +219,16 @@ export const POSITIONS = {
         { group: 'Chains', columns: ['rush_fd_rate'] },
         { group: 'Goal line', columns: ['goal_line_carries', 'goal_line_td_rate'] },
       ],
+      Fantasy: [
+        { group: 'Scored', columns: ['fantasy_points_ppr', 'fp_per_game'] },
+        { group: 'Expected', columns: ['xfp', 'xfp_per_game', 'fpoe'] },
+        { group: 'Touchdowns', columns: ['xtd', 'td_oe'] },
+      ],
     },
     customOptions: ['games', 'carries', 'rushing_yards', 'ypc', 'rushing_tds', 'rushing_epa', 'rush_epa_per', 'rush_success',
       'ryoe', 'ryoe_per', 'stacked_box_pct', 'ybc_per_att', 'yac_rush_per_att', 'broken_tackles', 'targets', 'receptions', 'receiving_yards', 'receiving_tds', 'catch_pct', 'ypt',
       'epa_per_target', 'target_share', 'scrimmage_yards', 'touches', 'total_epa', 'fantasy_points_ppr',
-      'rush_wpa', 'total_wpa', 'explosive_run_rate', 'stuff_rate', 'rush_fd_rate', 'goal_line_carries', 'goal_line_td_rate'],
+      'rush_wpa', 'total_wpa', 'explosive_run_rate', 'stuff_rate', 'rush_fd_rate', 'goal_line_carries', 'goal_line_td_rate', 'fp_per_game', 'xfp', 'xfp_per_game', 'fpoe', 'xtd', 'td_oe'],
     player: {
       cards: ['rush_epa_per', 'rush_success', 'ryoe_per', 'ypc'],
       summary: { title: 'Receiving', main: 'receiving_yards', unit: 'yds', rate: 'epa_per_target', detail: ['receptions', 'targets', 'receiving_tds'] },
@@ -231,7 +247,7 @@ export const POSITIONS = {
       scatterOptions: ['rush_epa_per', 'rush_success', 'ryoe_per', 'ypc', 'carries', 'rushing_yards', 'scrimmage_yards', 'epa_per_target', 'targets', 'stacked_box_pct'],
       splits: ['games', 'carries', 'rushing_yards', 'ypc', 'rush_epa_per', 'rush_success', 'receptions', 'receiving_yards'],
       advanced: ['rush_success', 'rush_epa_per', 'ypc', 'ybc_per_att', 'yac_rush_per_att', 'broken_tackles', 'epa_per_target', 'target_share'],
-      impact: ['rush_wpa', 'total_wpa', 'explosive_run_rate', 'stuff_rate', 'rush_fd_rate', 'goal_line_carries', 'goal_line_td_rate'],
+      impact: ['rush_wpa', 'total_wpa', 'explosive_run_rate', 'stuff_rate', 'rush_fd_rate', 'goal_line_carries', 'goal_line_td_rate', 'xfp_per_game', 'fpoe', 'td_oe'],
       ngs: [
         { key: 'ryoe_per_att', label: 'RYOE per carry', format: 'signed2' },
         { key: 'ryoe', label: 'Rush yards over expected', format: 'signed1' },
@@ -398,15 +414,40 @@ export const POSITIONS = {
   K: {
     title: 'Kicker',
     plural: 'Kickers',
+    rankLabel: 'kickers',
+    qualifier: { metric: 'fg_att', label: 'Min. FG attempts', perWeek: 1.2 },
+    leaderCards: [
+      { metric: 'fg_oe', label: 'Field goals over expected' },
+      { metric: 'fg_pct', label: 'Field goal %' },
+      { metric: 'fg_50_pct', label: '50+ yard FG %' },
+      { metric: 'fg_long', label: 'Longest field goal' },
+    ],
+    defaultSort: 'fg_oe',
+    columnSets: {
+      Standard: [
+        { group: 'Field goals', columns: ['games', 'fg_made', 'fg_att', 'fg_pct', 'fg_long'] },
+        { group: 'Long range', columns: ['fg_50'] },
+        { group: 'Extra points', columns: ['pat_pct'] },
+        { group: 'Value', columns: ['fg_oe'] },
+      ],
+      Efficiency: [
+        { group: 'Accuracy', columns: ['fg_att', 'fg_pct', 'fg_pct_oe', 'fg_oe'] },
+        { group: 'Long range', columns: ['fg_50', 'fg_50_pct'] },
+        { group: 'Extra points', columns: ['pat_pct'] },
+      ],
+    },
+    customOptions: ['games', 'fg_made', 'fg_att', 'fg_pct', 'fg_long', 'fg_50', 'fg_50_pct', 'fg_oe', 'fg_pct_oe', 'pat_pct'],
     player: {
-      cards: ['fg_made', 'fg_pct', 'fg_long', 'pat_pct'],
-      weekChart: ['fg_made'],
-      gameLog: [{ group: 'Kicking', columns: ['fg_made', 'fg_att', 'fg_pct', 'fg_long', 'pat_pct'] }],
+      cards: ['fg_oe', 'fg_pct', 'fg_50_pct', 'pat_pct'],
+      weekChart: ['fg_made', 'fg_oe'],
+      gameLog: [{ group: 'Kicking', columns: ['fg_made', 'fg_att', 'fg_pct', 'fg_long', 'fg_50', 'fg_oe', 'pat_pct'] }],
       career: [
         { group: 'Overall', columns: ['games'] },
-        { group: 'Kicking', columns: ['fg_made', 'fg_att', 'fg_pct', 'fg_long', 'pat_pct'] },
+        { group: 'Kicking', columns: ['fg_made', 'fg_att', 'fg_pct', 'fg_long', 'fg_50', 'fg_50_pct', 'fg_oe', 'pat_pct'] },
       ],
-      splits: ['games', 'fg_made', 'fg_att', 'fg_pct', 'pat_pct'],
+      scatter: { x: 'fg_50_pct', y: 'fg_pct_oe' },
+      scatterOptions: ['fg_pct', 'fg_pct_oe', 'fg_oe', 'fg_50_pct', 'fg_att', 'pat_pct'],
+      splits: ['games', 'fg_made', 'fg_att', 'fg_pct', 'fg_oe', 'pat_pct'],
     },
   },
   OTHER: {

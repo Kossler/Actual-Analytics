@@ -37,6 +37,14 @@ export const METRICS = {
     description: "Win probability added across passing, rushing and receiving. +1.00 is a full win's worth; unlike EPA it weighs plays by how much they swung the game, so late, close-game plays count most.",
   },
 
+  // ---- Fantasy (expected points from ffverse's ffopportunity model, PPR scoring)
+  fp_per_game: { label: 'Fantasy points per game (PPR)', short: 'PPR/G', format: 'dec1', group: 'Fantasy', better: 'high', value: (r) => (r.games ? div(n(r.fantasy_points_ppr), r.games) : null), description: 'PPR fantasy points per game played.' },
+  xfp: { label: 'Expected fantasy points', short: 'xFP', format: 'dec1', group: 'Fantasy', better: 'high', value: (r) => (has(r.total_fantasy_points_exp) ? r.total_fantasy_points_exp : null), description: "Fantasy points an average player would score with the same opportunities (each target, carry and dropback valued by its down, distance, field position and depth), from ffverse's ffopportunity model. Measures role and volume." },
+  xfp_per_game: { label: 'Expected fantasy points per game', short: 'xFP/G', format: 'dec1', group: 'Fantasy', better: 'high', shade: true, value: (r) => (r.games && has(r.total_fantasy_points_exp) ? r.total_fantasy_points_exp / r.games : null), description: 'Expected fantasy points per game played.' },
+  fpoe: { label: 'Fantasy points over expected', short: 'FPOE', format: 'signed1', group: 'Fantasy', better: 'high', shade: true, value: (r) => (has(r.total_fantasy_points_exp) ? n(r.total_fantasy_points) - r.total_fantasy_points_exp : null), description: 'Fantasy points scored minus expected fantasy points: how much more (or less) the player made of their opportunities. Large values in either direction tend to shrink.' },
+  xtd: { label: 'Expected touchdowns', short: 'xTD', format: 'dec1', group: 'Fantasy', value: (r) => (has(r.total_touchdown_exp) ? r.total_touchdown_exp : null), description: 'Touchdowns an average player would score with the same opportunities.' },
+  td_oe: { label: 'Touchdowns over expected', short: 'TD OE', format: 'signed1', group: 'Fantasy', value: (r) => (has(r.total_touchdown_exp) ? n(r.total_touchdown) - r.total_touchdown_exp : null), description: 'Touchdowns scored minus expected touchdowns. Players well above zero usually score less often going forward; well below, more often.' },
+
   // ---- Passing
   completions: { label: 'Completions', short: 'CMP', format: 'int', group: 'Passing', better: 'high', value: (r) => r.completions, description: 'Completed passes.' },
   attempts: { label: 'Pass attempts', short: 'ATT', format: 'int', group: 'Passing', better: 'high', value: (r) => r.attempts, description: 'Pass attempts (excludes sacks).' },
@@ -180,6 +188,10 @@ export const METRICS = {
   fg_att: { label: 'Field goals attempted', short: 'FGA', format: 'int', group: 'Kicking', value: (r) => r.fg_att, description: 'Field goals attempted.' },
   fg_pct: { label: 'Field goal %', short: 'FG%', format: 'pct', group: 'Kicking', better: 'high', value: (r) => div(n(r.fg_made), r.fg_att), description: 'Field goals made per attempt.' },
   fg_long: { label: 'Longest field goal', short: 'LNG', format: 'int', group: 'Kicking', value: (r) => r.fg_long, description: 'Longest field goal made.' },
+  fg_oe: { label: 'Field goals over expected', short: 'FG OE', card: 'FGs over expected', format: 'signed1', group: 'Kicking', better: 'high', shade: true, value: (r) => (has(r.fg_expected) ? n(r.fg_makes) - r.fg_expected : null), description: "Field goals made minus the number an average kicker would make from the same distances (the league's make rate within two yards, over that season and the two before)." },
+  fg_pct_oe: { label: 'FG % over expected', short: 'FG% OE', format: 'signedPct', group: 'Kicking', better: 'high', value: (r) => (r.fg_attempts && has(r.fg_expected) ? (n(r.fg_makes) - r.fg_expected) / r.fg_attempts : null), description: 'Field goal percentage above what an average kicker would make from the same distances, in percentage points.' },
+  fg_50: { label: '50+ yard field goals', short: '50+', format: 'text', group: 'Kicking', value: (r) => (has(r.fg_50_attempts) ? `${Math.round(n(r.fg_50_makes))}/${Math.round(r.fg_50_attempts)}` : '–'), sortValue: (r) => (has(r.fg_50_makes) ? r.fg_50_makes : null), description: 'Field goals made and attempted from 50 yards or more.' },
+  fg_50_pct: { label: '50+ yard FG %', short: '50+%', format: 'pct', group: 'Kicking', better: 'high', value: (r) => (r.fg_50_attempts ? n(r.fg_50_makes) / r.fg_50_attempts : null), description: 'Make rate from 50 yards or more.' },
   pat_pct: { label: 'Extra point %', short: 'XP%', format: 'pct', group: 'Kicking', better: 'high', value: (r) => div(n(r.pat_made), r.pat_att), description: 'Extra points made per attempt.' },
 };
 

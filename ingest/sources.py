@@ -38,11 +38,14 @@ SOURCE_FILES = {
     'pfr_advstats_rush': ['pfr_advstats/advstats_week_rush_{season}.parquet'],
     'pfr_advstats_rec': ['pfr_advstats/advstats_week_rec_{season}.parquet'],
     'pfr_advstats_def': ['pfr_advstats/advstats_week_def_{season}.parquet'],
+    # Expected fantasy points, from ffverse rather than nflverse.
+    'ff_opportunity': ['https://github.com/ffverse/ffopportunity/releases/download/latest-data/ep_weekly_{season}.parquet'],
 }
 
 
 def source_urls(table, season):
-    return [BASE_URL + path.format(season=season) for path in SOURCE_FILES.get(table, [])]
+    return [(path if path.startswith('https://') else BASE_URL + path).format(season=season)
+            for path in SOURCE_FILES.get(table, [])]
 
 
 def file_version(url, attempts=3):

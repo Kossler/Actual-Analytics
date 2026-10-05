@@ -7,7 +7,7 @@ import { ButtonGroup, EmptyState, Field, LeaderCard, PageHeader, Segmented, Sele
 import { loadProps, queryString } from '../lib/api';
 import { formatValue, shortName } from '../lib/format';
 import { METRICS, groupStats, metricValue, sortValue } from '../lib/metrics';
-import { DEFENSE_POSITIONS, LEADERBOARD_POSITIONS, OFFENSE_POSITIONS, POSITIONS, flattenColumns, qualifierMinimum } from '../lib/positions';
+import { DEFENSE_POSITIONS, LEADERBOARD_POSITIONS, OFFENSE_POSITIONS, POSITIONS, SPECIAL_POSITIONS, flattenColumns, qualifierMinimum } from '../lib/positions';
 import { downloadCsv, readStorage, recentPlayers, writeStorage } from '../lib/storage';
 
 export async function getLeaderboardProps({ query }) {
@@ -24,6 +24,12 @@ export async function getLeaderboardProps({ query }) {
   if (result.notFound) return result;
   return { props: { meta: meta.props.meta, board: result.props.board } };
 }
+
+const POSITION_GROUPS = [
+  { label: 'Offense', positions: OFFENSE_POSITIONS },
+  { label: 'Defense', positions: DEFENSE_POSITIONS },
+  { label: 'Special teams', positions: SPECIAL_POSITIONS },
+];
 
 function weekOptions(maxWeek) {
   if (!maxWeek) return [{ value: '1-18', label: 'All weeks' }];
@@ -131,28 +137,30 @@ export default function LeaderboardPage({ meta, board }) {
         eyebrow={eyebrow}
         title={`${config.title} Leaderboard`}
         right={
-          <div className="flex flex-col items-start gap-2 sm:items-end">
-            {recent && (
-              <p className="text-xs text-muted">
-                Recently viewed:{' '}
-                <Link href={`/players/${recent.id}`} className="link">
-                  {recent.name}
-                </Link>
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              {[OFFENSE_POSITIONS, DEFENSE_POSITIONS].map((options) => (
-                <Segmented
-                  key={options[0]}
-                  options={options}
-                  value={pos}
-                  onChange={(p) => navigate({ pos: p === 'QB' ? undefined : p, from: undefined, to: undefined })}
-                />
-              ))}
-            </div>
-          </div>
+          recent && (
+            <p className="text-xs text-muted">
+              Recently viewed:{' '}
+              <Link href={`/players/${recent.id}`} className="link">
+                {recent.name}
+              </Link>
+            </p>
+          )
         }
       />
+
+      {/* Position picker on its own row, grouped by unit, so long titles never have to wrap. */}
+      <div className="-mt-1 mb-4 flex flex-wrap items-end gap-x-3 gap-y-2">
+        {POSITION_GROUPS.map((group) => (
+          <div key={group.label} className="flex flex-col items-start gap-1">
+            <span className="text-2xs font-semibold uppercase tracking-label text-faint">{group.label}</span>
+            <Segmented
+              options={group.positions}
+              value={pos}
+              onChange={(p) => navigate({ pos: p === 'QB' ? undefined : p, from: undefined, to: undefined })}
+            />
+          </div>
+        ))}
+      </div>
 
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {leaders.map((l) => (

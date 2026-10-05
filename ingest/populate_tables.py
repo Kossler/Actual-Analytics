@@ -214,6 +214,7 @@ SEASON_FILE_START = {
     'load_injuries': 2009,
     'load_participation': 2016,
     'load_ftn_charting': 2022,
+    'load_ff_opportunity': 2006,
     'load_pfr_advstats': 2018,
     'load_depth_charts': 2001,
 }
@@ -507,6 +508,7 @@ MATERIALIZED_VIEWS = {
     'player_week_pbp': {'pbp'},
     'player_week_def_pbp': {'pbp'},
     'player_week_adv': {'pbp', 'ftn_charting'},
+    'player_week_kicking': {'pbp'},
     'team_game_pbp': {'pbp'},
     'team_game_adv': {'pbp', 'ftn_charting'},
 }
@@ -538,7 +540,16 @@ def finalize_load(tables):
         if not (sources & set(tables)):
             continue
         try:
-            cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {view}')
+            try:
+                cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {view}')
+            except psycopg2.OperationalError as e:
+                # Parallel workers need shared memory; small Postgres containers can run out.
+                if 'shared memory' not in str(e):
+                    raise
+                print(f"  {view}: out of shared memory, retrying without parallel workers")
+                cur.execute('SET max_parallel_workers_per_gather = 0')
+                cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {view}')
+                cur.execute('RESET max_parallel_workers_per_gather')
             cur.execute(f'ANALYZE {view}')
             print(f"Refreshed {view}")
         except Exception as e:

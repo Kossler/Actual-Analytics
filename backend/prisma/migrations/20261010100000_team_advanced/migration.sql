@@ -3,6 +3,11 @@
 -- (shotgun, no-huddle, and FTN-charted motion, play-action and blitzes from 2022), turnover luck,
 -- 4th downs, drives and special teams. Every column is a count or sum, so any range of games can
 -- be added up and turned into rates.
+
+-- Build without parallel workers: parallel hash joins need shared memory, which small Postgres
+-- containers (Docker's 64 MB /dev/shm default) don't have.
+SET max_parallel_workers_per_gather = 0;
+
 CREATE MATERIALIZED VIEW "team_game_adv" AS
 WITH plays AS (
   SELECT p.game_id, p.season::INT AS season, p.week::INT AS week, p.season_type, p.posteam, p.defteam,

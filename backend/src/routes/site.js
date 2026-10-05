@@ -81,7 +81,7 @@ router.get('/search', handle(async (req, res) => {
 // Leaderboards
 // ---------------------------------------------------------------------------------------------
 
-const POSITION_FILTER = { QB: ['QB'], RB: ['RB', 'FB'], WR: ['WR'], TE: ['TE'] };
+const POSITION_FILTER = { QB: ['QB'], RB: ['RB', 'FB'], WR: ['WR'], TE: ['TE'], K: ['K'] };
 // nflverse labels: SAF for safeties since 2025 (S/FS/SS before), DB for unspecified defensive backs.
 const DEFENSE_FILTER = {
   DL: ['DE', 'DT', 'NT', 'DL', 'EDGE'], LB: ['LB', 'ILB', 'OLB', 'MLB'], CB: ['CB', 'DB'], S: ['SAF', 'S', 'FS', 'SS'],
@@ -110,6 +110,10 @@ const DEF_BOX_SUMS = ['def_tackles_solo', 'def_tackle_assists', 'def_tackles_for
 const ADV_FIELDS = ['pass_wpa', 'rush_wpa', 'rec_wpa', 'deep_att', 'deep_epa', 'deep_comp', 'scrambles', 'scramble_epa',
   'charted_dropbacks', 'int_worthy', 'explosive_runs', 'stuffed_runs', 'goal_line_carries', 'goal_line_tds',
   'explosive_catches', 'rz_targets', 'ez_targets', 'yac_tracked', 'xyac', 'xyac_n'];
+// Expected fantasy points and touchdowns from ff_opportunity (PPR scoring).
+const FFO_FIELDS = ['total_fantasy_points', 'total_fantasy_points_exp', 'total_touchdown', 'total_touchdown_exp'];
+// Columns of player_week_kicking.
+const KICK_FIELDS = ['fg_attempts', 'fg_makes', 'fg_expected', 'fg_50_attempts', 'fg_50_makes'];
 // Columns of player_week_def_pbp.
 const DEF_PBP_FIELDS = ['tackle_plays', 'stops', 'run_tackles', 'run_stops', 'run_tackle_yards', 'rec_tackles', 'rec_tackle_yards'];
 // Zero instead of missing when the player was on the field on defense: the play-by-play and PFR
@@ -164,7 +168,9 @@ const LEADERBOARD_SQL = `
       AVG(w.target_share)::FLOAT AS target_share,
       AVG(w.air_yards_share)::FLOAT AS air_yards_share,
       AVG(w.wopr)::FLOAT AS wopr,
-      SUM(w.fantasy_points_ppr)::FLOAT AS fantasy_points_ppr
+      SUM(w.fantasy_points_ppr)::FLOAT AS fantasy_points_ppr,
+      SUM(w.fg_made)::FLOAT AS fg_made, SUM(w.fg_att)::FLOAT AS fg_att, MAX(w.fg_long)::FLOAT AS fg_long,
+      SUM(w.pat_made)::FLOAT AS pat_made, SUM(w.pat_att)::FLOAT AS pat_att
     FROM weeks w
     GROUP BY w.player_id
   ),
@@ -176,6 +182,19 @@ const LEADERBOARD_SQL = `
       SUM(targets)::FLOAT AS pbp_targets, SUM(target_epa) AS target_epa, SUM(target_success) AS target_success
     FROM player_week_pbp
     WHERE season = $1 AND season_type = 'REG' AND week BETWEEN $2 AND $3
+    GROUP BY player_id
+  ),
+  kicking AS (
+    SELECT player_id, ${KICK_FIELDS.map((f) => `SUM(${f})::FLOAT AS ${f}`).join(', ')}
+    FROM player_week_kicking
+    WHERE season = $1 AND season_type = 'REG' AND week BETWEEN $2 AND $3
+    GROUP BY player_id
+  ),
+  -- Expected fantasy points (ffverse's ffopportunity model; season is stored as text there).
+  ffo AS (
+    SELECT player_id, ${FFO_FIELDS.map((f) => `SUM(${f})::FLOAT AS ${f}`).join(', ')}
+    FROM ff_opportunity
+    WHERE season = $1::TEXT AND week BETWEEN $2 AND $3
     GROUP BY player_id
   ),
   adv AS (
@@ -244,10 +263,14 @@ const LEADERBOARD_SQL = `
          nr.ryoe, nr.ngs_rush_attempts, nr.stacked_box_pct,
          nc.separation, nc.cushion, nc.yac_over_expected,
          ${ADV_FIELDS.map((f) => `adv.${f}`).join(', ')},
+         ${FFO_FIELDS.map((f) => `ffo.${f}`).join(', ')},
+         ${KICK_FIELDS.map((f) => `kicking.${f}`).join(', ')},
          ${PFR_KINDS.map((k) => PFR_FIELDS[k].map((f) => `pfr_${k}.${pfrAlias(f)}`).join(', ')).join(',\n         ')}
   FROM players p
   LEFT JOIN pbp ON pbp.player_id = p.player_id
   LEFT JOIN adv ON adv.player_id = p.player_id
+  LEFT JOIN ffo ON ffo.player_id = p.player_id
+  LEFT JOIN kicking ON kicking.player_id = p.player_id
   LEFT JOIN ngs_pass np ON np.player_id = p.player_id
   LEFT JOIN ngs_rush nr ON nr.player_id = p.player_id
   LEFT JOIN ngs_rec nc ON nc.player_id = p.player_id
@@ -361,6 +384,8 @@ const PLAYER_GAMES_SQL = `
     ps.passing_yards_after_catch::FLOAT AS passing_yac, ps.passing_first_downs::FLOAT AS passing_first_downs,
     ps.rushing_first_downs::FLOAT AS rushing_first_downs, ps.receiving_first_downs::FLOAT AS receiving_first_downs,
     ${ADV_FIELDS.map((f) => `pa.${f}::FLOAT AS ${f}`).join(', ')},
+    ${FFO_FIELDS.map((f) => `fo.${f}::FLOAT AS ${f}`).join(', ')},
+    ${KICK_FIELDS.map((f) => `pk.${f}::FLOAT AS ${f}`).join(', ')},
     ps.carries::FLOAT AS carries, ps.rushing_yards::FLOAT AS rushing_yards,
     ps.rushing_tds::FLOAT AS rushing_tds, ps.rushing_epa::FLOAT AS rushing_epa,
     ps.targets::FLOAT AS targets, ps.receptions::FLOAT AS receptions,
@@ -394,6 +419,8 @@ const PLAYER_GAMES_SQL = `
     ON pw.player_id = $1 AND pw.season = g.season AND pw.week = g.week
   LEFT JOIN player_week_adv pa
     ON pa.player_id = $1 AND pa.season = g.season AND pa.week = g.week
+  LEFT JOIN ff_opportunity fo ON fo.player_id = $1 AND fo.game_id = s.game_id
+  LEFT JOIN player_week_kicking pk ON pk.player_id = $1 AND pk.season = g.season AND pk.week = g.week
   LEFT JOIN schedules s
     ON s.season = g.season AND s.week = g.week AND (s.home_team = g.team OR s.away_team = g.team)
   LEFT JOIN players pl ON pl.gsis_id = $1

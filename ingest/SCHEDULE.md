@@ -1,11 +1,12 @@
 # When the data updates
 
 Every table is loaded from a file on a nflverse GitHub release
-(`github.com/nflverse/nflverse-data/releases`). nflverse rebuilds each dataset on its own schedule,
+(`github.com/nflverse/nflverse-data/releases`), except expected fantasy points, which come from
+ffverse (`github.com/ffverse/ffopportunity/releases`). Each dataset is rebuilt on its own schedule,
 listed below from the [nflverse data schedule](https://nflreadr.nflverse.com/articles/nflverse_data_schedule.html)
 and nflverse's workflow files (checked October 2026).
 
-| Table(s) | Source file | nflverse rebuilds it | Notes |
+| Table(s) | Source file | Rebuilt | Notes |
 |---|---|---|---|
 | `schedules` | `schedules/games` | Every 5 minutes in season | Scores and results during games. |
 | `pbp`, `player_stats` | `pbp/play_by_play_{season}`, `stats_player/stats_player_week_{season}` | Daily at 09:03 UTC in season, plus game days: Thu 05:33, Sun 22:03, Mon 00:07, Mon 05:33, Tue 05:33 UTC | Builds take a few hours to land (e.g. the 09:03 run published at 12:31). The NFL's stat corrections arrive Monday–Wednesday, so Thursday's file is the final version of a week. |
@@ -19,6 +20,7 @@ and nflverse's workflow files (checked October 2026).
 | `players` | `players/players` | About daily | Not in nflverse's published schedule. |
 | `contracts` | `contracts/historical_contracts` | About daily | From Over The Cap; not in nflverse's published schedule. |
 | `teams` | `teams/teams_colors_logos` | Rarely | |
+| `ff_opportunity` | ffverse `ffopportunity` release `latest-data/ep_weekly_{season}` | After nflverse's play-by-play (seen at 12:38 UTC, minutes after it) | Expected fantasy points; from ffverse, not nflverse. |
 
 `participation` isn't loaded: nflverse publishes it only after each season, and the site doesn't use it.
 
