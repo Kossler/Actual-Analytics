@@ -42,6 +42,8 @@ on:
 jobs:
   ingest-data:
     runs-on: ubuntu-latest
+    # A full-history backfill of every table takes a while; a stuck run shouldn't burn 6 hours.
+    timeout-minutes: 180
 
     steps:
       - uses: actions/checkout@v4
@@ -68,8 +70,16 @@ jobs:
           UPSERT: '0'
           PROCESSES: '4'
           CHUNK_SIZE: '50000'
+          # Stream log lines as they happen, so a killed run still shows how far it got.
+          PYTHONUNBUFFERED: '1'
+          ALL_SEASONS: ${{ inputs.all_seasons }}
+          TABLES_INPUT: ${{ inputs.tables }}
         # A failed loader fails the run (and GitHub emails you); tables that did load are still saved.
         run: |
+          if [ "$ALL_SEASONS" = "true" ] && [ -z "$TABLES_INPUT" ]; then
+            echo "::error::'All seasons' needs a table list (e.g. injuries,pfr_advstats_pass). Reloading every table's full history at once is rarely what you want."
+            exit 1
+          fi
           cd ingest
           python populate_tables.py
 
