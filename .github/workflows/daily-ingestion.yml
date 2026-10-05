@@ -15,11 +15,11 @@ on:
   workflow_dispatch:
     inputs:
       tables:
-        description: 'Comma-separated tables to load (blank = the usual set)'
+        description: 'Comma-separated tables to load (blank = every table)'
         required: false
         default: ''
       all_seasons:
-        description: 'Load every season instead of only the latest (backfills)'
+        description: 'Every season instead of only the latest. With tables blank, refills the whole database (can take an hour or more)'
         type: boolean
         default: false
       changed_only:
@@ -64,8 +64,9 @@ jobs:
     # Scheduled: only when something changed. Manual: always.
     if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (needs.check-sources.result == 'success' && needs.check-sources.outputs.tables != '')) }}
     runs-on: ubuntu-latest
-    # A full-history backfill of every table takes a while; a stuck run shouldn't burn 6 hours.
-    timeout-minutes: 180
+    # A full refill of every table's history can take an hour or more; leave room, short of GitHub's
+    # 6-hour cap, so a stuck run still ends.
+    timeout-minutes: 330
 
     steps:
       - uses: actions/checkout@v4
@@ -96,14 +97,10 @@ jobs:
           CHUNK_SIZE: '50000'
           # Stream log lines as they happen, so a killed run still shows how far it got.
           PYTHONUNBUFFERED: '1'
-          ALL_SEASONS: ${{ inputs.all_seasons }}
-          TABLES_INPUT: ${{ inputs.tables }}
         # A failed loader fails the run (and GitHub emails you); tables that did load are still saved.
+        # Multi-season loads run one season per worker process, so a full refill stays within the
+        # runner's memory.
         run: |
-          if [ "$ALL_SEASONS" = "true" ] && [ -z "$TABLES_INPUT" ]; then
-            echo "::error::'All seasons' needs a table list (e.g. injuries,pfr_advstats_pass). Reloading every table's full history at once is rarely what you want."
-            exit 1
-          fi
           cd ingest
           python populate_tables.py
 

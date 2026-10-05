@@ -44,5 +44,7 @@ So new data reaches the site within about 30 minutes of nflverse publishing it, 
 Monday–Thursday stat corrections and the daily injury and depth-chart updates.
 
 Manual runs (Actions → Data Ingestion → Run workflow) load the requested tables (blank = all of
-them) whether or not they changed. Tick "changed only" to do what a scheduled run does. Backfills
-("all seasons") aren't tracked in `source_files`.
+them) whether or not they changed. Tick "all seasons" to load every season instead of only the
+latest; with the tables left blank, that refills the whole database (it can take an hour or more).
+Tick "changed only" to do what a scheduled run does. All-season loads aren't tracked in
+`source_files`.
