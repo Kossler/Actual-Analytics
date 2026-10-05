@@ -34,6 +34,33 @@ export function queryString(params) {
   return s ? `?${s}` : '';
 }
 
+// Client-side fetch repeated every `intervalMs` (no caching); `intervalMs` null fetches once.
+// Keeps the last good response through failed refreshes.
+export function usePolling(path, intervalMs) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    if (!path) {
+      setData(null);
+      return undefined;
+    }
+    let cancelled = false;
+    let timer = null;
+    const load = () =>
+      fetchJson(path)
+        .then((json) => !cancelled && setData(json))
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled && intervalMs) timer = setTimeout(load, intervalMs);
+        });
+    load();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [path, intervalMs]);
+  return data;
+}
+
 // Client-side fetch with a small in-memory cache, for data loaded after the first render.
 const cache = new Map();
 

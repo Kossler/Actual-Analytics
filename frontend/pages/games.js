@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import { useState } from 'react';
 import WinProbabilityChart from '../components/charts/WinProbabilityChart';
 import { EmptyState, PageHeader, ProbabilityBar } from '../components/ui';
-import { fetchJson, loadProps, queryString, useApi } from '../lib/api';
+import { fetchJson, loadProps, queryString, useApi, usePolling } from '../lib/api';
 import { fixed, int, pctLabel, shortWeekLabel, signed, weekLabel } from '../lib/format';
 
 export const runtime = 'experimental-edge';
@@ -20,6 +20,14 @@ export async function getServerSideProps({ query }) {
 }
 
 const isFinal = (g) => g.home_score != null && g.away_score != null;
+const LIVE_POLL_MS = 15000;
+
+// Merges live scores into a scheduled game until the nightly ingest records its result.
+function withLive(g, live) {
+  if (!live || isFinal(g) || live.state === 'pre') return g;
+  if (live.state === 'in') return { ...g, live };
+  return { ...g, home_score: live.home_score, away_score: live.away_score };
+}
 
 function pregame(g) {
   if (g.home_wp == null) return null;
@@ -44,6 +52,12 @@ export default function GamesPage({ data, detail }) {
   const gameType = games[0]?.game_type;
 
   const go = (q) => router.push({ pathname: '/games', query: { season, ...q } }, undefined, { scroll: false });
+
+  // Poll live scores while this week has games without a recorded result.
+  const pending = games.some((g) => !isFinal(g));
+  const liveData = usePolling(pending ? '/api/live' : null, LIVE_POLL_MS);
+  const liveById = new Map((liveData?.games || []).map((l) => [l.game_id, l]));
+  const shown = games.map((g) => withLive(g, liveById.get(g.game_id)));
 
   return (
     <>
@@ -76,18 +90,19 @@ export default function GamesPage({ data, detail }) {
         <EmptyState title="No games scheduled this week" />
       ) : (
         <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {games.map((g) => (
+          {shown.map((g) => (
             <GameCard key={g.game_id} game={g} selected={detail?.game.game_id === g.game_id} onSelect={() => go({ week, game: g.game_id })} />
           ))}
         </div>
       )}
 
-      {detail && <GameDetail key={detail.game.game_id} detail={detail} />}
+      {detail && <GameDetail key={detail.game.game_id} detail={detail} live={liveById.get(detail.game.game_id)} />}
     </>
   );
 }
 
 function GameCard({ game: g, selected, onSelect }) {
+  if (g.live) return <LiveCard game={g} selected={selected} onSelect={onSelect} />;
   const final = isFinal(g);
   const p = pregame(g);
   const awayWon = final && g.away_score > g.home_score;
@@ -116,6 +131,50 @@ function GameCard({ game: g, selected, onSelect }) {
   );
 }
 
+function LiveCard({ game: g, selected, onSelect }) {
+  const { live } = g;
+  const homeFav = live.home_wp >= 0.5;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`card p-4 text-left transition-colors hover:border-line-strong ${selected ? 'border-ink/80 bg-raised' : ''}`}
+    >
+      <div className="label mb-2 flex justify-between">
+        <LiveBadge />
+        <span className="num normal-case tracking-normal text-muted">{live.detail}</span>
+      </div>
+      <LiveTeamLine abbr={live.away_team} score={live.away_score} ball={live.possession === live.away_team} />
+      <LiveTeamLine abbr={live.home_team} score={live.home_score} ball={live.possession === live.home_team} />
+      <div className="mt-3 text-xs text-muted">
+        Live model: {homeFav ? live.home_team : live.away_team} {pctLabel(homeFav ? live.home_wp : 1 - live.home_wp)}
+      </div>
+      <ProbabilityBar left={1 - live.home_wp} className="mt-1.5" />
+    </button>
+  );
+}
+
+function LiveBadge() {
+  return (
+    <span className="flex items-center gap-1.5 text-bad">
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-bad" />
+      Live
+    </span>
+  );
+}
+
+function LiveTeamLine({ abbr, score, ball }) {
+  return (
+    <div className="flex items-baseline justify-between text-ink">
+      <span className="text-[17px]">
+        {abbr}
+        {ball && <span className="ml-1.5 align-middle text-[9px] text-warn" title="Possession">●</span>}
+      </span>
+      <span className="font-display text-xl">{score}</span>
+    </div>
+  );
+}
+
 function kickoff(g) {
   if (!g.gameday) return 'Scheduled';
   const d = new Date(`${g.gameday}T12:00:00`);
@@ -135,13 +194,19 @@ function TeamLine({ abbr, score, won, final }) {
   );
 }
 
-function GameDetail({ detail }) {
+function GameDetail({ detail, live }) {
   const [showDrives, setShowDrives] = useState(false);
-  const { game, series, teams } = detail;
-  const final = isFinal(game);
+  const { teams } = detail;
+  // Until the nightly ingest loads its play-by-play, a started game's chart comes from the live feed.
+  const useLiveFeed = !detail.series.length && !!live && live.state !== 'pre';
+  const inProgress = useLiveFeed && live.state === 'in';
+  const liveDetail = usePolling(useLiveFeed ? `/api/live/${detail.game.game_id}` : null, inProgress ? LIVE_POLL_MS : null);
+  const game = useLiveFeed ? { ...detail.game, home_score: live.home_score, away_score: live.away_score } : detail.game;
+  const series = useLiveFeed ? liveDetail?.series || [] : detail.series;
+  const final = !inProgress && isFinal(game);
   const home = teams.find((t) => t.team === game.home_team);
   const away = teams.find((t) => t.team === game.away_team);
-  const title = final
+  const title = final || inProgress
     ? `${game.away_team} ${game.away_score} @ ${game.home_team} ${game.home_score}`
     : `${game.away_team} @ ${game.home_team}`;
 
@@ -149,11 +214,23 @@ function GameDetail({ detail }) {
     <>
     <section className="card grid grid-cols-1 gap-6 p-5 lg:grid-cols-[1fr_280px]">
       <div className="min-w-0">
-        <div className="label">Game detail · {final ? 'Final' : series.length ? 'In progress' : 'Preview'}</div>
+        <div className="label flex items-center gap-2">
+          {inProgress ? (
+            <>
+              <LiveBadge /> <span>· {live.detail}</span>
+            </>
+          ) : (
+            `Game detail · ${final ? 'Final' : series.length ? 'In progress' : 'Preview'}`
+          )}
+        </div>
         <h2 className="mt-1 text-3xl font-extrabold">{title}</h2>
+        {inProgress && <Situation live={live} />}
         {series.length ? (
           <>
-            <p className="mb-3 text-sm text-muted">Win probability for {game.home_team} over the game</p>
+            <p className="mb-3 text-sm text-muted">
+              Win probability for {game.home_team} over the game
+              {inProgress && ` · now ${pctLabel(live.home_wp)}, updating live`}
+            </p>
             <WinProbabilityChart series={series} home={game.home_team} away={game.away_team} />
           </>
         ) : (
@@ -177,7 +254,7 @@ function GameDetail({ detail }) {
         ) : (
           <p className="text-sm text-muted">Available once the game starts.</p>
         )}
-        {series.length > 0 && (
+        {series.length > 0 && !useLiveFeed && (
           <button type="button" className="link mt-4 block text-sm" onClick={() => setShowDrives((v) => !v)}>
             {showDrives ? 'Hide play-by-play' : 'Play-by-play & drive chart →'}
           </button>
@@ -189,6 +266,21 @@ function GameDetail({ detail }) {
     </section>
     {showDrives && <Drives game={game} />}
     </>
+  );
+}
+
+function Situation({ live }) {
+  return (
+    <div className="mb-3 mt-1 space-y-1 text-sm">
+      {live.possession && (
+        <p className="text-ink">
+          <span className="font-semibold">{live.possession}</span> ball
+          {live.down_distance ? ` · ${live.down_distance}` : ''}
+          {live.red_zone && <span className="ml-2 text-xs font-semibold text-bad">Red zone</span>}
+        </p>
+      )}
+      {live.last_play && <p className="text-xs text-muted">Last play: {live.last_play}</p>}
+    </div>
   );
 }
 

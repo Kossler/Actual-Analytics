@@ -877,6 +877,10 @@ def run(conn):
     print(f"Models: wrote {len(predictions)} game predictions, {len(odds or [])} playoff odds rows, "
           f"{len(projections)} player projections")
 
+    # In-game win probability model (retrained only when a new completed season is available).
+    import live_model
+    live_model.run(conn, features, fit_game_model, predict_game, current_season)
+
 
 if __name__ == '__main__':
     import psycopg2

@@ -584,9 +584,12 @@ router.get('/games/:gameId', handle(async (req, res) => {
       FROM schedules s LEFT JOIN game_predictions gp ON gp.game_id = s.game_id
       WHERE s.game_id = $1`, gameId),
     query(`
-      SELECT qtr::INT AS qtr, game_seconds_remaining AS seconds_left, home_wp,
+      -- Overtime as negative seconds (time past regulation) so the chart extends to the right.
+      SELECT qtr::INT AS qtr,
+             CASE WHEN qtr >= 5 THEN -((qtr - 5) * ot.len + ot.len - game_seconds_remaining) ELSE game_seconds_remaining END AS seconds_left,
+             home_wp,
              total_home_score::INT AS home_score, total_away_score::INT AS away_score
-      FROM pbp
+      FROM pbp CROSS JOIN LATERAL (SELECT CASE WHEN season_type = 'REG' THEN 600 ELSE 900 END AS len) ot
       WHERE game_id = $1 AND home_wp IS NOT NULL AND game_seconds_remaining IS NOT NULL
       ORDER BY play_id`, gameId),
     query(`SELECT team, plays::FLOAT AS plays, epa, success, yards, turnovers::FLOAT AS turnovers

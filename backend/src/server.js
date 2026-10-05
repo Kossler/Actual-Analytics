@@ -7,6 +7,7 @@ const playersRouter = require('./routes/players');
 const apiRouter = require('./routes/api');
 const siteRouter = require('./routes/site');
 const { responseCache, startDataVersionWatcher, stats: cacheStats } = require('./responseCache');
+const live = require('./live/service');
 
 const app = express();
 // Disable X-Powered-By header for security
@@ -24,6 +25,9 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString(), cache: cacheStats() });
 });
 
+// Live games change every few seconds; serve them before the response cache.
+app.use('/api/live', live.router);
+
 // Cache every data response except predictions (computed per request, not from ingested data).
 app.use((req, res, next) => (req.path.startsWith('/predict/') ? next() : responseCache(req, res, next)));
 
@@ -34,7 +38,8 @@ app.use('/', apiRouter);
 
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
-  startDataVersionWatcher(() => warmCache(port));
+  startDataVersionWatcher(() => Promise.all([warmCache(port), live.refresh()]));
+  live.start();
 });
 
 // Prefetch the most expensive, most shared responses so the first visitors after a deploy or

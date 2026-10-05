@@ -1666,3 +1666,12 @@ model pfr_advstats_def {
   @@unique([game_id, pfr_player_id], map: "pfr_advstats_def_unique")
   @@index([pfr_player_id], map: "pfr_advstats_def_player_idx")
 }
+
+/// In-game win probability model (ingest/live_model.py), evaluated live by the API.
+model live_models {
+  id         Int      @id @default(autoincrement())
+  version    String
+  model      Json
+  metrics    Json
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
