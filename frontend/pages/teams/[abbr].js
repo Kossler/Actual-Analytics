@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import DataTable from '../../components/DataTable';
 import { Breadcrumbs, Card, RankTrack } from '../../components/ui';
 import { loadProps, queryString } from '../../lib/api';
-import { formatValue, initials, int, ordinal, pctLabel, record, shortName, signed, signedInt, weekLabel } from '../../lib/format';
+import { fixed, formatValue, initials, int, ordinal, pctLabel, record, shortName, signed, signedInt, weekLabel } from '../../lib/format';
 import { rememberTeam } from '../../lib/storage';
 import { divisionStanding, rankOf, teamMetrics } from '../../lib/teams';
 
@@ -107,6 +107,9 @@ export default function TeamPage({ data }) {
             <Leader kind="Passing" p={data.leaders.passing} main={(p) => `${int(p.passing_yards)} yds`} detail={(p) => `${int(p.passing_tds)} TD · ${int(p.interceptions)} INT · ${signed(p.dropbacks ? p.dropback_epa / p.dropbacks : null, 2)} EPA/P`} />
             <Leader kind="Rushing" p={data.leaders.rushing} main={(p) => `${int(p.rushing_yards)} yds`} detail={(p) => `${int(p.carries)} car · ${int(p.rushing_tds)} TD · ${signed(p.pbp_carries ? p.pbp_rush_epa / p.pbp_carries : null, 2)} EPA/C`} />
             <Leader kind="Receiving" p={data.leaders.receiving} main={(p) => `${int(p.receiving_yards)} yds`} detail={(p) => `${int(p.receptions)} rec · ${int(p.receiving_tds)} TD · ${signed(p.pbp_targets ? p.target_epa / p.pbp_targets : null, 2)} EPA/T`} />
+            <Leader kind="Tackles" p={data.leaders.tackles} main={(p) => `${int(p.tackles)} tkl`} detail={(p) => `${int(p.def_tackles_for_loss)} TFL · ${int(p.def_pass_defended)} PD`} />
+            <Leader kind="Sacks" p={data.leaders.sacks} main={(p) => `${fixed(p.def_sacks, 1)} sacks`} detail={(p) => `${int(p.def_qb_hits)} QB hits · ${int(p.def_tackles_for_loss)} TFL`} />
+            <Leader kind="Interceptions" p={data.leaders.interceptions} main={(p) => `${int(p.def_interceptions)} INT`} detail={(p) => `${int(p.def_pass_defended)} PD · ${int(p.tackles)} tkl`} />
           </div>
         </Card>
       </div>

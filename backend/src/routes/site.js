@@ -82,6 +82,10 @@ router.get('/search', handle(async (req, res) => {
 // ---------------------------------------------------------------------------------------------
 
 const POSITION_FILTER = { QB: ['QB'], RB: ['RB', 'FB'], WR: ['WR'], TE: ['TE'] };
+// nflverse labels: SAF for safeties since 2025 (S/FS/SS before), DB for unspecified defensive backs.
+const DEFENSE_FILTER = {
+  DL: ['DE', 'DT', 'NT', 'DL', 'EDGE'], LB: ['LB', 'ILB', 'OLB', 'MLB'], CB: ['CB', 'DB'], S: ['SAF', 'S', 'FS', 'SS'],
+};
 
 // Pro Football Reference advanced stats, summed per player. pfr_* aliases keep them apart from the
 // nflverse columns with similar names (e.g. carries).
@@ -97,6 +101,13 @@ const PFR_FIELDS = {
     'def_tackles_combined AS pfr_def_tackles', 'def_yards_after_catch AS pfr_def_yac'],
 };
 const PFR_KINDS = ['pass', 'rush', 'rec', 'def'];
+
+// Box-score defense from player_stats, summed per player.
+const DEF_BOX_SUMS = ['def_tackles_solo', 'def_tackle_assists', 'def_tackles_for_loss', 'def_sacks', 'def_qb_hits',
+  'def_interceptions', 'def_interception_yards', 'def_pass_defended', 'def_fumbles_forced', 'def_fumbles', 'def_tds',
+  'def_safeties'].map((f) => `SUM(w.${f})::FLOAT AS ${f}`).join(',\n      ');
+// Columns of player_week_def_pbp.
+const DEF_PBP_FIELDS = ['tackle_plays', 'stops', 'run_tackles', 'run_stops', 'run_tackle_yards', 'rec_tackles', 'rec_tackle_yards'];
 const pfrColumn = (f) => f.split(' AS ')[0];
 const pfrAlias = (f) => f.split(' AS ')[1];
 
@@ -225,9 +236,59 @@ const LEADERBOARD_SQL = `
   WHERE p.position = ANY($4)
 `;
 
+// Defenders: box-score defense, snap counts, play-by-play tackles and PFR pressure/coverage stats.
+// Snap counts are keyed by PFR id; team_def_snaps (snaps / snap share) lets the client compute a
+// snap share over any range.
+const DEFENSE_LEADERBOARD_SQL = `
+  WITH weeks AS (
+    SELECT * FROM player_stats
+    WHERE season = $1 AND season_type = 'REG' AND week BETWEEN $2 AND $3
+  ),
+  players AS (
+    SELECT
+      w.player_id,
+      (ARRAY_AGG(w.player_display_name ORDER BY w.week DESC))[1] AS name,
+      (ARRAY_AGG(w.team ORDER BY w.week DESC))[1] AS team,
+      (ARRAY_AGG(w.position ORDER BY w.week DESC))[1] AS position,
+      (ARRAY_AGG(w.headshot_url ORDER BY w.week DESC))[1] AS headshot,
+      COUNT(*)::INT AS games,
+      ${DEF_BOX_SUMS}
+    FROM weeks w
+    GROUP BY w.player_id
+  ),
+  snaps AS (
+    SELECT pl.gsis_id AS player_id, SUM(sc.defense_snaps)::FLOAT AS def_snaps,
+           SUM(ROUND(sc.defense_snaps / NULLIF(sc.defense_pct, 0)))::FLOAT AS team_def_snaps
+    FROM snap_counts sc JOIN public.players pl ON pl.pfr_id = sc.pfr_player_id
+    WHERE sc.season = $1 AND sc.game_type = 'REG' AND sc.week BETWEEN $2 AND $3 AND sc.defense_snaps > 0
+    GROUP BY pl.gsis_id
+  ),
+  dpbp AS (
+    SELECT player_id, ${DEF_PBP_FIELDS.map((f) => `SUM(${f})::FLOAT AS ${f}`).join(', ')}
+    FROM player_week_def_pbp
+    WHERE season = $1 AND season_type = 'REG' AND week BETWEEN $2 AND $3
+    GROUP BY player_id
+  ),
+  pfr_def AS (
+    SELECT pl.gsis_id AS player_id, ${PFR_FIELDS.def.map((f) => `SUM(t.${pfrColumn(f)})::FLOAT AS ${pfrAlias(f)}`).join(', ')}
+    FROM pfr_advstats_def t JOIN public.players pl ON pl.pfr_id = t.pfr_player_id
+    WHERE t.season = $1 AND t.game_type = 'REG' AND t.week BETWEEN $2 AND $3
+    GROUP BY pl.gsis_id
+  )
+  SELECT p.*, snaps.def_snaps, snaps.team_def_snaps,
+         ${DEF_PBP_FIELDS.map((f) => `dpbp.${f}`).join(', ')},
+         ${PFR_FIELDS.def.map((f) => `pfr_def.${pfrAlias(f)}`).join(', ')}
+  FROM players p
+  LEFT JOIN snaps ON snaps.player_id = p.player_id
+  LEFT JOIN dpbp ON dpbp.player_id = p.player_id
+  LEFT JOIN pfr_def ON pfr_def.player_id = p.player_id
+  WHERE p.position = ANY($4)
+`;
+
 router.get('/leaderboard/:pos', handle(async (req, res) => {
   const pos = String(req.params.pos).toUpperCase();
-  if (!POSITION_FILTER[pos]) return res.status(400).json({ error: 'Unknown position' });
+  const defense = DEFENSE_FILTER[pos];
+  if (!POSITION_FILTER[pos] && !defense) return res.status(400).json({ error: 'Unknown position' });
   const current = await currentSeasonAndWeek();
   const season = intParam(req.query.season, current.season);
   const [{ max_week: maxWeek }] = await query(
@@ -236,7 +297,9 @@ router.get('/leaderboard/:pos', handle(async (req, res) => {
   );
   const from = Math.max(1, intParam(req.query.from, 1));
   const to = Math.min(maxWeek || 18, intParam(req.query.to, maxWeek || 18));
-  const rows = await query(LEADERBOARD_SQL, season, from, to, POSITION_FILTER[pos]);
+  const rows = defense
+    ? await query(DEFENSE_LEADERBOARD_SQL, season, from, to, defense)
+    : await query(LEADERBOARD_SQL, season, from, to, POSITION_FILTER[pos]);
   res.json({ season, position: pos, from, to, maxWeek, players: rows });
 }));
 
@@ -265,7 +328,11 @@ const PLAYER_GAMES_SQL = `
     ps.def_tackles_for_loss::FLOAT AS def_tackles_for_loss, ps.def_sacks::FLOAT AS def_sacks,
     ps.def_qb_hits::FLOAT AS def_qb_hits, ps.def_interceptions::FLOAT AS def_interceptions,
     ps.def_pass_defended::FLOAT AS def_pass_defended, ps.def_fumbles_forced::FLOAT AS def_fumbles_forced,
-    ps.def_tds::FLOAT AS def_tds,
+    ps.def_tds::FLOAT AS def_tds, ps.def_interception_yards::FLOAT AS def_interception_yards,
+    ps.def_fumbles::FLOAT AS def_fumbles, ps.def_safeties::FLOAT AS def_safeties,
+    sc.defense_snaps::FLOAT AS def_snaps,
+    ROUND(sc.defense_snaps / NULLIF(sc.defense_pct, 0))::FLOAT AS team_def_snaps,
+    ${DEF_PBP_FIELDS.map((f) => `dw.${f}::FLOAT AS ${f}`).join(', ')},
     ps.fg_made::FLOAT AS fg_made, ps.fg_att::FLOAT AS fg_att, ps.fg_long::FLOAT AS fg_long,
     ps.pat_made::FLOAT AS pat_made, ps.pat_att::FLOAT AS pat_att,
     pw.dropbacks::FLOAT AS dropbacks, pw.dropback_epa, pw.dropback_success, pw.cpoe_sum,
@@ -280,6 +347,9 @@ const PLAYER_GAMES_SQL = `
   LEFT JOIN schedules s
     ON s.season = ps.season AND s.week = ps.week AND (s.home_team = ps.team OR s.away_team = ps.team)
   LEFT JOIN players pl ON pl.gsis_id = ps.player_id
+  LEFT JOIN player_week_def_pbp dw
+    ON dw.player_id = ps.player_id AND dw.season = ps.season AND dw.week = ps.week
+  LEFT JOIN snap_counts sc ON sc.game_id = s.game_id AND sc.pfr_player_id = pl.pfr_id AND sc.defense_snaps > 0
   ${PFR_KINDS.map((k) => `LEFT JOIN pfr_advstats_${k} pfr_${k} ON pfr_${k}.game_id = s.game_id AND pfr_${k}.pfr_player_id = pl.pfr_id`).join('\n  ')}
   WHERE ps.player_id = $1
   ORDER BY ps.season, ps.week
@@ -489,7 +559,11 @@ router.get('/teams/:abbr', handle(async (req, res) => {
                SUM(ps.rushing_yards)::FLOAT AS rushing_yards, SUM(ps.carries)::FLOAT AS carries,
                SUM(ps.rushing_tds)::FLOAT AS rushing_tds,
                SUM(ps.receiving_yards)::FLOAT AS receiving_yards, SUM(ps.receptions)::FLOAT AS receptions,
-               SUM(ps.receiving_tds)::FLOAT AS receiving_tds, SUM(ps.targets)::FLOAT AS targets
+               SUM(ps.receiving_tds)::FLOAT AS receiving_tds, SUM(ps.targets)::FLOAT AS targets,
+               SUM(COALESCE(ps.def_tackles_solo, 0) + COALESCE(ps.def_tackle_assists, 0))::FLOAT AS tackles,
+               SUM(ps.def_tackles_for_loss)::FLOAT AS def_tackles_for_loss, SUM(ps.def_sacks)::FLOAT AS def_sacks,
+               SUM(ps.def_qb_hits)::FLOAT AS def_qb_hits, SUM(ps.def_interceptions)::FLOAT AS def_interceptions,
+               SUM(ps.def_pass_defended)::FLOAT AS def_pass_defended, SUM(ps.def_fumbles_forced)::FLOAT AS def_fumbles_forced
         FROM player_stats ps
         WHERE ps.season = $1 AND ps.season_type = 'REG' AND ps.team = $2
         GROUP BY ps.player_id
@@ -542,7 +616,10 @@ router.get('/teams/:abbr', handle(async (req, res) => {
   const top = (key) => leaders.filter((l) => l[key] > 0).sort((a, b) => b[key] - a[key])[0] || null;
   res.json({
     season, team, teams,
-    leaders: { passing: top('passing_yards'), rushing: top('rushing_yards'), receiving: top('receiving_yards') },
+    leaders: {
+      passing: top('passing_yards'), rushing: top('rushing_yards'), receiving: top('receiving_yards'),
+      tackles: top('tackles'), sacks: top('def_sacks'), interceptions: top('def_interceptions'),
+    },
     schedule,
     depth,
     injuries,
