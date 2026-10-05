@@ -34,6 +34,10 @@ def get_latest_season_cached():
 
 # Database connection helpers
 def get_database_url():
+    # An explicit environment variable wins over ingest/.env, so a run can be pointed at another
+    # database (e.g. a local dev copy) without editing the file.
+    if os.getenv('DATABASE_URL'):
+        return os.getenv('DATABASE_URL')
     env_path = os.path.join(os.path.dirname(__file__), '.env')
     if os.path.exists(env_path):
         with open(env_path, 'r') as f:
@@ -62,8 +66,16 @@ funcs = [
     'load_combine', 'load_contracts', 'load_depth_charts', 'load_draft_picks', 'load_ff_opportunity',
     'load_ff_playerids', 'load_ff_rankings', 'load_ftn_charting', 'load_injuries', 'load_nextgen_stats',
     'load_officials', 'load_participation', 'load_pbp', 'load_player_stats', 'load_players', 'load_rosters',
-    'load_rosters_weekly', 'load_schedules', 'load_snap_counts', 'load_team_stats', 'load_teams', 'load_trades'
+    'load_rosters_weekly', 'load_schedules', 'load_snap_counts', 'load_team_stats', 'load_teams', 'load_trades',
+    'load_nextgen_rushing', 'load_nextgen_receiving',
 ]
+
+# Loaders that call an nflreadpy function with fixed arguments: loader name -> (function, kwargs).
+# The table name is still derived from the loader name (load_nextgen_rushing -> nextgen_rushing).
+LOADER_ALIASES = {
+    'load_nextgen_rushing': ('load_nextgen_stats', {'stat_type': 'rushing'}),
+    'load_nextgen_receiving': ('load_nextgen_stats', {'stat_type': 'receiving'}),
+}
 
 
 def get_selected_funcs():
@@ -103,6 +115,8 @@ TABLE_UNIQUE_KEYS = {
     "ff_rankings": ["id", "sportsdata_id", "yahoo_id", "cbs_id"],
     "ftn_charting": ["nflverse_game_id", "nflverse_play_id"],
     "nextgen_stats": ["season", "week", "player_gsis_id"],
+    "nextgen_rushing": ["season", "week", "player_gsis_id"],
+    "nextgen_receiving": ["season", "week", "player_gsis_id"],
     "officials": ["game_id", "official_id"],
     "participation": ["nflverse_game_id", "play_id"],
     "pbp": ["game_id", "play_id"],
@@ -159,8 +173,9 @@ def process_table(fname, creds):
         port=creds['port']
     )
     cur = conn.cursor()
-    func = getattr(nflreadpy, fname)
-    args = get_default_args(func)
+    base_name, fixed_args = LOADER_ALIASES.get(fname, (fname, {}))
+    func = getattr(nflreadpy, base_name)
+    args = {**get_default_args(func), **fixed_args}
     sig = inspect.signature(func)
 
     # Performance/behavior knobs
@@ -321,8 +336,12 @@ def main():
         sys.exit(1)
 
 
-# Tables the player_season_stats materialized view is built from.
-VIEW_SOURCE_TABLES = {'player_stats', 'players', 'snap_counts'}
+# Materialized views the API reads, and the tables each is built from.
+MATERIALIZED_VIEWS = {
+    'player_season_stats': {'player_stats', 'players', 'snap_counts'},
+    'player_week_pbp': {'pbp'},
+    'team_game_pbp': {'pbp'},
+}
 
 
 def finalize_load(tables):
@@ -346,15 +365,25 @@ def finalize_load(tables):
         except Exception as e:
             print(f"Error analyzing {table_name}: {e}")
             ok = False
-    # Season totals the API reads; must be current before data_version tells the API to re-cache.
-    if VIEW_SOURCE_TABLES & set(tables):
+    # Views and model outputs must be current before data_version tells the API to re-cache.
+    for view, sources in MATERIALIZED_VIEWS.items():
+        if not (sources & set(tables)):
+            continue
         try:
-            cur.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY player_season_stats')
-            cur.execute('ANALYZE player_season_stats')
-            print("Refreshed player_season_stats")
+            cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {view}')
+            cur.execute(f'ANALYZE {view}')
+            print(f"Refreshed {view}")
         except Exception as e:
-            print(f"Error refreshing player_season_stats: {e}")
+            print(f"Error refreshing {view}: {e}")
             ok = False
+    try:
+        import models
+        models.run(conn)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"Error running models: {e}")
+        ok = False
     try:
         cur.execute(
             "INSERT INTO app_meta (key, value, updated_at) "

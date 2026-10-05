@@ -1,72 +1,64 @@
-/* Ensure header logo images always maintain aspect ratio */
-.header-logo-img {
-  object-fit: contain;
-  width: auto;
-  height: 100%;
-  max-height: 200px;
-  display: block;
-}
-/* Always underline player links on mobile */
-.player-link-mobile-underline {
-  text-decoration: none;
-}
-@media (max-width: 700px) {
-  .player-link-mobile-underline {
-    text-decoration: underline !important;
-    text-underline-offset: 2px;
-  }
-}
-/* Header logo fade effect */
-.header-fade-container {
-  position: relative;
-}
-.header-fade-img-main {
-  opacity: 1;
-  pointer-events: none;
-  transition: opacity 0.5s;
-}
-.header-fade-img-alt {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.5s;
-}
-.header-fade-container:hover .header-fade-img-main,
-.header-fade-container:focus-within .header-fade-img-main {
-  opacity: 0;
-}
-.header-fade-container:hover .header-fade-img-alt,
-.header-fade-container:focus-within .header-fade-img-alt {
-  opacity: 1;
-}
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-
-html.dark,
-html.dark body {
-  background-color: #18181b;
-  color: #fafafa;
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-page text-ink font-sans antialiased;
+    font-feature-settings: 'tnum' 1, 'cv11' 1;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+  }
+  /* Wide display face for page titles and big numbers, as in the design. */
+  .font-display {
+    font-stretch: 118%;
+  }
+  a {
+    @apply text-inherit;
+  }
+  :focus-visible {
+    @apply outline outline-2 outline-offset-2 outline-good;
+  }
 }
 
-body {
-  background-color: #18181b;
-  color: #fafafa;
+@layer components {
+  .label {
+    @apply text-2xs font-semibold uppercase tracking-label text-faint;
+  }
+  .card {
+    @apply rounded-xl border border-line bg-surface;
+  }
+  .link {
+    @apply text-good underline decoration-good/40 underline-offset-2 hover:decoration-good;
+  }
+  .control {
+    @apply h-10 rounded-lg border border-line bg-raised px-3 text-sm text-ink transition-colors hover:border-line-strong;
+  }
+  .btn {
+    @apply inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-line-strong bg-raised px-4 text-sm font-semibold text-ink transition-colors hover:border-faint disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply border-transparent bg-ink text-page hover:bg-white;
+  }
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
-html, body {
-  font-family: 'Manrope', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+/* Numeric inputs: hide the browser spinner, the design draws its own. */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
 }
-
-h1 {
-  font-family: 'Manrope', 'Roboto', 'Helvetica', 'Arial', sans-serif;
-  font-weight: 800; /* ExtraBold */
-}
-h2 {
-  font-family: 'Manrope', 'Roboto', 'Helvetica', 'Arial', sans-serif;
-  font-weight: 700; /* Bold */
-}
-h3, h4, h5, h6 {
-  font-family: 'Manrope', 'Roboto', 'Helvetica', 'Arial', sans-serif;
-  font-weight: 600; /* SemiBold */
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
