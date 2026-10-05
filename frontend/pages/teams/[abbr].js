@@ -2,10 +2,11 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import DataTable from '../../components/DataTable';
-import { Breadcrumbs, Card, RankTrack } from '../../components/ui';
+import { Breadcrumbs, Card, RankTrack, Segmented } from '../../components/ui';
 import { loadProps, queryString } from '../../lib/api';
 import { fixed, formatValue, initials, int, ordinal, pctLabel, record, shortName, signed, signedInt, weekLabel } from '../../lib/format';
 import { rememberTeam } from '../../lib/storage';
+import { TEAM_METRICS } from '../../lib/metrics';
 import { divisionStanding, rankOf, teamMetrics } from '../../lib/teams';
 
 export const runtime = 'experimental-edge';
@@ -22,20 +23,67 @@ const GAME_SHADING = {
   qb: { mean: 0, sd: 0.25 },
 };
 
-const RANKS = [
-  { key: 'off_epa', label: 'Offense EPA/play', format: 'signed2' },
-  { key: 'def_epa', label: 'Defense EPA/play', format: 'signed2', better: 'low', suffix: ' allowed' },
-  { key: 'pass_off_epa', label: 'Pass offense', format: 'signed2' },
-  { key: 'rush_off_epa', label: 'Rush offense', format: 'signed2' },
-  { key: 'off_success', label: 'Success rate', format: 'pctLabel' },
-  { key: 'point_diff', label: 'Point differential', format: 'signedInt' },
+// Team profile tabs. Items take their label, format and direction from TEAM_METRICS unless given;
+// `most` items (style) have no better or worse and rank by the highest value ("fastest" ranks low).
+const PROFILE = [
+  {
+    value: 'overview',
+    label: 'Overview',
+    items: [
+      { key: 'off_epa', label: 'Offense EPA/play' },
+      { key: 'def_epa', label: 'Defense EPA/play', suffix: ' allowed' },
+      { key: 'pass_off_epa', label: 'Pass offense' },
+      { key: 'rush_off_epa', label: 'Rush offense' },
+      { key: 'off_success', label: 'Success rate', format: 'pctLabel' },
+      { key: 'point_diff', label: 'Point differential', format: 'signedInt' },
+    ],
+  },
+  {
+    value: 'offense',
+    label: 'Offense',
+    items: ['ppd', 'scoring_drive_pct', 'three_out_pct', 'rz_td_pct', 'explosive_pct', 'stuffed_pct', 'giveaway_drive_pct'],
+  },
+  {
+    value: 'defense',
+    label: 'Defense',
+    items: ['def_ppd', 'def_scoring_drive_pct', 'def_three_out_pct', 'def_rz_td_pct', 'def_explosive_pct', 'def_stuff_pct', 'takeaway_drive_pct'],
+  },
+  {
+    value: 'style',
+    label: 'Style',
+    neutral: true,
+    items: [
+      { key: 'proe', suffix: '%' }, 'early_pass_pct', { key: 'sec_per_play', most: 'fastest', low: true }, 'shotgun_pct', 'motion_pct', 'play_action_pct',
+      { key: 'blitz_pct', label: 'Blitz rate (defense)' }, 'fourth_go_pct',
+    ],
+  },
+  {
+    value: 'luck',
+    label: 'Luck & ST',
+    items: [
+      { key: 'pythag_wins', detail: (t) => `${fixed((t.wins || 0) + 0.5 * (t.ties || 0), 1)} actual` },
+      { key: 'wins_over_pythag', most: 'luckiest' },
+      'st_epa_pg',
+      { key: 'fumble_recovery_pct', most: 'luckiest' },
+      'int_per_worthy',
+      'def_int_per_worthy',
+    ],
+  },
 ];
+
+const profileItem = (item) => {
+  const it = typeof item === 'string' ? { key: item } : item;
+  const m = TEAM_METRICS[it.key] || {};
+  return { label: m.label, format: m.format, better: m.better, ...it, most: it.most || (m.better ? null : 'most') };
+};
 
 export default function TeamPage({ data }) {
   const teams = useMemo(() => data.teams.map(teamMetrics), [data.teams]);
   const team = teams.find((t) => t.abbr === data.team.abbr) || teamMetrics(data.team);
   const names = Object.fromEntries(teams.map((t) => [t.abbr, t.name]));
   const [allGames, setAllGames] = useState(false);
+  const [profileTab, setProfileTab] = useState('overview');
+  const profile = PROFILE.find((p) => p.value === profileTab);
   useEffect(() => rememberTeam(team.abbr), [team.abbr]);
 
   const played = data.schedule.filter((g) => g.points_for != null);
@@ -81,25 +129,15 @@ export default function TeamPage({ data }) {
       </section>
 
       <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card title="League ranks" subtitle="Out of 32 · marker further right is better">
+        <Card
+          title="Team profile"
+          subtitle={`League ranks out of 32 · ${profile.neutral ? 'no better or worse here, so ranks show the most' : 'marker further right is better'}`}
+          action={<Segmented options={PROFILE.map(({ value, label }) => ({ value, label }))} value={profileTab} onChange={setProfileTab} className="[&_button]:px-2.5 [&_button]:text-xs" />}
+        >
           <div className="space-y-4">
-            {RANKS.map((r) => {
-              const rank = rankOf(teams.filter((t) => t[r.key] != null), r.key, team, r.better);
-              const tone = rank == null ? undefined : rank <= 10 ? 'good' : rank >= 23 ? 'bad' : undefined;
-              const value = r.format === 'pctLabel' ? pctLabel(team[r.key], 1) : formatValue(team[r.key], r.format);
-              return (
-                <div key={r.key}>
-                  <div className="flex justify-between text-sm">
-                    <span>{r.label}</span>
-                    <span className="text-muted">
-                      <span className={`font-semibold ${tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-bad' : 'text-ink'}`}>{rank ? ordinal(rank) : '–'}</span> · {value}
-                      {r.suffix || ''}
-                    </span>
-                  </div>
-                  {rank && <RankTrack position={1 - (rank - 1) / 31} tone={tone} />}
-                </div>
-              );
-            })}
+            {profile.items.map((item) => (
+              <ProfileRow key={typeof item === 'string' ? item : item.key} item={profileItem(item)} team={team} teams={teams} />
+            ))}
           </div>
         </Card>
         <Card title="Team leaders" subtitle={`${data.season} regular season`}>
@@ -209,6 +247,42 @@ export default function TeamPage({ data }) {
         </Card>
       )}
     </>
+  );
+}
+
+const OPPOSITE = { most: 'least', fastest: 'slowest', luckiest: 'unluckiest' };
+
+// "3rd most" in the top half, "5th least" in the bottom half (easier to read than "28th most").
+function neutralRank(rank, n, word) {
+  return rank <= Math.ceil(n / 2) ? `${ordinal(rank)} ${word}` : `${ordinal(n - rank + 1)} ${OPPOSITE[word] || word}`;
+}
+
+// One league-rank row: label, rank and value, with a marker along the 1st-32nd track.
+function ProfileRow({ item, team, teams }) {
+  const valid = teams.filter((t) => t[item.key] != null);
+  const value = team[item.key];
+  const neutral = !!item.most && !item.better;
+  // Neutral stats rank by the highest value ("most"), or the lowest for e.g. "fastest".
+  const direction = neutral ? (item.low ? 'low' : 'high') : item.better || 'high';
+  const rank = value == null ? null : rankOf(valid, item.key, team, direction);
+  const tone = neutral || rank == null ? undefined : rank <= 10 ? 'good' : rank >= 23 ? 'bad' : undefined;
+  const shown = item.format === 'pctLabel' ? pctLabel(value, 1) : item.format === 'pct' ? pctLabel(value, 1) : formatValue(value, item.format);
+  const n = Math.max(valid.length, 2);
+  return (
+    <div>
+      <div className="flex justify-between gap-3 text-sm">
+        <span title={TEAM_METRICS[item.key]?.description}>{item.label}</span>
+        <span className="whitespace-nowrap text-muted">
+          <span className={`font-semibold ${tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-bad' : 'text-ink'}`}>
+            {rank ? (neutral ? neutralRank(rank, n, item.most) : ordinal(rank)) : '–'}
+          </span>{' '}
+          · {shown}
+          {item.suffix || ''}
+          {item.detail && value != null ? <span className="text-faint"> · {item.detail(team)}</span> : null}
+        </span>
+      </div>
+      {rank && <RankTrack position={1 - (rank - 1) / (n - 1)} tone={tone} />}
+    </div>
   );
 }
 

@@ -105,6 +105,9 @@ export function formatValue(v, format) {
       return pct(v, 1);
     case 'pct0':
       return pct(v, 0);
+    case 'signedPct':
+      // Percentage points with a sign (+4.2), for rates relative to an expectation.
+      return isNum(v) ? signed(v * 100, 1) : '–';
     default:
       return isNum(v) ? String(v) : v ?? '–';
   }

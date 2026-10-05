@@ -510,8 +510,15 @@ router.get('/players/:id/charting', handle(async (req, res) => {
 
 const SITUATIONS = ['all', 'early_downs', 'late_downs', 'red_zone', 'neutral'];
 
+// Columns of team_game_adv, summed over a season.
+const TEAM_ADV_FIELDS = ['plays', 'explosive', 'rushes', 'stuffed', 'neutral_plays', 'neutral_passes', 'neutral_xpass',
+  'neutral_early', 'neutral_early_passes', 'shotgun', 'no_huddle', 'charted_plays', 'motion', 'charted_dropbacks',
+  'play_action', 'blitzes', 'int_worthy', 'interceptions', 'fumbles', 'fumbles_lost', 'fourth_downs', 'fourth_go',
+  'fourth_conv', 'fourth_short', 'fourth_short_go', 'st_epa', 'st_plays', 'drives', 'drive_points', 'three_and_outs',
+  'red_zone_trips', 'red_zone_tds', 'scoring_drives', 'turnover_drives', 'drive_seconds', 'drive_plays'];
+
 async function teamSeason(season, situation) {
-  const [epa, results, odds, teams] = await Promise.all([
+  const [epa, results, odds, teams, adv] = await Promise.all([
     query(`
       SELECT team, side, SUM(plays)::FLOAT AS plays, SUM(epa) AS epa, SUM(success) AS success,
              SUM(pass_plays)::FLOAT AS pass_plays, SUM(pass_epa) AS pass_epa,
@@ -540,6 +547,11 @@ async function teamSeason(season, situation) {
                   team_division AS division, team_color AS color, team_color2 AS color2,
                   team_logo_espn AS logo
            FROM teams`),
+    query(`
+      SELECT team, side, ${TEAM_ADV_FIELDS.map((f) => `SUM(${f})::FLOAT AS ${f}`).join(', ')}
+      FROM team_game_adv
+      WHERE season = $1 AND season_type = 'REG'
+      GROUP BY team, side`, season),
   ]);
   const byTeam = new Map(teams.map((t) => [t.abbr, { ...t, wins: 0, losses: 0, ties: 0, points_for: 0, points_against: 0 }]));
   for (const r of results) if (byTeam.has(r.team)) Object.assign(byTeam.get(r.team), r);
@@ -547,6 +559,11 @@ async function teamSeason(season, situation) {
   for (const e of epa) {
     const t = byTeam.get(e.team);
     if (t) t[e.side === 'off' ? 'offense' : 'defense'] = e;
+  }
+  // Season totals (all plays, whatever the situation filter) for the advanced team stats.
+  for (const a of adv) {
+    const t = byTeam.get(a.team);
+    if (t) (t.adv ||= {})[a.side] = a;
   }
   return [...byTeam.values()];
 }

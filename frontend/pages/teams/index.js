@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
 import ScatterPlot from '../../components/charts/ScatterPlot';
 import DataTable, { sortRows } from '../../components/DataTable';
-import { Card, Field, PageHeader, Select } from '../../components/ui';
+import { ButtonGroup, Card, Field, PageHeader, Select } from '../../components/ui';
 import { loadProps, queryString } from '../../lib/api';
 import { record, signedInt } from '../../lib/format';
 import { TEAM_METRICS, groupStats } from '../../lib/metrics';
@@ -22,30 +22,94 @@ export async function getServerSideProps({ query }) {
 
 const col = (key, group, extra = {}) => ({ key, group, ...TEAM_METRICS[key], value: (t) => t[key], ...extra });
 
-const COLUMNS = [
-  { key: 'record', group: 'Results', short: 'Record', label: 'Record', sortable: false, value: () => null, render: (t) => record(t.wins, t.losses, t.ties) },
-  col('point_diff', 'Results', { render: (t) => signedInt(t.point_diff) }),
-  col('off_epa', 'EPA / play'),
-  col('def_epa', 'EPA / play'),
-  col('net_epa', 'EPA / play'),
-  col('pass_off_epa', 'Offense detail'),
-  col('rush_off_epa', 'Offense detail'),
-  col('off_success', 'Offense detail'),
-];
-const SHADED = ['off_epa', 'def_epa', 'net_epa'];
+const RECORD = { key: 'record', group: 'Results', short: 'Record', label: 'Record', sortable: false, value: () => null, render: (t) => record(t.wins, t.losses, t.ties) };
+
+// Column sets. Efficiency follows the situation filter; the others are season totals over all plays.
+const VIEWS = {
+  efficiency: {
+    label: 'Efficiency',
+    sort: 'net_epa',
+    shaded: ['off_epa', 'def_epa', 'net_epa'],
+    note: 'Defense EPA/play is what opponents gained, so negative is good (shaded blue)',
+    columns: [
+      RECORD,
+      col('point_diff', 'Results', { render: (t) => signedInt(t.point_diff) }),
+      col('off_epa', 'EPA / play'),
+      col('def_epa', 'EPA / play'),
+      col('net_epa', 'EPA / play'),
+      col('pass_off_epa', 'Offense detail'),
+      col('rush_off_epa', 'Offense detail'),
+      col('off_success', 'Offense detail'),
+      col('pass_def_epa', 'Defense detail'),
+      col('rush_def_epa', 'Defense detail'),
+    ],
+  },
+  drives: {
+    label: 'Drives',
+    sort: 'ppd',
+    columns: [
+      col('ppd', 'Offense'), col('scoring_drive_pct', 'Offense'), col('three_out_pct', 'Offense'), col('rz_td_pct', 'Offense'), col('giveaway_drive_pct', 'Offense'),
+      col('def_ppd', 'Defense'), col('def_scoring_drive_pct', 'Defense'), col('def_three_out_pct', 'Defense'), col('def_rz_td_pct', 'Defense'), col('takeaway_drive_pct', 'Defense'),
+    ],
+    note: 'Every possession counts, including end-of-half drives',
+  },
+  big_plays: {
+    label: 'Big plays',
+    sort: 'explosive_pct',
+    columns: [
+      col('explosive_pct', 'Offense'), col('stuffed_pct', 'Offense'),
+      col('def_explosive_pct', 'Defense'), col('def_stuff_pct', 'Defense'),
+    ],
+    note: 'Explosive: 20+ yard pass or 10+ yard run · stuffed: designed run stopped at or behind the line',
+  },
+  style: {
+    label: 'Style',
+    sort: 'proe',
+    columns: [
+      col('proe', 'Play calling'), col('early_pass_pct', 'Play calling'), col('fourth_go_pct', 'Play calling'),
+      col('sec_per_play', 'Tempo & formation'), col('shotgun_pct', 'Tempo & formation'), col('no_huddle_pct', 'Tempo & formation'),
+      col('motion_pct', 'Pre-snap (FTN)'), col('play_action_pct', 'Pre-snap (FTN)'),
+      col('blitz_pct', 'Defense'),
+    ],
+    note: 'Style stats have no better or worse, so they are not shaded · FTN charting starts in 2022',
+  },
+  luck: {
+    label: 'Luck & special teams',
+    sort: 'wins_over_pythag',
+    columns: [
+      RECORD,
+      col('pythag_wins', 'Expected record'), col('wins_over_pythag', 'Expected record'),
+      col('fumble_recovery_pct', 'Turnover luck'), col('int_per_worthy', 'Turnover luck'), col('def_int_per_worthy', 'Turnover luck'),
+      col('turnover_diff', 'Turnover luck'),
+      col('st_epa_pg', 'Special teams'),
+    ],
+    note: 'Luck stats tend to even out over time; teams far from average usually regress',
+  },
+};
 
 export default function TeamsPage({ meta, data }) {
   const router = useRouter();
-  const [sort, setSort] = useState({ key: 'net_epa', dir: 'desc' });
+  const viewKey = VIEWS[router.query.view] ? router.query.view : 'efficiency';
+  const view = VIEWS[viewKey];
+  const [sort, setSort] = useState({ key: view.sort, dir: TEAM_METRICS[view.sort]?.better === 'low' ? 'asc' : 'desc' });
+  useEffect(() => setSort({ key: view.sort, dir: TEAM_METRICS[view.sort]?.better === 'low' ? 'asc' : 'desc' }), [view.sort]);
   const [highlight, setHighlight] = useState(null);
   useEffect(() => setHighlight(recentTeam()), []);
 
   const teams = useMemo(() => data.teams.map(teamMetrics).filter((t) => t.offense), [data.teams]);
-  const shading = useMemo(() => Object.fromEntries(SHADED.map((k) => [k, groupStats(teams, k, (t) => t[k])])), [teams]);
+  // Shade every column with a better direction (style stats have none).
+  const shading = useMemo(
+    () => Object.fromEntries(view.columns.filter((c) => (view.shaded || [c.key]).includes(c.key) && c.better).map((c) => [c.key, groupStats(teams, c.key, (t) => t[c.key])])),
+    [teams, view]
+  );
   const sorted = sortRows(teams, (t) => t[sort.key], sort.dir);
   const week = Math.max(0, ...teams.map((t) => t.games));
 
-  const navigate = (changes) => router.push({ pathname: '/teams', query: { ...router.query, ...changes } }, undefined, { scroll: false });
+  const navigate = (changes, shallow = false) => {
+    const query = { ...router.query, ...changes };
+    for (const k of Object.keys(query)) if (query[k] === undefined) delete query[k];
+    router.push({ pathname: '/teams', query }, undefined, { scroll: false, shallow });
+  };
 
   return (
     <>
@@ -57,9 +121,11 @@ export default function TeamsPage({ meta, data }) {
         title="Team Rankings"
         right={
           <div className="flex gap-3">
-            <Field label="Situation">
-              <Select value={data.situation} onChange={(v) => navigate({ situation: v })} options={SITUATIONS} className="w-48" />
-            </Field>
+            {viewKey === 'efficiency' && (
+              <Field label="Situation">
+                <Select value={data.situation} onChange={(v) => navigate({ situation: v })} options={SITUATIONS} className="w-48" />
+              </Field>
+            )}
             <Field label="Season">
               <Select value={data.season} onChange={(v) => navigate({ season: v })} options={meta.seasons.filter((s) => s >= 1999)} className="w-24" />
             </Field>
@@ -89,8 +155,16 @@ export default function TeamsPage({ meta, data }) {
             />
           </Card>
 
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <ButtonGroup
+              options={Object.entries(VIEWS).map(([value, v]) => ({ value, label: v.label }))}
+              value={viewKey}
+              onChange={(v) => navigate({ view: v === 'efficiency' ? undefined : v }, true)}
+            />
+            {viewKey !== 'efficiency' && <span className="text-xs text-faint">Season totals, all plays</span>}
+          </div>
           <DataTable
-            columns={COLUMNS}
+            columns={view.columns}
             rows={sorted}
             rowKey={(t) => t.abbr}
             sortKey={sort.key}
@@ -114,8 +188,11 @@ export default function TeamsPage({ meta, data }) {
             }}
           />
           <div className="mt-3 flex flex-col gap-1 text-xs text-faint sm:flex-row sm:justify-between">
-            <span>Defense EPA/play is what opponents gained, so negative is good (shaded blue)</span>
-            <span>Ranked by Net EPA/play by default · click a column to sort</span>
+            <span>{view.note}</span>
+            <span>
+              Ranked by {TEAM_METRICS[view.sort].label} by default · click a column to sort ·{' '}
+              <Link href="/glossary#team" className="link">Glossary</Link>
+            </span>
           </div>
         </>
       )}

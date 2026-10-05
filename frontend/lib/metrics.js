@@ -169,6 +169,44 @@ export const TEAM_METRICS = {
   point_diff: { label: 'Point differential', short: 'PT DIFF', format: 'signedInt', better: 'high', description: 'Points scored minus points allowed.' },
   turnover_diff: { label: 'Turnover differential per game', short: 'TO DIFF', format: 'signed2', better: 'high', description: 'Takeaways minus giveaways, per game.' },
   win_pct: { label: 'Win %', short: 'WIN%', format: 'pct', better: 'high', description: 'Wins per game (ties count half).' },
+
+  // Drives (every possession, end-of-half drives included)
+  ppd: { label: 'Points per drive', short: 'PTS/DR', format: 'dec2', better: 'high', description: 'Points scored by the offense per possession.' },
+  def_ppd: { label: 'Points per drive allowed', short: 'PTS/DR', format: 'dec2', better: 'low', description: 'Points opponents scored per possession.' },
+  scoring_drive_pct: { label: 'Scoring drive rate', short: 'SCORE%', format: 'pct', better: 'high', description: 'Share of possessions ending in a touchdown or field goal.' },
+  def_scoring_drive_pct: { label: 'Scoring drives allowed', short: 'SCORE%', format: 'pct', better: 'low', description: "Share of opponents' possessions ending in a touchdown or field goal." },
+  three_out_pct: { label: 'Three-and-out rate', short: '3&OUT%', format: 'pct', better: 'low', description: 'Share of possessions that ended in a punt without a first down.' },
+  def_three_out_pct: { label: 'Three-and-outs forced', short: '3&OUT%', format: 'pct', better: 'high', description: "Share of opponents' possessions that ended in a punt without a first down." },
+  rz_td_pct: { label: 'Red zone TD rate', short: 'RZ TD%', format: 'pct', better: 'high', description: 'Share of drives reaching the opponent 20 that ended in a touchdown.' },
+  def_rz_td_pct: { label: 'Red zone TD rate allowed', short: 'RZ TD%', format: 'pct', better: 'low', description: "Share of opponents' drives reaching the 20 that ended in a touchdown." },
+  giveaway_drive_pct: { label: 'Giveaway rate', short: 'GIVE%', format: 'pct', better: 'low', description: 'Share of possessions ending in an interception or lost fumble.' },
+  takeaway_drive_pct: { label: 'Takeaway rate', short: 'TAKE%', format: 'pct', better: 'high', description: "Share of opponents' possessions ending in an interception or lost fumble." },
+
+  // Big plays
+  explosive_pct: { label: 'Explosive play rate', short: 'EXPL%', format: 'pct', better: 'high', description: 'Share of plays gaining 20+ yards on a pass or 10+ on a run.' },
+  def_explosive_pct: { label: 'Explosive plays allowed', short: 'EXPL%', format: 'pct', better: 'low', description: 'Share of opponent plays gaining 20+ yards on a pass or 10+ on a run.' },
+  stuffed_pct: { label: 'Runs stuffed', short: 'STUFF%', format: 'pct', better: 'low', description: 'Share of designed runs stopped at or behind the line.' },
+  def_stuff_pct: { label: 'Run stuff rate', short: 'STUFF%', format: 'pct', better: 'high', description: 'Share of opponent designed runs the defense stopped at or behind the line.' },
+
+  // Style: no better or worse, so ranks read as "most"
+  proe: { label: 'Pass rate over expected', short: 'PROE', format: 'signedPct', description: "How much more often the team passes than an average team would in the same situation (nflfastR's expected pass model), in neutral situations: 1st-3rd down, win probability 20-80%, outside the last two minutes of a half." },
+  early_pass_pct: { label: 'Early-down pass rate', short: 'ED PASS%', format: 'pct', description: 'Share of 1st and 2nd down plays that were passes, in neutral situations.' },
+  sec_per_play: { label: 'Seconds per play', short: 'SEC/PL', format: 'dec1', description: 'Time of possession per offensive play. Lower is a faster pace.' },
+  shotgun_pct: { label: 'Shotgun rate', short: 'GUN%', format: 'pct', description: 'Share of plays snapped from shotgun.' },
+  no_huddle_pct: { label: 'No-huddle rate', short: 'NO HUD%', format: 'pct', description: 'Share of plays run without a huddle.' },
+  motion_pct: { label: 'Motion rate', short: 'MOTION%', format: 'pct', description: 'Share of plays with pre-snap motion (FTN charting, 2022 on).' },
+  play_action_pct: { label: 'Play-action rate', short: 'PA%', format: 'pct', description: 'Share of dropbacks with a play-action fake (FTN charting, 2022 on).' },
+  blitz_pct: { label: 'Blitz rate', short: 'BLITZ%', format: 'pct', description: 'Share of opponent dropbacks where the defense blitzed (FTN charting, 2022 on).' },
+  fourth_go_pct: { label: '4th-and-short go rate', short: '4TH GO%', format: 'pct', description: 'How often the offense went for it on 4th and 2 or less in the opponent half, instead of punting or kicking.' },
+  fourth_conv_pct: { label: '4th-down conversion rate', short: '4TH CNV%', format: 'pct', better: 'high', description: 'Share of 4th-down attempts converted.' },
+
+  // Luck and special teams
+  pythag_wins: { label: 'Pythagorean wins', short: 'PYTH W', format: 'dec1', better: 'high', description: 'Wins expected from points scored and allowed (exponent 2.37). It predicts the next season better than the actual record does.' },
+  wins_over_pythag: { label: 'Wins over expected', short: 'LUCK', format: 'signed1', description: 'Actual wins minus Pythagorean wins. Teams far above zero usually won close games, which tends not to last.' },
+  fumble_recovery_pct: { label: 'Fumble recovery rate', short: 'FUM REC%', format: 'pct', description: 'Share of all fumbles in its games (by either team) that the team recovered. Mostly luck; the average is about 50%.' },
+  int_per_worthy: { label: 'INTs per interceptable pass', short: 'THROWN/IW', format: 'pct', better: 'low', description: 'Interceptions thrown per interception-worthy pass (FTN charting, 2022 on). Low means the offense got away with risky throws, which tends to even out.' },
+  def_int_per_worthy: { label: 'INTs made per interceptable pass', short: 'PICKED/IW', format: 'pct', better: 'high', description: 'Interceptions caught per interception-worthy pass by opponents (FTN charting, 2022 on).' },
+  st_epa_pg: { label: 'Special teams EPA per game', short: 'ST EPA', format: 'signed2', better: 'high', description: 'Expected points added on kicks, punts and returns, both units combined, per game.' },
 };
 
 export function metricValue(key, row) {

@@ -507,6 +507,7 @@ MATERIALIZED_VIEWS = {
     'player_week_pbp': {'pbp'},
     'player_week_def_pbp': {'pbp'},
     'team_game_pbp': {'pbp'},
+    'team_game_adv': {'pbp', 'ftn_charting'},
 }
 
 
