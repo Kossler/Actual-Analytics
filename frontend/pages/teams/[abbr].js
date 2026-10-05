@@ -154,8 +154,8 @@ export default function TeamPage({ data }) {
       </div>
 
       {(data.depth?.length > 0 || data.injuries?.length > 0) && (
-        <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {data.depth?.length > 0 && <DepthChart depth={data.depth} />}
+        <div className="mb-4 space-y-4">
+          {data.depth?.length > 0 && <DepthChart depth={data.depth} injuries={data.injuries || []} />}
           <InjuryReport injuries={data.injuries || []} />
         </div>
       )}
@@ -287,35 +287,103 @@ function ProfileRow({ item, team, teams }) {
   );
 }
 
-// Starters (rank 1 at each slot) from the latest depth chart, grouped by unit.
-function DepthChart({ depth }) {
-  const starters = depth.filter((d) => d.pos_rank === 1);
-  const unit = (d) => (d.pos_grp === 'Special Teams' ? 'Special teams' : / D$/.test(d.pos_grp) ? 'Defense' : 'Offense');
-  const units = ['Offense', 'Defense', 'Special teams'].map((u) => ({ u, rows: starters.filter((d) => unit(d) === u) })).filter((x) => x.rows.length);
+const DEPTH_UNITS = [
+  { value: 'Offense', label: 'Offense' },
+  { value: 'Defense', label: 'Defense' },
+  { value: 'Special teams', label: 'Special teams' },
+];
+const depthUnit = (d) => (d.pos_grp === 'Special Teams' ? 'Special teams' : / D$/.test(d.pos_grp) ? 'Defense' : 'Offense');
+
+// Injury tag for a depth chart name: this week's game designation, else Sleeper's longer-term status.
+const INJURY_TAGS = {
+  Out: { tag: 'O', tone: 'text-bad' },
+  Doubtful: { tag: 'D', tone: 'text-bad' },
+  Questionable: { tag: 'Q', tone: 'text-warn' },
+  IR: { tag: 'IR', tone: 'text-bad' },
+  PUP: { tag: 'PUP', tone: 'text-bad' },
+  Sus: { tag: 'SUS', tone: 'text-bad' },
+};
+
+// Spots Sleeper doesn't order, which the depth_chart view fills from nflverse.
+const NFLVERSE_SPOTS = { Offense: 'Offensive line', 'Special teams': 'Holder and returners' };
+
+// The whole depth chart, one unit at a time: a row per spot, players left to right in depth order.
+function DepthChart({ depth, injuries }) {
+  const [unit, setUnit] = useState('Offense');
+  const designation = useMemo(() => new Map(injuries.map((i) => [i.gsis_id, i.report_status])), [injuries]);
+  const rows = useMemo(() => {
+    const bySpot = new Map();
+    for (const d of depth.filter((x) => depthUnit(x) === unit)) {
+      const key = `${d.pos_slot}-${d.spot || d.pos_abb}`;
+      if (!bySpot.has(key)) bySpot.set(key, { key, slot: d.pos_slot, spot: d.spot || d.pos_abb, name: d.pos_name, players: [] });
+      bySpot.get(key).players.push(d);
+    }
+    return [...bySpot.values()]
+      .sort((a, b) => a.slot - b.slot)
+      .map((r) => ({ ...r, players: r.players.sort((a, b) => a.pos_rank - b.pos_rank) }));
+  }, [depth, unit]);
+  const columns = Math.max(1, ...rows.map((r) => r.players.length));
   const latest = depth.reduce((a, d) => (d.dt > a ? d.dt : a), '');
   const updated = latest ? new Date(latest).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
   const sources = [...new Set(depth.map((d) => d.source).filter(Boolean))].join(' and ');
+  const options = DEPTH_UNITS.filter((u) => depth.some((d) => depthUnit(d) === u.value));
+
   return (
-    <Card title="Depth chart" subtitle={`Starters${updated ? ` · updated ${updated}` : ''}${sources ? ` · ${sources}` : ''}`}>
-      <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
-        {units.map(({ u, rows }) => (
-          <div key={u}>
-            <div className="label mb-2">{u}</div>
-            <ul className="space-y-1 text-sm">
-              {rows.map((d) => (
-                <li key={`${d.pos_abb}-${d.pos_slot}`} className="flex gap-2">
-                  <span className="w-10 shrink-0 text-xs font-semibold text-faint">{d.pos_abb}</span>
-                  {d.gsis_id ? (
-                    <Link href={`/players/${d.gsis_id}`} className="min-w-0 break-words hover:underline">{d.player_name}</Link>
-                  ) : (
-                    <span className="min-w-0 break-words">{d.player_name}</span>
-                  )}
-                </li>
+    <Card
+      title="Depth chart"
+      subtitle={[updated && `Updated ${updated}`, sources].filter(Boolean).join(' · ')}
+      action={<Segmented options={options} value={unit} onChange={setUnit} />}
+      bodyClassName="pb-3 pt-3"
+    >
+      <div className="overflow-x-auto">
+        {/* Equal player columns; below ~150px each the table scrolls inside the card. */}
+        <table className="w-full table-fixed text-sm" style={{ minWidth: 64 + columns * 150 }}>
+          <thead>
+            <tr className="border-b border-line text-2xs uppercase tracking-label text-faint">
+              <th className="sticky left-0 z-[5] w-16 bg-surface py-2 pl-5 pr-3 text-left font-semibold">Pos</th>
+              {Array.from({ length: columns }, (_, i) => (
+                <th key={i} className="whitespace-nowrap px-3 py-2 text-left font-semibold">
+                  {i === 0 ? 'Starter' : ordinal(i + 1)}
+                </th>
               ))}
-            </ul>
-          </div>
-        ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line/60">
+            {rows.map((r) => (
+              <tr key={r.key}>
+                <td className="sticky left-0 z-[5] bg-surface py-2 pl-5 pr-3 text-xs font-semibold text-faint" title={r.name}>
+                  {r.spot}
+                </td>
+                {Array.from({ length: columns }, (_, i) => {
+                  const d = r.players[i];
+                  if (!d) return <td key={i} className="px-3 py-2" />;
+                  const status = designation.get(d.gsis_id) || d.injury_status;
+                  const tag = INJURY_TAGS[status];
+                  const tone = i === 0 ? 'font-semibold' : 'text-muted';
+                  return (
+                    <td key={i} className="truncate px-3 py-2">
+                      {d.gsis_id ? (
+                        <Link href={`/players/${d.gsis_id}`} className={`${tone} hover:underline`}>{d.player_name}</Link>
+                      ) : (
+                        <span className={tone}>{d.player_name}</span>
+                      )}
+                      {tag && (
+                        <span className={`ml-1.5 text-2xs font-bold ${tag.tone}`} title={status}>
+                          {tag.tag}
+                        </span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+      <p className="px-5 pt-3 text-xs text-faint">
+        Q questionable · D doubtful · O out · IR injured reserve · PUP physically unable to perform.
+        {sources.includes('Sleeper') && NFLVERSE_SPOTS[unit] && ` ${NFLVERSE_SPOTS[unit]} from nflverse.`}
+      </p>
     </Card>
   );
 }
@@ -328,9 +396,9 @@ function InjuryReport({ injuries }) {
       {injuries.length === 0 ? (
         <p className="text-sm text-muted">No players listed as out, doubtful or questionable.</p>
       ) : (
-        <ul className="divide-y divide-line/70 text-sm">
+        <ul className="grid grid-cols-1 gap-x-8 text-sm md:grid-cols-2">
           {injuries.map((i) => (
-            <li key={i.gsis_id} className="flex items-center gap-3 py-2">
+            <li key={i.gsis_id} className="flex items-center gap-3 border-b border-line/70 py-2">
               <span className={`w-24 shrink-0 rounded border px-1.5 py-0.5 text-center text-2xs font-bold uppercase ${tone[i.report_status] || 'border-line-strong text-muted'}`}>
                 {i.report_status}
               </span>
