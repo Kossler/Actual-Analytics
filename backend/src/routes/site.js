@@ -752,7 +752,7 @@ router.get('/teams/:abbr', handle(async (req, res) => {
       )
       SELECT t.*, pbp.dropbacks, pbp.dropback_epa, pbp.pbp_carries, pbp.pbp_rush_epa, pbp.pbp_targets, pbp.target_epa
       FROM totals t LEFT JOIN pbp USING (player_id)`, season, abbr),
-    query(`SELECT gsis_id, player_name, pos_grp, pos_abb, pos_slot, pos_rank, dt, source
+    query(`SELECT gsis_id, player_name, pos_grp, pos_abb, pos_name, pos_slot, pos_rank, spot, injury_status, dt, source
            FROM depth_chart WHERE team = $1 ORDER BY pos_grp, pos_slot, pos_rank`, abbr),
     query(`SELECT i.gsis_id, i.full_name, i.position, i.week::INT AS week, i.report_status, i.report_primary_injury,
                   i.practice_status

@@ -1559,6 +1559,7 @@ model depth_charts_sleeper {
   sleeper_id           String?
   gsis_id              String?
   depth_chart_position String?
+  injury_status        String?
   pos_grp              String?
   pos_abb              String?
   pos_name             String?
