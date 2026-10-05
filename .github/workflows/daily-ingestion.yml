@@ -28,6 +28,15 @@ on:
 
 
   workflow_dispatch:
+    inputs:
+      tables:
+        description: 'Comma-separated tables to load (blank = the usual set)'
+        required: false
+        default: ''
+      all_seasons:
+        description: 'Load every season instead of only the latest (backfills)'
+        type: boolean
+        default: false
 
 
 jobs:
@@ -50,12 +59,12 @@ jobs:
       - name: Run current season data update
         env:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
-          LATEST_SEASON: '1'
+          LATEST_SEASON: ${{ inputs.all_seasons && '0' || '1' }}
           # Refresh app-critical tables (these tables contain all seasons; we load only the latest season rows).
           # participation is omitted: nflverse stopped publishing it after 2025 and the app doesn't use it.
-          TABLES: 'schedules,teams,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats'
+          TABLES: ${{ inputs.tables || 'schedules,teams,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving' }}
           # Upsert only the tables that can change as stats are recalculated.
-          UPSERT_TABLES: 'schedules,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats'
+          UPSERT_TABLES: 'schedules,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving'
           UPSERT: '0'
           PROCESSES: '4'
           CHUNK_SIZE: '50000'

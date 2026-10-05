@@ -3,18 +3,17 @@
 This directory contains the frontend application for Second Level Analytics, an NFL player analytics platform.
 
 ## Structure
-- **components/**: React UI components (tables, charts, search, etc.)
-- **hooks/**: Custom React hooks for data fetching and state management
-- **pages/**: Next.js pages, including dynamic player routes
-- **public/**: Static assets (icons, styles)
-- **styles/**: Global CSS and theme configuration
-- **utils/**: Utility functions for stats and data processing
+- **pages/**: Next.js pages (leaderboards, player, team, games, predictive models, glossary, compare)
+- **components/**: page components, the shared data table, UI primitives and SVG charts
+- **lib/**: metric definitions, per-position layouts, formatting, API and storage helpers
+- **styles/**: Tailwind base styles; design tokens live in `tailwind.config.js`
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pieces fit together.
 
 ## Features
-- Next.js SPA with dynamic routing for player pages
-- Tailwind CSS and MUI for styling
-- Client-side data fetching from backend API
-- Advanced metrics, charts, and tables
+- Edge-rendered pages (Cloudflare Pages) with all data-changing state in the URL
+- Tailwind styling, hand-written SVG charts, no UI or chart library
+- Leaderboards, player and team pages, weekly games with win probability, model pages and a glossary
 
 ## Setup
 1. Install dependencies:
@@ -22,7 +21,7 @@ This directory contains the frontend application for Second Level Analytics, an 
    cd frontend
    npm install
    ```
-2. Start development server:
+2. Start development server (point it at a backend with `NEXT_PUBLIC_API_URL`, e.g. in `.env.local`):
    ```bash
    npm run dev
    ```

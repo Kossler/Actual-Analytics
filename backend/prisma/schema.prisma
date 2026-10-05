@@ -1370,3 +1370,133 @@ model app_meta {
   value      String
   updated_at DateTime @default(now()) @db.Timestamptz(6)
 }
+
+model nextgen_rushing {
+  id                                   Int     @id @default(autoincrement())
+  season                               BigInt?
+  season_type                          String?
+  week                                 BigInt?
+  player_display_name                  String?
+  player_position                      String?
+  team_abbr                            String?
+  efficiency                           Float?
+  percent_attempts_gte_eight_defenders Float?
+  avg_time_to_los                      Float?
+  rush_attempts                        BigInt?
+  rush_yards                           BigInt?
+  avg_rush_yards                       Float?
+  rush_touchdowns                      BigInt?
+  player_gsis_id                       String?
+  player_first_name                    String?
+  player_last_name                     String?
+  player_jersey_number                 BigInt?
+  player_short_name                    String?
+  expected_rush_yards                  Float?
+  rush_yards_over_expected             Float?
+  rush_yards_over_expected_per_att     Float?
+  rush_pct_over_expected               Float?
+
+  @@unique([season, week, player_gsis_id], map: "nextgen_rushing_unique")
+}
+
+model nextgen_receiving {
+  id                                  Int     @id @default(autoincrement())
+  season                              BigInt?
+  season_type                         String?
+  week                                BigInt?
+  player_display_name                 String?
+  player_position                     String?
+  team_abbr                           String?
+  avg_cushion                         Float?
+  avg_separation                      Float?
+  avg_intended_air_yards              Float?
+  percent_share_of_intended_air_yards Float?
+  receptions                          BigInt?
+  targets                             BigInt?
+  catch_percentage                    Float?
+  yards                               Float?
+  rec_touchdowns                      BigInt?
+  avg_yac                             Float?
+  avg_expected_yac                    Float?
+  avg_yac_above_expectation           Float?
+  player_gsis_id                      String?
+  player_first_name                   String?
+  player_last_name                    String?
+  player_jersey_number                BigInt?
+  player_short_name                   String?
+
+  @@unique([season, week, player_gsis_id], map: "nextgen_receiving_unique")
+}
+
+/// Team strength entering a week (ingest/models.py).
+model team_ratings {
+  season  Int
+  week    Int
+  team    String
+  off_epa Float
+  def_epa Float
+  margin  Float
+  games   Int
+
+  @@id([season, week, team])
+}
+
+/// Pregame win probability and projected score for every game (ingest/models.py).
+model game_predictions {
+  game_id       String   @id
+  season        Int
+  week          Int
+  game_type     String?
+  home_team     String
+  away_team     String
+  home_wp       Float
+  home_proj     Float
+  away_proj     Float
+  proj_margin   Float
+  model_version String
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([season, week], map: "game_predictions_season_week_idx")
+}
+
+/// Season simulation results (ingest/models.py).
+model playoff_odds {
+  season       Int
+  team         String
+  through_week Int
+  playoff_pct  Float
+  division_pct Float
+  top_seed_pct Float
+  proj_wins    Float
+  proj_losses  Float
+  sims         Int
+  updated_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([season, team])
+}
+
+/// Next-game stat projections with ranges (ingest/models.py).
+model player_projections {
+  season      Int
+  week        Int
+  player_id   String
+  player_name String?
+  position    String?
+  team        String?
+  opponent    String?
+  home        Boolean?
+  game_id     String?
+  stats       Json
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([season, week, player_id])
+}
+
+/// Training/validation metrics for each model run.
+model model_runs {
+  id         Int      @id @default(autoincrement())
+  model      String
+  version    String
+  metrics    Json
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}

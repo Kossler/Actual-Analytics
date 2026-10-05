@@ -1,5 +1,4 @@
-// The Players leaderboard is the homepage.
-import LeaderboardPage, { getLeaderboardProps } from '../components/LeaderboardPage';
+import LeaderboardPage, { getLeaderboardProps } from '../../components/LeaderboardPage';
 
 export const runtime = 'experimental-edge';
 

@@ -1,33 +1,22 @@
-import { NextUIProvider } from '@nextui-org/react';
 import '../utils/ensureNextCssAnchor';
 import '../styles/globals.css';
-import { useEffect } from 'react';
 import Head from 'next/head';
+import { Archivo, Inter } from 'next/font/google';
+import Layout from '../components/Layout';
 
-import Footer from '../components/Footer';
+const archivo = Archivo({ subsets: ['latin'], axes: ['wdth'], variable: '--font-archivo', display: 'swap' });
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 
-function MyApp({ Component, pageProps }) {
-  useEffect(() => {
-    // Force dark mode
-    document.documentElement.classList.add('dark');
-    document.body.classList.add('dark');
-    document.body.style.backgroundColor = '#18181b';
-    document.body.style.color = '#fafafa';
-  }, []);
-
+export default function App({ Component, pageProps }) {
   return (
-    <NextUIProvider>
+    <div className={`${archivo.variable} ${inter.variable} font-sans`}>
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Second Level Analytics</title>
       </Head>
-      <div className="dark" style={{ backgroundColor: '#18181b', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ flex: 1 }}>
-          <Component {...pageProps} />
-        </div>
-        <Footer />
-      </div>
-    </NextUIProvider>
+      <Layout>
+        <Component {...pageProps} />
+      </Layout>
+    </div>
   );
 }
-
-export default MyApp;

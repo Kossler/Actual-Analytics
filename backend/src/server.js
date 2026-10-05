@@ -5,6 +5,7 @@ const compression = require('compression');
 
 const playersRouter = require('./routes/players');
 const apiRouter = require('./routes/api');
+const siteRouter = require('./routes/site');
 const { responseCache, startDataVersionWatcher, stats: cacheStats } = require('./responseCache');
 
 const app = express();
@@ -26,6 +27,7 @@ app.get('/health', (req, res) => {
 // Cache every data response except predictions (computed per request, not from ingested data).
 app.use((req, res, next) => (req.path.startsWith('/predict/') ? next() : responseCache(req, res, next)));
 
+app.use('/api', siteRouter);
 app.use('/api/players', playersRouter);
 app.use('/', apiRouter);
 
