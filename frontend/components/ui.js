@@ -236,13 +236,37 @@ export function toneOf(value, better = 'high') {
   return (value > 0) === (better === 'high') ? 'good' : 'bad';
 }
 
-// Two-sided probability bar: orange share for the first side, blue for the second.
-export function ProbabilityBar({ left, className = '' }) {
+// Two-sided probability bar: the first side's share on the left. Colours default to orange / blue.
+export function ProbabilityBar({ left, leftColor = '#f0913f', rightColor = '#4a8ef0', className = '' }) {
   const pct = Math.max(0, Math.min(1, left)) * 100;
   return (
-    <div className={`flex h-1.5 overflow-hidden rounded-full bg-line ${className}`}>
-      <div className="h-full bg-bad" style={{ width: `${pct}%` }} />
-      <div className="h-full flex-1 bg-[#4a8ef0]" />
+    <div className={`flex h-1.5 gap-px overflow-hidden rounded-full bg-line ${className}`}>
+      <div className="h-full" style={{ width: `${pct}%`, backgroundColor: leftColor }} />
+      <div className="h-full flex-1" style={{ backgroundColor: rightColor }} />
+    </div>
+  );
+}
+
+// Win-probability bar for a game: each team's abbreviation and chance at its own end (away left,
+// home right) in its colour, with an optional caption between them.
+export function MatchupBar({ away, home, homeWp, colors, caption, className = '' }) {
+  const awayWp = 1 - homeWp;
+  const side = (abbr, p, color, align) => (
+    <span className={`flex items-center gap-1.5 whitespace-nowrap ${align === 'right' ? 'flex-row-reverse' : ''}`}>
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />
+      <span className={p >= 0.5 ? 'font-semibold text-ink' : 'text-muted'}>
+        {align === 'right' ? `${Math.round(p * 100)}% ${abbr}` : `${abbr} ${Math.round(p * 100)}%`}
+      </span>
+    </span>
+  );
+  return (
+    <div className={className}>
+      {caption && <div className="mb-1 text-xs text-muted">{caption}</div>}
+      <div className="mb-1.5 flex items-center justify-between gap-2 text-xs">
+        {side(away, awayWp, colors.away, 'left')}
+        {side(home, homeWp, colors.home, 'right')}
+      </div>
+      <ProbabilityBar left={awayWp} leftColor={colors.away} rightColor={colors.home} />
     </div>
   );
 }

@@ -3,20 +3,23 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useState } from 'react';
 import WinProbabilityChart from '../components/charts/WinProbabilityChart';
-import { EmptyState, PageHeader, ProbabilityBar } from '../components/ui';
+import { EmptyState, MatchupBar, PageHeader } from '../components/ui';
 import { fetchJson, loadProps, queryString, useApi, usePolling } from '../lib/api';
 import { fixed, int, pctLabel, shortWeekLabel, signed, weekLabel } from '../lib/format';
+import { matchupColors } from '../lib/teams';
 
 export const runtime = 'experimental-edge';
 
 export async function getServerSideProps({ query }) {
-  const result = await loadProps({ data: `/api/games${queryString({ season: query.season, week: query.week })}` });
+  const result = await loadProps({ data: `/api/games${queryString({ season: query.season, week: query.week })}`, meta: '/api/meta' });
   if (result.notFound) return result;
   const { games } = result.props.data;
   const chosen =
     games.find((g) => g.game_id === query.game) || games.find((g) => g.home_score != null) || games[0] || null;
   const detail = chosen ? await fetchJson(`/api/games/${chosen.game_id}`).catch(() => null) : null;
-  return { props: { ...result.props, detail } };
+  // Only the colours are needed from the team list.
+  const teamColors = Object.fromEntries(result.props.meta.teams.map((t) => [t.abbr, { color: t.color, color2: t.color2 }]));
+  return { props: { data: result.props.data, teamColors, detail } };
 }
 
 const isFinal = (g) => g.home_score != null && g.away_score != null;
@@ -41,7 +44,8 @@ function isUpset(g) {
   return (g.home_score > g.away_score) !== p.homeFav;
 }
 
-export default function GamesPage({ data, detail }) {
+export default function GamesPage({ data, teamColors, detail }) {
+  const colorsFor = (g) => matchupColors(teamColors[g.away_team], teamColors[g.home_team]);
   const router = useRouter();
   const { weeks, games, season, week } = data;
   const index = weeks.findIndex((w) => w.week === week);
@@ -91,20 +95,19 @@ export default function GamesPage({ data, detail }) {
       ) : (
         <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {shown.map((g) => (
-            <GameCard key={g.game_id} game={g} selected={detail?.game.game_id === g.game_id} onSelect={() => go({ week, game: g.game_id })} />
+            <GameCard key={g.game_id} game={g} colors={colorsFor(g)} selected={detail?.game.game_id === g.game_id} onSelect={() => go({ week, game: g.game_id })} />
           ))}
         </div>
       )}
 
-      {detail && <GameDetail key={detail.game.game_id} detail={detail} live={liveById.get(detail.game.game_id)} />}
+      {detail && <GameDetail key={detail.game.game_id} detail={detail} live={liveById.get(detail.game.game_id)} colors={colorsFor(detail.game)} />}
     </>
   );
 }
 
-function GameCard({ game: g, selected, onSelect }) {
-  if (g.live) return <LiveCard game={g} selected={selected} onSelect={onSelect} />;
+function GameCard({ game: g, colors, selected, onSelect }) {
+  if (g.live) return <LiveCard game={g} colors={colors} selected={selected} onSelect={onSelect} />;
   const final = isFinal(g);
-  const p = pregame(g);
   const awayWon = final && g.away_score > g.home_score;
   const homeWon = final && g.home_score > g.away_score;
   return (
@@ -119,21 +122,15 @@ function GameCard({ game: g, selected, onSelect }) {
       </div>
       <TeamLine abbr={g.away_team} score={g.away_score} won={awayWon} final={final} />
       <TeamLine abbr={g.home_team} score={g.home_score} won={homeWon} final={final} />
-      {p && (
-        <>
-          <div className="mt-3 text-xs text-muted">
-            {final ? 'Pregame model' : 'Model'}: {p.team} {pctLabel(p.prob)}
-          </div>
-          <ProbabilityBar left={1 - g.home_wp} className="mt-1.5" />
-        </>
+      {g.home_wp != null && (
+        <MatchupBar away={g.away_team} home={g.home_team} homeWp={g.home_wp} colors={colors} caption={final ? 'Pregame model' : 'Model'} className="mt-3" />
       )}
     </button>
   );
 }
 
-function LiveCard({ game: g, selected, onSelect }) {
+function LiveCard({ game: g, colors, selected, onSelect }) {
   const { live } = g;
-  const homeFav = live.home_wp >= 0.5;
   return (
     <button
       type="button"
@@ -146,10 +143,7 @@ function LiveCard({ game: g, selected, onSelect }) {
       </div>
       <LiveTeamLine abbr={live.away_team} score={live.away_score} ball={live.possession === live.away_team} />
       <LiveTeamLine abbr={live.home_team} score={live.home_score} ball={live.possession === live.home_team} />
-      <div className="mt-3 text-xs text-muted">
-        Live model: {homeFav ? live.home_team : live.away_team} {pctLabel(homeFav ? live.home_wp : 1 - live.home_wp)}
-      </div>
-      <ProbabilityBar left={1 - live.home_wp} className="mt-1.5" />
+      <MatchupBar away={live.away_team} home={live.home_team} homeWp={live.home_wp} colors={colors} caption="Live model" className="mt-3" />
     </button>
   );
 }
@@ -194,7 +188,7 @@ function TeamLine({ abbr, score, won, final }) {
   );
 }
 
-function GameDetail({ detail, live }) {
+function GameDetail({ detail, live, colors }) {
   const [showDrives, setShowDrives] = useState(false);
   const { teams } = detail;
   // Until the nightly ingest loads its play-by-play, a started game's chart comes from the live feed.
@@ -231,10 +225,10 @@ function GameDetail({ detail, live }) {
               Win probability for {game.home_team} over the game
               {inProgress && ` · now ${pctLabel(live.home_wp)}, updating live`}
             </p>
-            <WinProbabilityChart series={series} home={game.home_team} away={game.away_team} />
+            <WinProbabilityChart series={series} home={game.home_team} away={game.away_team} colors={colors} />
           </>
         ) : (
-          <Preview game={game} />
+          <Preview game={game} colors={colors} />
         )}
       </div>
       <div>
@@ -242,13 +236,13 @@ function GameDetail({ detail, live }) {
         {home && away ? (
           <>
             <div className="mb-3 flex justify-between text-sm font-bold">
-              <span className="text-bad">{game.away_team}</span>
-              <span className="text-good">{game.home_team}</span>
+              <span style={{ color: colors.away }}>{game.away_team}</span>
+              <span style={{ color: colors.home }}>{game.home_team}</span>
             </div>
-            <Compare label="EPA / play" a={away.epa / away.plays} b={home.epa / home.plays} format={(v) => signed(v, 2)} diverging />
-            <Compare label="Success rate" a={away.success / away.plays} b={home.success / home.plays} format={(v) => pctLabel(v)} />
-            <Compare label="Total yards" a={away.yards} b={home.yards} format={int} />
-            <Compare label="Turnovers" a={away.turnovers} b={home.turnovers} format={int} />
+            <Compare colors={colors} label="EPA / play" a={away.epa / away.plays} b={home.epa / home.plays} format={(v) => signed(v, 2)} diverging />
+            <Compare colors={colors} label="Success rate" a={away.success / away.plays} b={home.success / home.plays} format={(v) => pctLabel(v)} />
+            <Compare colors={colors} label="Total yards" a={away.yards} b={home.yards} format={int} />
+            <Compare colors={colors} label="Turnovers" a={away.turnovers} b={home.turnovers} format={int} />
             <p className="mt-4 text-xs text-faint">Passing and rushing plays only; yards exclude penalties and returns.</p>
           </>
         ) : (
@@ -264,7 +258,7 @@ function GameDetail({ detail, live }) {
         </Link>
       </div>
     </section>
-    {showDrives && <Drives game={game} />}
+    {showDrives && <Drives game={game} colors={colors} />}
     </>
   );
 }
@@ -288,7 +282,7 @@ const RESULT_TONE = { Touchdown: 'text-good', 'Field goal': 'text-good', Turnove
 
 // One row per drive: a bar across the field from where the drive started to where it ended,
 // measured from the offense's own goal line, so every drive reads left to right.
-function Drives({ game }) {
+function Drives({ game, colors }) {
   const { data, loading } = useApi(`/api/games/${game.game_id}/drives`);
   const [open, setOpen] = useState(null);
   if (loading || !data) return <div className="card mt-4 p-5 text-sm text-muted">Loading drives…</div>;
@@ -302,8 +296,8 @@ function Drives({ game }) {
           <p className="text-xs text-muted">Each bar runs from the drive's start to its end, measured from the offense's own goal line. Click a drive for its plays.</p>
         </div>
         <div className="flex gap-4 text-xs">
-          <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-sm bg-bad" />{game.away_team}</span>
-          <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-sm bg-[#4a8ef0]" />{game.home_team}</span>
+          <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-sm" style={{ backgroundColor: colors.away }} />{game.away_team}</span>
+          <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-sm" style={{ backgroundColor: colors.home }} />{game.home_team}</span>
         </div>
       </div>
       <div className="mt-3">
@@ -339,8 +333,8 @@ function Drives({ game }) {
                   ))}
                   {d.from != null && (
                     <span
-                      className={`absolute inset-y-[3px] rounded-sm ${home ? 'bg-[#4a8ef0]' : 'bg-bad'}`}
-                      style={{ left: `${lo}%`, width: `${Math.max(1, hi - lo)}%` }}
+                      className="absolute inset-y-[3px] rounded-sm"
+                      style={{ left: `${lo}%`, width: `${Math.max(1, hi - lo)}%`, backgroundColor: home ? colors.home : colors.away }}
                     />
                   )}
                 </span>
@@ -374,20 +368,12 @@ function Drives({ game }) {
   );
 }
 
-function Preview({ game }) {
+function Preview({ game, colors }) {
   if (game.pregame_home_wp == null) return <p className="mt-3 text-sm text-muted">No prediction for this game yet.</p>;
   const homeFav = game.pregame_home_wp >= 0.5;
   return (
     <div className="mt-4 max-w-lg space-y-4">
-      <div className="flex justify-between text-sm">
-        <span>
-          {game.away_team} <span className="font-semibold">{pctLabel(1 - game.pregame_home_wp)}</span>
-        </span>
-        <span>
-          <span className="font-semibold">{pctLabel(game.pregame_home_wp)}</span> {game.home_team}
-        </span>
-      </div>
-      <ProbabilityBar left={1 - game.pregame_home_wp} />
+      <MatchupBar away={game.away_team} home={game.home_team} homeWp={game.pregame_home_wp} colors={colors} caption="Model win probability" className="[&>div:first-child]:text-sm" />
       <p className="text-sm text-muted">
         Model projection: {game.away_team} {fixed(game.away_proj, 0)}, {game.home_team} {fixed(game.home_proj, 0)} ·{' '}
         {homeFav ? game.home_team : game.away_team} by {fixed(Math.abs(game.home_proj - game.away_proj), 1)}
@@ -399,7 +385,7 @@ function Preview({ game }) {
   );
 }
 
-function Compare({ label, a, b, format, diverging }) {
+function Compare({ label, a, b, format, diverging, colors }) {
   const share = diverging ? Math.max(0.05, Math.min(0.95, 0.5 + (a - b) * 1.5)) : a + b > 0 ? a / (a + b) : 0.5;
   return (
     <div className="mb-3">
@@ -409,8 +395,8 @@ function Compare({ label, a, b, format, diverging }) {
         <span className="font-semibold">{format(b)}</span>
       </div>
       <div className="mt-1 flex h-1.5 gap-0.5 overflow-hidden rounded-full">
-        <div className="bg-[#5c3c22]" style={{ width: `${share * 100}%` }} />
-        <div className="flex-1 bg-[#4a8ef0]" />
+        <div style={{ width: `${share * 100}%`, backgroundColor: colors.away }} />
+        <div className="flex-1" style={{ backgroundColor: colors.home }} />
       </div>
     </div>
   );

@@ -98,3 +98,85 @@ export function divisionStanding(teams, team) {
   const sorted = [...division].sort((a, b) => (b.win_pct ?? 0) - (a.win_pct ?? 0) || b.point_diff - a.point_diff);
   return sorted.findIndex((t) => t.abbr === team.abbr) + 1;
 }
+
+// ---- Matchup colours ----------------------------------------------------------------------------
+// Team colours for two-team visuals (probability bars, charts), adjusted for the dark background:
+// black or grey primaries fall back to the secondary colour, dark colours are lightened until they
+// show, and when both teams come out alike the away team switches to its other colour.
+
+const FALLBACK = { away: '#f0913f', home: '#4a8ef0' };
+
+function rgb(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+const toHex = (c) => `#${c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+
+function luminance([r, g, b]) {
+  const lin = (v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function saturation([r, g, b]) {
+  const max = Math.max(r, g, b) / 255;
+  const min = Math.min(r, g, b) / 255;
+  const l = (max + min) / 2;
+  return max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+}
+
+function toHsl([r, g, b]) {
+  const [rr, gg, bb] = [r / 255, g / 255, b / 255];
+  const max = Math.max(rr, gg, bb);
+  const min = Math.min(rr, gg, bb);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === rr ? ((gg - bb) / d + (gg < bb ? 6 : 0)) : max === gg ? (bb - rr) / d + 2 : (rr - gg) / d + 4;
+  return [h * 60, s, l];
+}
+
+function fromHsl([h, s, l]) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+}
+
+// Lighten dark colours until they stand out on the page background, keeping hue and saturation
+// (mixing toward white would turn navy into grey).
+function visible(c) {
+  if (luminance(c) >= 0.09) return c;
+  const [h, s, l] = toHsl(c);
+  let out = c;
+  for (let light = l; light <= 0.75 && luminance(out) < 0.09; light += 0.04) out = fromHsl([h, Math.min(s, 0.85), light]);
+  return out;
+}
+
+const distance = (a, b) => Math.sqrt(a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0));
+
+// Usable colours for a team in order of preference (black/grey primaries go last).
+function options(team) {
+  const primary = rgb(team?.color);
+  const secondary = rgb(team?.color2);
+  const list = [primary, secondary].filter(Boolean);
+  if (primary && saturation(primary) < 0.15 && secondary) list.reverse();
+  return list.map(visible);
+}
+
+/** { away, home } colours for a matchup, given team rows with color / color2. */
+export function matchupColors(awayTeam, homeTeam) {
+  const home = options(homeTeam)[0];
+  const awayOptions = options(awayTeam);
+  if (!home || !awayOptions.length) return FALLBACK;
+  const away = awayOptions.find((c) => distance(c, home) > 80) || awayOptions[0];
+  // Still alike (e.g. both teams' colours are close): keep home, use the neutral fallback for away.
+  return { home: toHex(home), away: distance(away, home) > 80 ? toHex(away) : FALLBACK.away };
+}
