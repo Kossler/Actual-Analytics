@@ -162,23 +162,53 @@ function visible(c) {
   return out;
 }
 
-const distance = (a, b) => Math.sqrt(a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0));
+// Perceptual colour difference (CIE76 delta E in Lab space): about 2 is just noticeable; below
+// ~35 two colours are easy to confuse in a thin bar.
+function lab(c) {
+  const lin = c.map((v) => {
+    const x = v / 255;
+    return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  });
+  const [x, y, z] = [[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]]
+    .map((row) => row.reduce((sum, k, i) => sum + k * lin[i], 0));
+  const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : ((24389 / 27) * t + 16) / 116);
+  const [fx, fy, fz] = [x / 0.95047, y, z / 1.08883].map(f);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
 
-// Usable colours for a team in order of preference (black/grey primaries go last).
+const deltaE = (a, b) => {
+  const [la, lb] = [lab(a), lab(b)];
+  return Math.hypot(la[0] - lb[0], la[1] - lb[1], la[2] - lb[2]);
+};
+
+const DISTINCT = 35;
+const isGrey = (c) => saturation(c) < 0.15;
+
+// A team's primary and secondary colours, made visible. Black or grey primaries swap with the
+// secondary (Steelers gold, not black).
 function options(team) {
   const primary = rgb(team?.color);
   const secondary = rgb(team?.color2);
   const list = [primary, secondary].filter(Boolean);
-  if (primary && saturation(primary) < 0.15 && secondary) list.reverse();
+  if (primary && isGrey(primary) && secondary) list.reverse();
   return list.map(visible);
 }
 
-/** { away, home } colours for a matchup, given team rows with color / color2. */
+/** { away, home } colours for a matchup, given team rows with color / color2. Uses both teams'
+ *  primary colours unless they are too alike; then the away team's secondary, the home team's
+ *  secondary, or both, whichever is first to be clearly distinct (greys from black or silver
+ *  secondaries are a last resort). If nothing is distinct, the most different pair wins. */
 export function matchupColors(awayTeam, homeTeam) {
-  const home = options(homeTeam)[0];
-  const awayOptions = options(awayTeam);
-  if (!home || !awayOptions.length) return FALLBACK;
-  const away = awayOptions.find((c) => distance(c, home) > 80) || awayOptions[0];
-  // Still alike (e.g. both teams' colours are close): keep home, use the neutral fallback for away.
-  return { home: toHex(home), away: distance(away, home) > 80 ? toHex(away) : FALLBACK.away };
+  const [homePrimary, homeSecondary] = options(homeTeam);
+  const [awayPrimary, awaySecondary] = options(awayTeam);
+  if (!homePrimary || !awayPrimary) return FALLBACK;
+  const combos = [
+    [awayPrimary, homePrimary],
+    [awaySecondary, homePrimary],
+    [awayPrimary, homeSecondary],
+    [awaySecondary, homeSecondary],
+  ].filter(([a, h]) => a && h);
+  const clear = combos.find(([a, h], i) => deltaE(a, h) >= DISTINCT && (i === 0 || (!isGrey(a) && !isGrey(h))));
+  const [away, home] = clear || combos.reduce((best, c) => (deltaE(c[0], c[1]) > deltaE(best[0], best[1]) ? c : best));
+  return { away: toHex(away), home: toHex(home) };
 }
