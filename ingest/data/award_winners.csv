@@ -1,4 +1,69 @@
 award,season,name,team,position
+allpro_ol,2013,Evan Mathis,Philadelphia,G
+allpro_ol,2013,Jason Peters,Philadelphia,T
+allpro_ol,2013,Joe Thomas,Cleveland,T
+allpro_ol,2013,Louis Vasquez,Denver,G
+allpro_ol,2013,Ryan Kalil,Carolina,C
+allpro_ol,2014,Joe Thomas,Cleveland,T
+allpro_ol,2014,Marshal Yanda,Baltimore Ravens,G
+allpro_ol,2014,Maurkice Pouncey,Pittsburgh,C
+allpro_ol,2014,Tyron Smith,Dallas,T
+allpro_ol,2014,Zack Martin,Dallas,G
+allpro_ol,2015,Andrew Whitworth,Cincinnati,T
+allpro_ol,2015,David DeCastro,Pittsburgh,G
+allpro_ol,2015,Joe Thomas,Cleveland,T
+allpro_ol,2015,Marshal Yanda,Baltimore,G
+allpro_ol,2015,Ryan Kalil,Carolina,C
+allpro_ol,2016,Jack Conklin,Tennessee,T
+allpro_ol,2016,Kelechi Osemele,Oakland,G
+allpro_ol,2016,Travis Frederick,Dallas,C
+allpro_ol,2016,Tyron Smith,Dallas,T
+allpro_ol,2016,Zack Martin,Dallas,G
+allpro_ol,2017,Andrew Norwell,Carolina,G
+allpro_ol,2017,Andrew Whitworth,Los Angeles Rams,T
+allpro_ol,2017,David DeCastro,Pittsburgh,G
+allpro_ol,2017,Jason Kelce,Philadelphia,C
+allpro_ol,2017,Lane Johnson,Philadelphia,T
+allpro_ol,2018,David Bakhtiari,Green Bay,T
+allpro_ol,2018,Jason Kelce,Philadelphia,C
+allpro_ol,2018,Mitchell Schwartz,Kansas City,T
+allpro_ol,2018,Quenton Nelson,Indianapolis,G
+allpro_ol,2018,Zack Martin,Dallas,G
+allpro_ol,2019,Jason Kelce,Philadelphia,C
+allpro_ol,2019,Quenton Nelson,Indianapolis,G
+allpro_ol,2019,Ronnie Stanley,Baltimore,T
+allpro_ol,2019,Ryan Ramczyk,New Orleans,T
+allpro_ol,2019,Zack Martin,Dallas,G
+allpro_ol,2020,Brandon Scherff,Washington,G
+allpro_ol,2020,Corey Linsley,Green Bay,C
+allpro_ol,2020,David Bakhtiari,Green Bay,T
+allpro_ol,2020,Jack Conklin,Cleveland,T
+allpro_ol,2020,Quenton Nelson,Indianapolis,G
+allpro_ol,2021,Jason Kelce,Philadelphia,C
+allpro_ol,2021,Joel Bitonio,Cleveland,G
+allpro_ol,2021,Trent Williams,San Francisco,T
+allpro_ol,2021,Tristan Wirfs,Tampa Bay,T
+allpro_ol,2021,Zack Martin,Dallas,G
+allpro_ol,2022,Jason Kelce,Philadelphia,C
+allpro_ol,2022,Joel Bitonio,Cleveland,G
+allpro_ol,2022,Lane Johnson,Philadelphia,T
+allpro_ol,2022,Trent Williams,San Francisco,T
+allpro_ol,2022,Zack Martin,Dallas,G
+allpro_ol,2023,Jason Kelce,Philadelphia,C
+allpro_ol,2023,Joe Thuney,Kansas City,G
+allpro_ol,2023,Penei Sewell,Detroit,T
+allpro_ol,2023,Trent Williams,San Francisco,T
+allpro_ol,2023,Zack Martin,Dallas,G
+allpro_ol,2024,Creed Humphrey,Kansas City,C
+allpro_ol,2024,Joe Thuney,Kansas City,G
+allpro_ol,2024,Penei Sewell,Detroit,T
+allpro_ol,2024,Quinn Meinerz,Denver,G
+allpro_ol,2024,Tristan Wirfs,Tampa Bay,T
+allpro_ol,2025,Creed Humphrey,Kansas City,C
+allpro_ol,2025,Garett Bolles,Denver,T
+allpro_ol,2025,Joe Thuney,Chicago,G
+allpro_ol,2025,Penei Sewell,Detroit,T
+allpro_ol,2025,Quinn Meinerz,Denver,G
 coy,2000,Jim Haslett,New Orleans Saints,
 coy,2001,Dick Jauron,Chicago Bears,
 coy,2002,Andy Reid,Philadelphia Eagles,
@@ -183,3 +248,4 @@ oroy,2022,Garrett Wilson,New York Jets,Wide receiver
 oroy,2023,C. J. Stroud,Houston Texans,Quarterback
 oroy,2024,Jayden Daniels,Washington Commanders,Quarterback
 oroy,2025,Tetairoa McMillan,Carolina Panthers,Wide receiver
+poy,2025,Joe Thuney,Bears,G

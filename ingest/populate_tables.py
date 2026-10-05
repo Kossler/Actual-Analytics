@@ -509,6 +509,7 @@ MATERIALIZED_VIEWS = {
     'player_week_def_pbp': {'pbp'},
     'player_week_adv': {'pbp', 'ftn_charting'},
     'player_week_kicking': {'pbp'},
+    'player_week_ol': {'pbp', 'snap_counts', 'players', 'pfr_advstats_pass', 'pfr_advstats_rush'},
     'team_game_pbp': {'pbp'},
     'team_game_adv': {'pbp', 'ftn_charting'},
 }

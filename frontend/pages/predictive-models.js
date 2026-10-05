@@ -134,6 +134,11 @@ function WinProbability({ data }) {
               estimates home-field advantage from recent seasons rather than assuming a fixed edge (it has shrunk).
             </p>
             <p>
+              Offensive linemen count through the injury report like everyone else, and a line&apos;s quality is already part of
+              the team&apos;s EPA and success-rate ratings. Separate line features (starting linemen ruled out, a pass-protection
+              matchup) were tested and didn&apos;t improve the forecasts, so they aren&apos;t used.
+            </p>
+            <p>
               A logistic regression turns those differences into a win probability; the projected margin is the margin that
               probability implies (σ ≈ {v?.sigma ? fixed(v.sigma, 1) : '12'} points), so the favourite and the projected score always
               agree. Totals come from a separate model that adds pace, quarterback quality, wind and cold.
@@ -316,6 +321,8 @@ function Projections() {
             Each player’s recent games are averaged with more weight on the latest ones (last season counts less), then adjusted for
             the opponent’s EPA allowed per pass or run so far this season. Players listed Out on the injury report, or not on
             their team’s current depth chart (quarterbacks must be QB1), are left off; Q and D mark questionable and doubtful.
+            A player’s recent games already reflect his own offensive line; starting linemen ruled out that week were tested as an
+            adjustment and didn’t make projections more accurate.
           </p>
           <p>
             Ranges come from the player’s game-to-game variation, widened or narrowed so that last season roughly 80% of outcomes
@@ -474,6 +481,14 @@ function awardStatLine(award, c) {
   if (award === 'coy') {
     return [`${s.record}`, s.prev_record && `was ${s.prev_record}`, `${s.point_diff > 0 ? '+' : ''}${s.point_diff} pt diff`].filter(Boolean).join(' · ');
   }
+  if (award === 'poy') {
+    return [
+      `${int(s.snaps)} snaps`,
+      `${s.penalties} pen`,
+      s.pressure_rate != null ? `line pressured ${pctLabel(s.pressure_rate)}` : s.sack_rate != null && `line sacked ${pctLabel(s.sack_rate, 1)}`,
+      record,
+    ].filter(Boolean).join(' · ');
+  }
   if ('sacks' in s) {
     return [
       s.sacks && `${fixed(s.sacks, s.sacks % 1 ? 1 : 0)} sk`,
@@ -532,6 +547,18 @@ function Candidate({ award, c, max }) {
   );
 }
 
+// Protector of the Year is new (2025), so its model learns from AP All-Pro linemen and its
+// backtest reads differently from the other awards'.
+function awardSubtitle(award) {
+  const bt = award.backtest?.final;
+  const ap = award.backtest?.all_pro;
+  if (award.key === 'poy' && ap) {
+    const ranks = Object.entries(ap.protector_ranks || {}).map(([season, rank]) => `ranked ${season}'s winner ${rank ? `#${rank}` : 'outside our list'}`);
+    return `New in 2025, so trained on AP All-Pro linemen: ${fixed(ap.in_top5, 1)} of each year's 5 were in our top 5${ranks.length ? `; ${ranks.join(', ')}` : ''}`;
+  }
+  return bt ? `Backtest: the winner was our top pick ${bt.top_pick} of ${bt.seasons} seasons, top 3 in ${bt.top3}` : undefined;
+}
+
 function AwardCard({ award, count, className = '' }) {
   const shown = award.candidates.slice(0, count);
   const max = Math.max(...shown.map((c) => c.probability), 0.01);
@@ -540,7 +567,7 @@ function AwardCard({ award, count, className = '' }) {
     <Card
       className={className}
       title={award.label}
-      subtitle={bt ? `Backtest: the winner was our top pick ${bt.top_pick} of ${bt.seasons} seasons, top 3 in ${bt.top3}` : undefined}
+      subtitle={awardSubtitle(award)}
     >
       {shown.length ? (
         <ol className="-my-2.5 divide-y divide-line/60">
@@ -613,6 +640,11 @@ function AwardsMethod({ data }) {
           Voters also weigh narrative, which no box score has: comeback stories, coverage cornerbacks quarterbacks avoid,
           a team nobody expected to win. Comeback Player and Defensive Player are the hardest to call.
         </p>
+        <p>
+          Protector of the Year was first given for 2025, so its model learns from AP All-Pro offensive linemen since
+          2013: snap share, penalties, the line&apos;s pass protection and run blocking while each player was on the field
+          (public data doesn&apos;t credit individual blocks), team record, draft slot, contract and past All-Pro picks.
+        </p>
         <p className="text-xs text-faint">
           Winners from Wikipedia&apos;s AP award lists{data.trained_through ? `; trained through ${data.trained_through}` : ''}.
           ▲▼ change since the week before, in percentage points.
@@ -623,7 +655,8 @@ function AwardsMethod({ data }) {
 }
 
 function AwardsBacktest({ data }) {
-  const rows = data.awards.filter((a) => a.backtest);
+  // Protector of the Year has one past winner; its All-Pro backtest is on its card instead.
+  const rows = data.awards.filter((a) => a.backtest && a.key !== 'poy');
   if (!rows.length) return null;
   const bands = (data.calibration || []).filter((b) => b.stage === 'Week 5 on');
   const early = (data.calibration || []).filter((b) => b.stage === 'Weeks 1-4');

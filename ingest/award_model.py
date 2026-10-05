@@ -1,5 +1,6 @@
 """Season award predictions: MVP, Offensive and Defensive Player of the Year, Offensive and
-Defensive Rookie of the Year, Comeback Player and Coach of the Year.
+Defensive Rookie of the Year, Comeback Player, Coach of the Year and Protector of the Year (best
+offensive lineman; first awarded for 2025, so its model learns from AP All-Pro linemen).
 
 For each award, every candidate's chance of winning is a conditional logit (a softmax across that
 week's candidates) on their stats to date, measured per team game and against peers at the same
@@ -52,7 +53,20 @@ AWARDS = {
                            'best']),
     'coy': dict(label='Coach of the Year', pool='coach', lam=0.03,
                 features=['win_pct', 'improve', 'pd_pg', 'prev', 'new_coach']),
+    # First awarded for 2025, so it trains on AP first-team All-Pro linemen (five a season since
+    # 2013, when snap counts start) and is checked against the one Protector winner.
+    'poy': dict(label='Protector of the Year', pool='line', labels='allpro_ol', first_season=2013, size=90, lam=0.1,
+                features=['z_sack_on', 'z_prss_on', 'z_ybc_on', 'z_rush_epa_on', 'z_pass_epa_on', 'z_pen_rate',
+                          'snap_share', 'share', 'win_pct', 'team_rank', 'prev_ap', 'ap_count', 'apy', 'pick',
+                          'is_T', 'is_G']),
 }
+
+OL_FIRST_SEASON = 2013
+# Snap counts list some linemen as just "OL" (2020 on); the roster position says which spot.
+LINE_POSITIONS = {'T': 'T', 'OT': 'T', 'G': 'G', 'OG': 'G', 'C': 'C'}
+OL_SUMS = ['snaps', 'team_snaps', 'holding', 'false_starts', 'penalties', 'on_dropbacks', 'on_sacks', 'on_qb_hits',
+           'on_pass_epa', 'on_pressures', 'on_pressure_dropbacks', 'on_rushes', 'on_rush_epa', 'on_rush_success',
+           'on_stuffed', 'on_ybc', 'on_pfr_carries']
 
 STAT_SUMS = ['py', 'ptd', 'pint', 'pepa', 'ry', 'rtd', 'repa', 'rec', 'recy', 'rectd', 'recepa',
              'sk', 'qbh', 'tfl', 'dint', 'pd', 'ff', 'tkl', 'dtd']
@@ -109,13 +123,18 @@ def load(conn, last_season):
     tdef['cplays'] = tdef.groupby(['season', 'team']).plays.cumsum()
     tdef['cepa'] = tdef.groupby(['season', 'team']).epa.cumsum()
 
-    players = read("SELECT gsis_id AS player_id, display_name, rookie_season, draft_year, draft_pick FROM players")
+    players = read("SELECT gsis_id AS player_id, display_name, position, rookie_season, draft_year, draft_pick FROM players")
     teams = read("SELECT team_abbr, team_name FROM teams")
-    return Data(ps, tg, tdef, players, teams)
+    ol = read(f"""
+      SELECT player_id, season, week, team, position, {', '.join(OL_SUMS)}
+      FROM player_week_ol WHERE game_type = 'REG' AND season BETWEEN %s AND %s""", OL_FIRST_SEASON, last_season)
+    contracts = read("""SELECT gsis_id AS player_id, year_signed::INT AS year_signed, apy_cap_pct FROM contracts
+                        WHERE gsis_id IS NOT NULL AND year_signed IS NOT NULL AND apy_cap_pct IS NOT NULL""")
+    return Data(ps, tg, tdef, players, teams, ol, contracts, pd.read_csv(WINNERS_CSV))
 
 
 class Data:
-    def __init__(self, ps, tg, tdef, players, teams):
+    def __init__(self, ps, tg, tdef, players, teams, ol, contracts, winners):
         self.ps, self.tg, self.tdef = ps, tg, tdef
         self.last_week = tg.groupby('season').week.max().to_dict()
         final = tg.groupby(['season', 'team']).last().reset_index()
@@ -139,6 +158,30 @@ class Data:
         self._seasons = qual.groupby('player_id').season.apply(list).to_dict()
         self._ps_by_season = {s: d.sort_values('week') for s, d in ps.groupby('season')}
 
+        # Offensive line: names and spots come from the players table (linemen have no stat rows).
+        self.display_name = p.display_name.to_dict()
+        roster_spot = p.position.map(LINE_POSITIONS).to_dict()
+        ol = ol.copy()
+        ol['spot'] = [LINE_POSITIONS.get(x) or roster_spot.get(pid) or 'G' for x, pid in zip(ol.position, ol.player_id)]
+        ol['name'] = ol.player_id.map(self.display_name)
+        self._ol_by_season = {s: d.sort_values('week') for s, d in ol.groupby('season')}
+        # Market value: cap share of the latest contract signed by that season.
+        c = contracts.sort_values('year_signed')
+        self._contracts = {pid: list(zip(d.year_signed, d.apy_cap_pct)) for pid, d in c.groupby('player_id')}
+        # AP All-Pro linemen by season (reputation going into a season).
+        self.all_pro = {}
+        for r in winners[winners.award == 'allpro_ol'].itertuples():
+            pid = match_name(self._ol_by_season.get(r.season), r.name)
+            if pid:
+                self.all_pro.setdefault(r.season, set()).add(pid)
+
+    def apy(self, pid, season):
+        signed = [cap for year, cap in self._contracts.get(pid, ()) if year <= season]
+        return signed[-1] if signed else 0.0
+
+    def all_pro_count(self, pid, season):
+        return sum(pid in ids for year, ids in self.all_pro.items() if year < season)
+
     def best_prior(self, pid, season):
         """Best fantasy points per game in a season of 8+ games, before last season."""
         prior = [y for y in self._seasons.get(pid, []) if y < season - 1]
@@ -153,6 +196,19 @@ class Data:
         return 1 - (epa.rank(method='min') - 1) / max(len(epa) - 1, 1)
 
 
+def match_name(pool, name):
+    """A player id in `pool` (player_id, name) for a name, allowing nickname spellings."""
+    if pool is None:
+        return None
+    pool = pool[['player_id', 'name']].drop_duplicates().dropna()
+    n = norm(name)
+    hit = pool[pool.name.map(norm) == n].player_id.unique()
+    if len(hit) == 0:
+        first, last = n.split(' ')[0], n.split(' ')[-1]
+        hit = pool[pool.name.map(lambda x: norm(x).split(' ')[-1] == last and norm(x)[:1] == first[:1])].player_id.unique()
+    return hit[0] if len(hit) == 1 else None
+
+
 def winner_ids(data, winners):
     """{(award, season): set of player ids (coach: team abbreviations)}."""
     out = {}
@@ -163,6 +219,13 @@ def winner_ids(data, winners):
             hit = coaches[coaches.coach.map(norm) == norm(r.name)].team.unique()
             team = hit[0] if len(hit) else data.team_abbr.get(r.team)
             out.setdefault(('coy', r.season), set()).add(team)
+            continue
+        if r.award in ('allpro_ol', 'poy'):  # linemen have no stat rows; match among linemen
+            pid = match_name(data._ol_by_season.get(r.season), r.name)
+            if pid:
+                out.setdefault((r.award, r.season), set()).add(pid)
+            else:
+                print(f'  Awards: could not match {r.award} {r.season} {r.name}')
             continue
         pool = data.ps[data.ps.season == r.season][['player_id', 'name']].drop_duplicates()
         n = norm(r.name)
@@ -226,6 +289,32 @@ def player_snapshot(data, award, season, k):
     return agg
 
 
+def line_snapshot(data, season, k):
+    """Offensive linemen through week k: playing time, penalties and the line's results on the field."""
+    sp = data._ol_by_season.get(season)
+    if sp is None:
+        return None
+    cum = sp[sp.week <= k]
+    if cum.empty:
+        return None
+    agg = cum.groupby('player_id').agg(name=('name', 'last'), position=('spot', 'last'), team=('team', 'last'),
+                                       g=('week', 'nunique'), **{c: (c, 'sum') for c in OL_SUMS}).reset_index()
+    teams = data.teams_at(season, k)
+    wp = teams.wins / teams.gp
+    agg['tgp'] = agg.team.map(teams.gp).fillna(agg.g)
+    agg['win_pct'] = agg.team.map(wp).fillna(0.5)
+    agg['team_rank'] = agg.team.map(1 - (wp.rank(ascending=False, method='min') - 1) / max(len(wp) - 1, 1)).fillna(0.5)
+    agg['record'] = agg.team.map(teams.w.astype(int).astype(str) + '-' + teams.l.astype(int).astype(str))
+    agg['pos'] = agg.position
+    agg['prev_ap'] = [float(pid in data.all_pro.get(season - 1, ())) for pid in agg.player_id]
+    agg['ap_count'] = [min(data.all_pro_count(pid, season), 3) for pid in agg.player_id]
+    agg['apy'] = [data.apy(pid, season) for pid in agg.player_id]
+    agg['pick'] = np.log(agg.player_id.map(data.draft_pick).astype(float).fillna(260).clip(1, 260))
+    agg = agg.nlargest(AWARDS['poy']['size'], 'snaps')
+    agg['season'], agg['week'], agg['p'] = season, k, k / data.last_week.get(season, 18)
+    return agg
+
+
 def coach_snapshot(data, season, k):
     t = data.teams_at(season, k).reset_index()
     if t.empty:
@@ -244,6 +333,25 @@ def coach_snapshot(data, season, k):
 
 def design(df, award):
     if award == 'coy':
+        return df
+    if award == 'poy':
+        per = lambda a, b: df[a] / df[b].where(df[b] > 0)
+        df['snap_share'] = per('snaps', 'team_snaps')
+        df['share'] = df.g / df.tgp.clip(lower=1)
+        df['pen_rate'] = 100 * per('penalties', 'snaps')
+        df['sack_on'] = per('on_sacks', 'on_dropbacks')
+        df['prss_on'] = per('on_pressures', 'on_pressure_dropbacks')   # PFR charting, 2018 on
+        df['ybc_on'] = per('on_ybc', 'on_pfr_carries')                 # PFR charting, 2018 on
+        df['rush_epa_on'] = per('on_rush_epa', 'on_rushes')
+        df['pass_epa_on'] = per('on_pass_epa', 'on_dropbacks')
+        for p in ('T', 'G'):
+            df['is_' + p] = (df.pos == p).astype(float)
+        # Against other linemen at the same spot this week; lower is better for sacks, pressures and
+        # penalties, so those are flipped. Missing charting counts as average.
+        g = df.groupby(['season', 'week', 'pos'])
+        for c, sign in (('sack_on', -1), ('prss_on', -1), ('pen_rate', -1), ('ybc_on', 1), ('rush_epa_on', 1), ('pass_epa_on', 1)):
+            df['z_' + c] = (sign * (df[c] - g[c].transform('mean')) / g[c].transform('std').replace(0, np.nan)).fillna(0)
+        df['snap_share'] = df.snap_share.fillna(0)
         return df
     for c in ['epa', 'yds', 'td', 'pint', 'fp', 'sk', 'qbh', 'tfl', 'dint', 'pd', 'ff', 'tkl', 'dtd']:
         df[c + '_tg'] = df[c] / df.tgp.clip(lower=1)
@@ -265,7 +373,8 @@ def snapshots(data, award, seasons):
     frames = []
     for season in seasons:
         for k in range(1, data.last_week.get(season, 0) + 1):
-            snap = coach_snapshot(data, season, k) if award == 'coy' else player_snapshot(data, award, season, k)
+            snap = (coach_snapshot(data, season, k) if award == 'coy' else line_snapshot(data, season, k)
+                    if award == 'poy' else player_snapshot(data, award, season, k))
             if snap is not None:
                 frames.append(snap)
     return design(pd.concat(frames, ignore_index=True), award) if frames else None
@@ -349,8 +458,9 @@ def fit_temperature(scores, y, groups, p):
 # ------------------------------------------------------------------------------------------------
 
 def labelled_snapshots(data, award, seasons, labels):
-    df = snapshots(data, award, seasons)
-    df['y'] = [float(pid in labels.get((award, s), ())) for pid, s in zip(df.player_id, df.season)]
+    key = AWARDS[award].get('labels', award)  # Protector of the Year learns from All-Pro selections
+    df = snapshots(data, award, [s for s in seasons if s >= AWARDS[award].get('first_season', FIRST_SEASON)])
+    df['y'] = [float(pid in labels.get((key, s), ())) for pid, s in zip(df.player_id, df.season)]
     df['grp'] = df.season * 100 + df.week
     return df
 
@@ -401,8 +511,28 @@ def backtest_metrics(data, scored):
     return metrics
 
 
+def line_metrics(data, scored, labels):
+    """Protector of the Year backtest: how many of each season's five AP All-Pro linemen were in our
+    top 5 and top 10 at season's end, and where we ranked the actual Protector winners."""
+    top5, top10, protector = [], [], {}
+    for s, test in scored.groupby('season'):
+        final = test[test.week == data.last_week[s]].sort_values('prob', ascending=False)
+        if not final.y.any():
+            continue
+        top5.append(final.y.iloc[:5].sum())
+        top10.append(final.y.iloc[:10].sum())
+        for pid in labels.get(('poy', s), ()):
+            ranks = final.player_id.reset_index(drop=True)
+            hit = ranks[ranks == pid]
+            protector[int(s)] = int(hit.index[0]) + 1 if len(hit) else None
+    return {'seasons': len(top5), 'in_top5': float(np.mean(top5)), 'in_top10': float(np.mean(top10)),
+            'protector_ranks': protector}
+
+
 def calibration_bands(scored_by_award):
     """Across all awards: candidates given each probability band, and how often they won."""
+    if not scored_by_award:
+        return []
     rows = pd.concat(scored_by_award, ignore_index=True)
     rows['stage'] = np.where(rows.p <= 0.25, 'Weeks 1-4', 'Week 5 on')
     rows['band'] = pd.cut(rows.prob, [0.1, 0.25, 0.5, 0.7, 1.0], labels=['10-25%', '25-50%', '50-70%', '70%+'])
@@ -419,7 +549,10 @@ def train(data, winners, last_complete):
         df = labelled_snapshots(data, award, seasons, labels)
         scored, temp = backtest(df, cfg)
         metrics[award] = backtest_metrics(data, scored)
-        all_scored.append(scored[['p', 'prob', 'y']])
+        if award == 'poy':
+            metrics[award]['all_pro'] = line_metrics(data, scored, labels)
+        else:  # one winner a season; Protector of the Year's five All-Pro labels would skew calibration
+            all_scored.append(scored[['p', 'prob', 'y']])
         X, mu, sd = matrix(df, cfg['features'])
         w = fit(X, df.y.to_numpy(), df.grp.to_numpy(), cfg['lam'])
         models[award] = {'features': cfg['features'], 'mu': list(map(float, mu)), 'sd': list(map(float, sd)),
@@ -427,6 +560,10 @@ def train(data, winners, last_complete):
         m = metrics[award]['final']
         print(f"  Awards: {award} backtest, season's end: top pick {m['top_pick']}/{m['seasons']}, top 3 {m['top3']}, "
               f"mean rank {m['mean_rank']:.1f}; temperature {temp[0]:.2f} + {temp[1]:.2f} x progress")
+        if award == 'poy':
+            ap = metrics[award]['all_pro']
+            print(f"  Awards: poy All-Pros in our top 5 {ap['in_top5']:.1f}/5, top 10 {ap['in_top10']:.1f}/5 a season; "
+                  f"Protector winners' ranks {ap['protector_ranks']}")
     metrics['calibration_bands'] = calibration_bands(all_scored)
     return models, metrics
 
@@ -436,6 +573,10 @@ def display_stats(row, award):
     if award == 'coy':
         return {'record': row.record, 'prev_record': row.prev_record, 'point_diff': int(row.pdiff)}
     base = {'games': int(row.g), 'team_record': row.record}
+    if award == 'poy':
+        rate = lambda v: None if pd.isna(v) else round(float(v), 3)
+        return {**base, 'snaps': int(row.snaps), 'snap_share': rate(row.snap_share), 'penalties': int(row.penalties),
+                'sack_rate': rate(row.sack_on), 'pressure_rate': rate(row.prss_on)}
     if AWARDS[award]['pool'] == 'defense':
         return {**base, 'sacks': float(row.sk), 'interceptions': int(row.dint), 'tackles': int(row.tkl),
                 'tfl': int(row.tfl), 'forced_fumbles': int(row.ff), 'passes_defended': int(row.pd)}
@@ -474,7 +615,8 @@ def run(conn, current_season):
     cur.execute("SELECT model, metrics FROM award_models ORDER BY id DESC LIMIT 1")
     row = cur.fetchone()
     data = load(conn, current_season)
-    if row and row[1].get('trained_through', 0) >= last_complete:
+    # Retrain once a new season completes, or when an award was added since the last training.
+    if row and row[1].get('trained_through', 0) >= last_complete and all(a in row[0] for a in AWARDS):
         models = row[0]
     else:
         winners = pd.read_csv(WINNERS_CSV)

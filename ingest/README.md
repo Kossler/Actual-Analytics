@@ -11,8 +11,8 @@ This directory contains scripts and tools for ingesting, cleaning, and populatin
 - **populate_tables.py**: Populates tables with new data (`CHANGED_ONLY=1` loads only tables whose source files changed)
 - **sources.py**: Maps each table to its nflverse source files and checks which changed since the last load
 - **SCHEDULE.md**: When each dataset updates, and how the scheduled ingest follows it
-- **award_model.py**: Season award predictions (MVP, OPOY, DPOY, OROY, DROY, Comeback, Coach), run with the nightly models
-- **awards_history.py**: Refreshes `data/award_winners.csv` (AP winners, from Wikipedia) once a year after the NFL Honors
+- **award_model.py**: Season award predictions (MVP, OPOY, DPOY, OROY, DROY, Comeback, Coach, Protector), run with the nightly models
+- **awards_history.py**: Refreshes `data/award_winners.csv` (AP winners and All-Pro offensive linemen, from Wikipedia) once a year after the NFL Honors
 - **requirements.txt**: Python dependencies for ingest scripts
 
 ## Features
