@@ -114,6 +114,7 @@ def fetch(creds):
         rows.append({
             'dt': dt, 'team': team, 'player_name': p.get('full_name'), 'sleeper_id': sleeper_id,
             'gsis_id': lookup(sleeper_id, p, team), 'depth_chart_position': p['depth_chart_position'],
+            'injury_status': p.get('injury_status'),
             'pos_grp': grp, 'pos_abb': abb, 'pos_name': name, 'pos_slot': slot,
             # Sorting only: players without an order go last, then by Sleeper's popularity rank.
             '_order': p.get('depth_chart_order') or 99, '_search': p.get('search_rank') or 9_999_999,

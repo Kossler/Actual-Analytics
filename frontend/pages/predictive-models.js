@@ -479,7 +479,12 @@ function awardStatLine(award, c) {
   const s = c.stats || {};
   const record = s.team_record ? `${c.team} ${s.team_record}` : c.team;
   if (award === 'coy') {
-    return [`${s.record}`, s.prev_record && `was ${s.prev_record}`, `${s.point_diff > 0 ? '+' : ''}${s.point_diff} pt diff`].filter(Boolean).join(' · ');
+    return [
+      `${s.record}`,
+      s.prev_record && `was ${s.prev_record}`,
+      s.vs_lines != null && `${signed(s.vs_lines, 1)} W vs lines`,
+      `${s.point_diff > 0 ? '+' : ''}${s.point_diff} pt diff`,
+    ].filter(Boolean).join(' · ');
   }
   if (award === 'poy') {
     return [
@@ -629,7 +634,9 @@ function AwardsMethod({ data }) {
         <p>
           For each award, every candidate gets a share of 100%: a conditional logit on stats to date per team game, compared
           with others at the same position, plus the team&apos;s record (and for defenders, the defense&apos;s rank and last
-          season&apos;s production; for rookies, draft slot; for coaches, the improvement on last year).
+          season&apos;s production; for rookies, draft slot; for comebacks, whether last season was cut short or a
+          down year; for coaches, wins beyond what the betting lines expected, so a team getting its star back
+          isn&apos;t credited to the coach).
         </p>
         <p>
           It is trained on every week of every season since 2000, labelled with the eventual winner, so it learns how much

@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-VERSION = 'awards-v1'
+VERSION = 'awards-v2'  # bump when the data or features change, to retrain
 FIRST_SEASON = 2000
 WINNERS_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'award_winners.csv')
 TOP_N = 10  # candidates stored per award and week
@@ -48,11 +48,15 @@ AWARDS = {
     'droy': dict(label='Defensive Rookie of the Year', pool='defense', rookies=True, size=30, lam=0.1,
                  features=['z_sk_tg', 'z_dint_tg', 'z_pd_tg', 'z_tkl_tg', 'z_tfl_tg', 'sk_tg', 'dint_tg', 'tkl_tg',
                            'win_pct', 'share', 'is_DL', 'is_LB', 'pick']),
-    'cpoy': dict(label='Comeback Player of the Year', pool='offense', comeback=True, size=30, lam=0.1,
+    'cpoy': dict(label='Comeback Player of the Year', pool='offense', comeback=True, size=60, lam=0.1,
+                 # ended_early / prev_post: a comeback needs last season to have been cut short (Burrow,
+                 # Luck), not a few missed games before a full finish and a playoff run.
                  features=['epa_tg', 'z_fp_tg', 'fp_tg', 'win_pct', 'team_rank', 'share', 'is_QB', 'prev_g', 'drop',
-                           'best']),
+                           'best', 'ended_early', 'prev_post']),
+    # vs_market rather than improvement on last year's record: the betting lines already expect a team
+    # getting its quarterback back to win, so the coach is credited only with wins beyond that.
     'coy': dict(label='Coach of the Year', pool='coach', lam=0.03,
-                features=['win_pct', 'improve', 'pd_pg', 'prev', 'new_coach']),
+                features=['win_pct', 'vs_market', 'pd_pg', 'prev', 'new_coach']),
     # First awarded for 2025, so it trains on AP first-team All-Pro linemen (five a season since
     # 2013, when snap counts start) and is checked against the one Protector winner.
     'poy': dict(label='Protector of the Year', pool='line', labels='allpro_ol', first_season=2013, size=90, lam=0.1,
@@ -67,6 +71,10 @@ LINE_POSITIONS = {'T': 'T', 'OT': 'T', 'G': 'G', 'OG': 'G', 'C': 'C'}
 OL_SUMS = ['snaps', 'team_snaps', 'holding', 'false_starts', 'penalties', 'on_dropbacks', 'on_sacks', 'on_qb_hits',
            'on_pass_epa', 'on_pressures', 'on_pressure_dropbacks', 'on_rushes', 'on_rush_epa', 'on_rush_success',
            'on_stuffed', 'on_ybc', 'on_pfr_carries']
+
+# player_stats and team_game_pbp use today's abbreviations for every season; schedules and snap
+# counts use the one from that season. Everything here uses today's.
+CURRENT_TEAM = {'SD': 'LAC', 'OAK': 'LV', 'STL': 'LA'}
 
 STAT_SUMS = ['py', 'ptd', 'pint', 'pepa', 'ry', 'rtd', 'repa', 'rec', 'recy', 'rectd', 'recepa',
              'sk', 'qbh', 'tfl', 'dint', 'pd', 'ff', 'tkl', 'dtd']
@@ -102,11 +110,18 @@ def load(conn, last_season):
     ps['td'] = ps.ptd + ps.rtd + ps.rectd
 
     games = read("""
-      SELECT season::INT season, week::INT week, home_team, away_team, home_score, away_score, home_coach, away_coach
+      SELECT season::INT season, week::INT week, home_team, away_team, home_score, away_score, home_coach, away_coach,
+             spread_line::FLOAT AS spread
       FROM schedules WHERE game_type = 'REG' AND season BETWEEN %s AND %s AND home_score IS NOT NULL""",
                  FIRST_SEASON - 1, last_season)
+    # The betting market's chance of each team winning, from the closing spread (positive spread_line
+    # = home favoured; a point is worth about 3% near even, sd 13.5). It already prices in who is
+    # playing, so wins above it are wins nobody expected.
+    games[['home_team', 'away_team']] = games[['home_team', 'away_team']].replace(CURRENT_TEAM)
+    games['home_xw'] = norm_cdf(games.spread.fillna(0) / 13.5)
+    games['away_xw'] = 1 - games.home_xw
     side = lambda a, b: games.rename(columns={f'{a}_team': 'team', f'{a}_score': 'pf', f'{b}_score': 'pa',
-                                              f'{a}_coach': 'coach'})[['season', 'week', 'team', 'pf', 'pa', 'coach']]
+                                              f'{a}_coach': 'coach', f'{a}_xw': 'xw'})[['season', 'week', 'team', 'pf', 'pa', 'coach', 'xw']]
     tg = pd.concat([side('home', 'away'), side('away', 'home')]).sort_values(['season', 'team', 'week'])
     by = tg.groupby(['season', 'team'])
     tg['gp'] = by.cumcount() + 1
@@ -115,6 +130,22 @@ def load(conn, last_season):
     tg['t'] = (tg.pf == tg.pa).astype(int).groupby([tg.season, tg.team]).cumsum()
     tg['pdiff'] = (tg.pf - tg.pa).groupby([tg.season, tg.team]).cumsum()
     tg['wins'] = tg.w + 0.5 * tg.t
+    tg['xwins'] = tg.xw.groupby([tg.season, tg.team]).cumsum()
+
+    # How each player's season ended: his last game (playoffs included) and the team's last game.
+    # A season cut short by injury ends weeks before the team's; one that ran into the playoffs didn't.
+    finish = read("""
+      SELECT player_id, season::INT season, MAX(week)::INT last_week,
+             COUNT(*) FILTER (WHERE season_type = 'POST')::INT post_g
+      FROM player_stats WHERE season BETWEEN %s AND %s AND player_id IS NOT NULL GROUP BY 1, 2""",
+                  FIRST_SEASON - 1, last_season)
+    team_end = read("""
+      SELECT season::INT season, team, MAX(week)::INT end_week FROM (
+        SELECT season, week, home_team AS team FROM schedules WHERE home_score IS NOT NULL
+        UNION ALL SELECT season, week, away_team FROM schedules WHERE home_score IS NOT NULL) g
+      WHERE season BETWEEN %s AND %s GROUP BY 1, 2""", FIRST_SEASON - 1, last_season)
+    team_end['team'] = team_end.team.replace(CURRENT_TEAM)
+    team_end = team_end.groupby(['season', 'team'], as_index=False).end_week.max()
 
     tdef = read("""
       SELECT season::INT season, week::INT week, team, plays::FLOAT plays, epa FROM team_game_pbp
@@ -128,14 +159,31 @@ def load(conn, last_season):
     ol = read(f"""
       SELECT player_id, season, week, team, position, {', '.join(OL_SUMS)}
       FROM player_week_ol WHERE game_type = 'REG' AND season BETWEEN %s AND %s""", OL_FIRST_SEASON, last_season)
+    ol['team'] = ol.team.replace(CURRENT_TEAM)
     contracts = read("""SELECT gsis_id AS player_id, year_signed::INT AS year_signed, apy_cap_pct FROM contracts
                         WHERE gsis_id IS NOT NULL AND year_signed IS NOT NULL AND apy_cap_pct IS NOT NULL""")
-    return Data(ps, tg, tdef, players, teams, ol, contracts, pd.read_csv(WINNERS_CSV))
+    return Data(ps, tg, tdef, players, teams, ol, contracts, pd.read_csv(WINNERS_CSV), finish, team_end)
+
+
+def norm_cdf(x):
+    from scipy.stats import norm as normal
+    return normal.cdf(x)
 
 
 class Data:
-    def __init__(self, ps, tg, tdef, players, teams, ol, contracts, winners):
+    def __init__(self, ps, tg, tdef, players, teams, ol, contracts, winners, finish, team_end):
         self.ps, self.tg, self.tdef = ps, tg, tdef
+        end = {(r.season, r.team): r.end_week for r in team_end.itertuples()}
+        last_team = ps.sort_values('week').groupby(['player_id', 'season']).team.last().to_dict()
+        # Share of his team's season (playoffs included) still to play after a player's last game:
+        # 0 for a season that ran to the end, 1 for one never played.
+        self.ended_early = {}
+        self.post_games = {}
+        for r in finish.itertuples():
+            team_end_week = end.get((r.season, last_team.get((r.player_id, r.season))))
+            if team_end_week:
+                self.ended_early[(r.player_id, r.season)] = max(team_end_week - r.last_week, 0) / team_end_week
+            self.post_games[(r.player_id, r.season)] = r.post_g
         self.last_week = tg.groupby('season').week.max().to_dict()
         final = tg.groupby(['season', 'team']).last().reset_index()
         final['win_pct'] = final.wins / final.gp
@@ -147,8 +195,15 @@ class Data:
         self.draft_pick = p.draft_pick.to_dict()
         self.team_abbr = dict(zip(teams.team_name, teams.team_abbr))
 
-        tot = ps.groupby(['player_id', 'season']).agg(g=('week', 'nunique'), fp=('fp', 'sum'), d=('dscore', 'sum')).reset_index()
+        tot = ps.groupby(['player_id', 'season']).agg(g=('week', 'nunique'), fp=('fp', 'sum'), d=('dscore', 'sum'),
+                                                      epa=('epa', 'sum'), position=('position', 'last')).reset_index()
         tot['fppg'], tot['dpg'] = tot.fp / tot.g, tot.d / tot.g
+        # How a season of 6+ games ranked by EPA per game among players at the same position (0 =
+        # worst, 1 = best): a comeback can be from poor play as well as injury (Brees, 2003-04).
+        q = tot[(tot.g >= 6) & tot.position.isin(OFFENSE)].copy()
+        q['grp'] = q.position.map(OFFENSE)
+        q['pct'] = (q.epa / q.g).groupby([q.season, q.grp]).rank(pct=True)
+        self.epa_pct = {(r.player_id, r.season): r.pct for r in q.itertuples()}
         self.games_by = {(r.player_id, r.season): r.g for r in tot.itertuples()}
         self.fppg_by = {(r.player_id, r.season): r.fppg for r in tot.itertuples()}
         self.prev_dpg = {(r.player_id, r.season + 1): r.dpg for r in tot[tot.g >= 6].itertuples()}
@@ -275,13 +330,21 @@ def player_snapshot(data, award, season, k):
         agg = agg[agg.player_id.map(lambda p: data.rookie_season.get(p) == season)].copy()
         agg['pick'] = np.log(agg.player_id.map(data.draft_pick).astype(float).fillna(260).clip(1, 260))
     if cfg.get('comeback'):
-        # Candidates: back from missing most of last season (injury, benching) or from a season well
-        # below their best. Last season's rate stands in for "best" for second-year players.
+        # Candidates: last season was cut short (it ended with a fifth or more of the team's season,
+        # playoffs included, still to play, or he played 6 games or fewer), well below his best, or
+        # in the bottom quarter at his position.
+        # A few missed games followed by a full finish isn't a comeback. Last season's rate stands in
+        # for "best" for second-year players.
         agg['prev_g'] = agg.player_id.map(lambda p: data.games_by.get((p, season - 1), 0))
         prev_fppg = agg.player_id.map(lambda p: data.fppg_by.get((p, season - 1), np.nan))
         agg['best'] = agg.player_id.map(lambda p: data.best_prior(p, season)).fillna(prev_fppg)
         agg['drop'] = ((agg.best - prev_fppg.fillna(0)) / agg.best).clip(lower=0)
-        agg = agg[agg.best.notna() & ((agg.prev_g <= 12) | (agg['drop'] >= 0.2))].copy()
+        agg['ended_early'] = agg.player_id.map(lambda p: data.ended_early.get((p, season - 1), 1.0))
+        agg['prev_post'] = agg.player_id.map(lambda p: float(data.post_games.get((p, season - 1), 0) > 0))
+        agg['prev_pct'] = agg.player_id.map(lambda p: data.epa_pct.get((p, season - 1), np.nan))
+        agg = agg[agg.best.notna() & ((agg.prev_g <= 6) | (agg.ended_early >= 0.2) | (agg['drop'] >= 0.2)
+                                      | (agg.prev_pct <= 0.25))].copy()
+        agg['prev_pct'] = agg.prev_pct.fillna(0.5)
     if agg.empty:
         return None
     agg = agg.nlargest(cfg['size'], 'fp' if offense else 'dscore')
@@ -322,6 +385,7 @@ def coach_snapshot(data, season, k):
     t['win_pct'] = t.wins / t.gp
     t['prev'] = [data.prev_wp.get((season, x), 0.5) for x in t.team]
     t['improve'] = t.win_pct - t.prev
+    t['vs_market'] = (t.wins - t.xwins) / t.gp  # wins per game above the betting lines
     t['pd_pg'] = t.pdiff / t.gp
     t['new_coach'] = [float(data.prev_coach.get((season, x)) != c) for x, c in zip(t.team, t.coach)]
     t['record'] = t.w.astype(int).astype(str) + '-' + t.l.astype(int).astype(str)
@@ -555,7 +619,7 @@ def train(data, winners, last_complete):
             all_scored.append(scored[['p', 'prob', 'y']])
         X, mu, sd = matrix(df, cfg['features'])
         w = fit(X, df.y.to_numpy(), df.grp.to_numpy(), cfg['lam'])
-        models[award] = {'features': cfg['features'], 'mu': list(map(float, mu)), 'sd': list(map(float, sd)),
+        models[award] = {'config': cfg, 'features': cfg['features'], 'mu': list(map(float, mu)), 'sd': list(map(float, sd)),
                          'w': list(map(float, w)), 'temperature': temp}
         m = metrics[award]['final']
         print(f"  Awards: {award} backtest, season's end: top pick {m['top_pick']}/{m['seasons']}, top 3 {m['top3']}, "
@@ -571,7 +635,8 @@ def train(data, winners, last_complete):
 def display_stats(row, award):
     """The few numbers shown next to a candidate."""
     if award == 'coy':
-        return {'record': row.record, 'prev_record': row.prev_record, 'point_diff': int(row.pdiff)}
+        return {'record': row.record, 'prev_record': row.prev_record, 'point_diff': int(row.pdiff),
+                'vs_lines': round(float(row.wins - row.xwins), 1)}
     base = {'games': int(row.g), 'team_record': row.record}
     if award == 'poy':
         rate = lambda v: None if pd.isna(v) else round(float(v), 3)
@@ -612,11 +677,12 @@ def run(conn, current_season):
     from psycopg2.extras import execute_values
     cur = conn.cursor()
     last_complete = current_season - 1
-    cur.execute("SELECT model, metrics FROM award_models ORDER BY id DESC LIMIT 1")
+    cur.execute("SELECT model, metrics, version FROM award_models ORDER BY id DESC LIMIT 1")
     row = cur.fetchone()
     data = load(conn, current_season)
-    # Retrain once a new season completes, or when an award was added since the last training.
-    if row and row[1].get('trained_through', 0) >= last_complete and all(a in row[0] for a in AWARDS):
+    # Retrain once a new season completes, or when the model version or an award's settings changed.
+    if (row and row[1].get('trained_through', 0) >= last_complete and row[2] == VERSION
+            and all(row[0].get(a, {}).get('config') == cfg for a, cfg in AWARDS.items())):
         models = row[0]
     else:
         winners = pd.read_csv(WINNERS_CSV)
