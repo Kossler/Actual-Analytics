@@ -47,7 +47,7 @@ export default function Glossary() {
       <div className="space-y-8">
         {sections.map((s) => (
           <section key={s.title} id={s.title.toLowerCase()} className="scroll-mt-20">
-            <h2 className="mb-3 font-sans text-xl font-bold">{s.title}</h2>
+            <h2 className="mb-3 font-sans text-sub2 font-bold">{s.title}</h2>
             <dl className="card divide-y divide-line">
               {s.items.map((m) => (
                 <div key={m.key} id={m.key} className="grid scroll-mt-20 gap-1 px-5 py-3.5 sm:grid-cols-[260px_1fr] sm:gap-6">

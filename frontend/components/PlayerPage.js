@@ -12,6 +12,7 @@ import { METRICS, aggregate, groupStats, metricValue, playerGroup } from '../lib
 import { LEADERBOARD_POSITIONS, POSITIONS, flattenColumns, qualifierMinimum } from '../lib/positions';
 import { gameLabel, gameResult, ngsBySeason, opponentLabel, seasonGames, seasonsOf, splitRows } from '../lib/player';
 import { rememberPlayer } from '../lib/storage';
+import { UI } from '../lib/brand';
 
 const TABS = [
   { value: 'overview', label: 'Overview' },
@@ -113,7 +114,7 @@ export default function PlayerPage({ data, board }) {
         ]}
       />
 
-      <section className="card mb-4 overflow-hidden" style={{ borderTop: `3px solid ${team?.color || '#2f3743'}` }}>
+      <section className="card mb-4 overflow-hidden" style={{ borderTop: `3px solid ${team?.color || UI.lineStrong}` }}>
         <div className="flex flex-col gap-5 px-5 pb-4 pt-5 md:flex-row md:items-center">
           <Avatar player={player} />
           <div className="min-w-0 flex-1">
@@ -130,7 +131,7 @@ export default function PlayerPage({ data, board }) {
               {player.jersey_number ? ` · #${player.jersey_number}` : ''}
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <h1 className="text-3xl font-extrabold leading-tight sm:text-[2.4rem]">{player.display_name}</h1>
+              <h1 className="text-sub1 font-extrabold sm:text-h2">{player.display_name}</h1>
               <StatusTags depth={data.depth} injury={data.injury} latestSeason={seasons[0]} />
             </div>
           </div>
@@ -427,7 +428,7 @@ function ValueSplit({ split, totals, season }) {
             <div className="relative h-2.5 rounded-sm bg-line">
               <div className="absolute inset-y-0 left-1/2 w-px bg-line-strong" />
               <div
-                className={`absolute inset-y-0 rounded-sm ${p.value >= 0 ? 'bg-[#4a8ef0]' : 'bg-bad'}`}
+                className={`absolute inset-y-0 rounded-sm ${p.value >= 0 ? 'bg-good-fill' : 'bg-bad-fill'}`}
                 style={p.value >= 0 ? { left: '50%', width: `${(p.value / max) * 50}%` } : { right: '50%', width: `${(-p.value / max) * 50}%` }}
               />
             </div>
@@ -538,7 +539,7 @@ function ContractCard({ contracts, player, season }) {
   const capYear = Array.isArray(c.season_history) ? c.season_history.find((h) => String(h.year) === String(season)) : null;
   return (
     <section id="contract" className="card h-fit scroll-mt-20 p-5">
-      <h2 className="font-sans text-[17px] font-bold">Contract</h2>
+      <h2 className="font-sans text-p1 font-bold">Contract</h2>
       <p className="mt-0.5 text-xs text-muted">
         {rookie ? 'Rookie deal · ' : ''}signed {start}
         {c.team ? ` with ${c.team}` : ''}
@@ -580,7 +581,7 @@ function ContractCard({ contracts, player, season }) {
       <div className="mt-4 flex gap-1">
         {years.map((y, i) => (
           <div key={y} className="flex-1">
-            <div className={`h-2 rounded-sm ${i === current ? 'bg-[#4a8ef0] ring-2 ring-white/80' : y < season ? 'bg-[#4a8ef0]' : 'bg-line'}`} />
+            <div className={`h-2 rounded-sm ${i === current ? 'bg-good-fill ring-2 ring-ink/80' : y < season ? 'bg-good-fill' : 'bg-line'}`} />
             <div className={`mt-1 text-2xs ${i === current ? 'font-bold text-ink' : 'text-faint'}`}>{y}{i === current ? ' · now' : ''}</div>
           </div>
         ))}
@@ -653,7 +654,7 @@ function GameLog({ games, pc, shading, season }) {
   if (!games.length) return <EmptyState title={`No games in ${season}`} />;
   return (
     <div className="space-y-3">
-      <h2 className="font-sans text-lg font-bold">{season} game log</h2>
+      <h2 className="font-sans text-sub2 font-bold">{season} game log</h2>
       <GameLogTable games={games} pc={pc} shading={shading} />
       <p className="text-xs text-faint">Includes playoff games. Shading compares each game with the season rates of qualifying players at the position.</p>
     </div>
@@ -668,7 +669,7 @@ function Splits({ games, season, pc, shading, playerId, group }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="font-sans text-lg font-bold">Splits</h2>
+        <h2 className="font-sans text-sub2 font-bold">Splits</h2>
         <Segmented options={[{ value: 'season', label: String(season) }, { value: 'career', label: 'Career' }]} value={scope} onChange={setScope} />
       </div>
       <DataTable
@@ -734,7 +735,7 @@ function SituationSplits({ playerId, season, group }) {
   return (
     <section className="space-y-3 pt-4">
       <div>
-        <h2 className="font-sans text-lg font-bold">Situations</h2>
+        <h2 className="font-sans text-sub2 font-bold">Situations</h2>
         <p className="text-xs text-muted">By down, field position, clock and score, {season} regular season. Two-minute drill: last two minutes of either half.</p>
       </div>
       {tables.map(([role, title]) => (
@@ -778,7 +779,7 @@ function ChartingSplits({ playerId, season, group }) {
   return (
     <section className="space-y-3 pt-4">
       <div>
-        <h2 className="font-sans text-lg font-bold">Charting splits</h2>
+        <h2 className="font-sans text-sub2 font-bold">Charting splits</h2>
         <p className="text-xs text-muted">Every play hand-charted by FTN: play-action, blitzes, pocket movement, box counts and ball quality (2022 onward).</p>
       </div>
       {!charted ? (
@@ -864,7 +865,7 @@ function Advanced({ games, ngs, pc, group }) {
       {sections.map((section) => (
         <section key={section.title} className="space-y-2">
           <div>
-            <h2 className="font-sans text-lg font-bold">{section.title}</h2>
+            <h2 className="font-sans text-sub2 font-bold">{section.title}</h2>
             <p className="text-xs text-muted">{section.subtitle}</p>
           </div>
           <DataTable

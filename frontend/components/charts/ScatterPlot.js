@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { formatValue } from '../../lib/format';
+import { BRAND, UI } from '../../lib/brand';
 
 const W = 760;
 const PAD = { top: 18, right: 24, bottom: 42, left: 58 };
@@ -56,7 +57,7 @@ export default function ScatterPlot({
       {/* grid + ticks */}
       {niceTicks(x0, x1).map((t) => (
         <g key={`x${t}`}>
-          <line x1={sx(t)} x2={sx(t)} y1={top} y2={bottom} stroke="#1c222b" />
+          <line x1={sx(t)} x2={sx(t)} y1={top} y2={bottom} stroke={UI.line} />
           <text x={sx(t)} y={bottom + 18} textAnchor="middle" className="fill-faint text-[11px]">
             {formatValue(t, xFormat)}
           </text>
@@ -64,18 +65,18 @@ export default function ScatterPlot({
       ))}
       {niceTicks(y0, y1).map((t) => (
         <g key={`y${t}`}>
-          <line x1={PAD.left} x2={right} y1={sy(t)} y2={sy(t)} stroke="#1c222b" />
+          <line x1={PAD.left} x2={right} y1={sy(t)} y2={sy(t)} stroke={UI.line} />
           <text x={PAD.left - 10} y={sy(t) + 4} textAnchor="end" className="fill-faint text-[11px]">
             {formatValue(t, yFormat)}
           </text>
         </g>
       ))}
-      <line x1={PAD.left} x2={PAD.left} y1={top} y2={bottom} stroke="#2f3743" />
-      <line x1={PAD.left} x2={right} y1={bottom} y2={bottom} stroke="#2f3743" />
+      <line x1={PAD.left} x2={PAD.left} y1={top} y2={bottom} stroke={UI.lineStrong} />
+      <line x1={PAD.left} x2={right} y1={bottom} y2={bottom} stroke={UI.lineStrong} />
 
       {/* group averages */}
-      <line x1={sx(mx)} x2={sx(mx)} y1={top} y2={bottom} stroke="#5d6673" strokeDasharray="3 4" />
-      <line x1={PAD.left} x2={right} y1={sy(my)} y2={sy(my)} stroke="#5d6673" strokeDasharray="3 4" />
+      <line x1={sx(mx)} x2={sx(mx)} y1={top} y2={bottom} stroke={UI.faint} strokeDasharray="3 4" />
+      <line x1={PAD.left} x2={right} y1={sy(my)} y2={sy(my)} stroke={UI.faint} strokeDasharray="3 4" />
 
       {quadrants.topRight && (
         <text x={right - 6} y={top + 14} textAnchor="end" className="fill-good text-[10.5px] font-bold tracking-[0.08em]">
@@ -92,7 +93,7 @@ export default function ScatterPlot({
         <line
           x1={sx(x0)} y1={sy(fitLine.intercept + fitLine.slope * x0)}
           x2={sx(x1)} y2={sy(fitLine.intercept + fitLine.slope * x1)}
-          stroke="#6aa6ff" strokeWidth="2" opacity="0.8"
+          stroke={UI.good} strokeWidth="2" opacity="0.8"
         />
       )}
 
@@ -104,7 +105,7 @@ export default function ScatterPlot({
           onClick={() => onPointClick && onPointClick(p)}
           className={onPointClick ? 'cursor-pointer' : undefined}
         >
-          <circle cx={sx(p.x)} cy={sy(p.y)} r={p.label ? 4.5 : 3.2} fill="#8d95a2" opacity={p.label ? 1 : 0.6} />
+          <circle cx={sx(p.x)} cy={sy(p.y)} r={p.label ? 4.5 : 3.2} fill={UI.muted} opacity={p.label ? 1 : 0.6} />
           <circle cx={sx(p.x)} cy={sy(p.y)} r="10" fill="transparent" />
           {p.label && (
             <text x={sx(p.x) + 8} y={sy(p.y) + 4} className="fill-muted text-[11px]">
@@ -115,7 +116,7 @@ export default function ScatterPlot({
       ))}
       {valid.filter((p) => p.highlight).map((p) => (
         <g key={p.id}>
-          <circle cx={sx(p.x)} cy={sy(p.y)} r="8" fill="#ed1c33" stroke="#fff" strokeWidth="2.5" />
+          <circle cx={sx(p.x)} cy={sy(p.y)} r="8" fill={BRAND.red} stroke={BRAND.offWhite} strokeWidth="2.5" />
           <text x={sx(p.x) + 13} y={sy(p.y) + 4} className="fill-ink text-[12px] font-bold">
             {p.label}
           </text>
@@ -135,7 +136,7 @@ export default function ScatterPlot({
 
       {hover && (
         <g transform={`translate(${Math.min(sx(hover.x) + 12, right - 170)}, ${Math.max(sy(hover.y) - 52, top)})`} pointerEvents="none">
-          <rect width="170" height="46" rx="6" fill="#171c24" stroke="#2f3743" />
+          <rect width="170" height="46" rx="6" fill={UI.raised} stroke={UI.lineStrong} />
           <text x="10" y="18" className="fill-ink text-[12px] font-semibold">{hover.name || hover.label || hover.id}</text>
           <text x="10" y="35" className="fill-muted text-[11px]">
             {formatValue(hover.x, xFormat)} · {formatValue(hover.y, yFormat)}

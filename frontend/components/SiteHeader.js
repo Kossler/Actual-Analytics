@@ -16,11 +16,11 @@ export default function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-page/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-[1200px] items-center gap-6 px-4 sm:px-8">
-        <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label="Second Level Analytics home">
-          <img src="/logo-mark.png" alt="" width={22} height={19} className="h-[19px] w-[22px]" />
-          <span className="hidden font-display text-[15px] font-extrabold tracking-wide sm:inline">
-            SECOND LEVEL <span className="font-normal text-muted">ANALYTICS</span>
-          </span>
+        {/* Official artwork (brand guidelines): the secondary lockup for dark backgrounds, or the mark
+            alone on small screens. The nav gap keeps more than the 1/4-height clear space. */}
+        <Link href="/" className="flex shrink-0 items-center" aria-label="Second Level Analytics home">
+          <img src="/brand/logo-secondary.svg" alt="Second Level Analytics" width={156} height={32} className="hidden h-8 w-auto sm:block" />
+          <img src="/brand/mark.svg" alt="Second Level Analytics" width={28} height={24} className="h-6 w-auto sm:hidden" />
         </Link>
         <nav className="-mb-px flex h-full min-w-0 flex-1 items-stretch gap-1 overflow-x-auto">
           {NAV.map((item) => {

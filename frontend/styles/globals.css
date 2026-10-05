@@ -15,10 +15,6 @@
   h3 {
     @apply font-display;
   }
-  /* Wide display face for page titles and big numbers, as in the design. */
-  .font-display {
-    font-stretch: 118%;
-  }
   a {
     @apply text-inherit;
   }

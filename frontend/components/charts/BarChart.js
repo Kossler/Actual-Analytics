@@ -1,4 +1,5 @@
 import { formatValue } from '../../lib/format';
+import { UI } from '../../lib/brand';
 
 const W = 760;
 
@@ -16,17 +17,17 @@ export default function BarChart({ items, format = 'signed2', reference, referen
   const y = (v) => top + ((max - v) / span) * (bottom - top);
   const slot = (W - 40) / items.length;
   const barW = Math.min(110, slot * 0.42);
-  const goodColor = '#4a8ef0';
-  const badColor = '#f0913f';
+  const goodColor = UI.goodFill;
+  const badColor = UI.badFill;
 
   return (
     <svg viewBox={`0 0 ${W} ${height}`} className="h-auto w-full" role="img" aria-label="Week by week chart">
-      <line x1="20" x2={W - 20} y1={y(baseline)} y2={y(baseline)} stroke="#3a424e" />
+      <line x1="20" x2={W - 20} y1={y(baseline)} y2={y(baseline)} stroke={UI.lineStrong} />
       {refs.map((r) => (
         <g key="ref">
-          <line x1="20" x2={W - 20} y1={y(r)} y2={y(r)} stroke="#8d95a2" strokeDasharray="4 4" />
+          <line x1="20" x2={W - 20} y1={y(r)} y2={y(r)} stroke={UI.muted} strokeDasharray="4 4" />
           {referenceLabel && (
-            <text x={W - 22} y={y(r) - 7} textAnchor="end" className="fill-muted text-[11px]" style={{ paintOrder: 'stroke', stroke: '#12161d', strokeWidth: 4 }}>
+            <text x={W - 22} y={y(r) - 7} textAnchor="end" className="fill-muted text-[11px]" style={{ paintOrder: 'stroke', stroke: UI.surface, strokeWidth: 4 }}>
               {referenceLabel}
             </text>
           )}

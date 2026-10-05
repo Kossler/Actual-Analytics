@@ -9,7 +9,7 @@ export default function NotFound() {
       </Head>
       <div className="mx-auto max-w-md py-24 text-center">
         <div className="label mb-2">404</div>
-        <h1 className="text-3xl font-extrabold">We couldn’t find that page</h1>
+        <h1 className="text-sub1 font-extrabold sm:text-h2 lg:text-h1">We couldn’t find that page</h1>
         <p className="mt-3 text-sm text-muted">The player, team or game may not exist, or the link is out of date.</p>
         <div className="mt-6 flex justify-center gap-3">
           <Link href="/" className="btn btn-primary">Player leaderboards</Link>

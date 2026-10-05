@@ -67,7 +67,7 @@ function WinProbability({ data }) {
         {data.upcoming.length ? (
           <section className="card overflow-hidden">
             <div className="px-5 pt-4">
-              <h2 className="font-sans text-[17px] font-bold">{weekLabel(data.week, data.upcoming[0].game_type)} win probabilities</h2>
+              <h2 className="font-sans text-p1 font-bold">{weekLabel(data.week, data.upcoming[0].game_type)} win probabilities</h2>
               <p className="mt-0.5 text-xs text-muted">Bar shows the model’s chance for each side · favorite in bold</p>
             </div>
             <div className="mt-3 overflow-x-auto">
@@ -94,8 +94,8 @@ function WinProbability({ data }) {
                           <div className="flex items-center gap-3">
                             <span className="num w-9 text-right text-xs text-bad">{pctLabel(1 - g.home_wp)}</span>
                             <div className="flex h-2 flex-1 overflow-hidden rounded-full">
-                              <div className="bg-bad" style={{ width: `${(1 - g.home_wp) * 100}%` }} />
-                              <div className="flex-1 bg-[#4a8ef0]" />
+                              <div className="bg-bad-fill" style={{ width: `${(1 - g.home_wp) * 100}%` }} />
+                              <div className="flex-1 bg-good-fill" />
                             </div>
                             <span className="num w-9 text-xs text-good">{pctLabel(g.home_wp)}</span>
                           </div>
@@ -276,7 +276,7 @@ function Projections() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="font-sans text-[17px] font-bold">
+          <h2 className="font-sans text-sub2 font-bold">
             {data.week ? `${weekLabel(data.week)} projections` : 'Projections'}
           </h2>
           <p className="text-xs text-muted">Projection with an 80% range (10th–90th percentile) underneath</p>
@@ -439,7 +439,7 @@ function RegressionLab() {
                   <span className="num">{pctLabel(r.r2)}</span>
                 </div>
                 <div className="mt-1 h-1.5 rounded-full bg-line">
-                  <div className="h-full rounded-full bg-[#4a8ef0]" style={{ width: `${(r.r2 / (best?.r2 || 1)) * 100}%` }} />
+                  <div className="h-full rounded-full bg-good-fill" style={{ width: `${(r.r2 / (best?.r2 || 1)) * 100}%` }} />
                 </div>
               </button>
             </li>
@@ -525,7 +525,7 @@ function Candidate({ award, c, max }) {
         <Change value={c.change} />
       </div>
       <div className="ml-6 mt-1 h-1 overflow-hidden rounded-full bg-line">
-        <div className="h-full rounded-full bg-[#4a8ef0]" style={{ width: `${Math.max(1, (c.probability / max) * 100)}%` }} />
+        <div className="h-full rounded-full bg-good-fill" style={{ width: `${Math.max(1, (c.probability / max) * 100)}%` }} />
       </div>
       <div className="ml-6 mt-1 truncate text-xs text-muted">{awardStatLine(award, c)}</div>
     </li>
@@ -566,7 +566,7 @@ function Awards() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="font-sans text-[17px] font-bold">
+          <h2 className="font-sans text-sub2 font-bold">
             {data.season} award races · through week {data.week}
           </h2>
           <p className="text-xs text-muted">

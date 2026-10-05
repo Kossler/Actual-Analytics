@@ -8,6 +8,7 @@ import { fixed, formatValue, initials, int, ordinal, pctLabel, record, shortName
 import { rememberTeam } from '../../lib/storage';
 import { TEAM_METRICS } from '../../lib/metrics';
 import { divisionStanding, rankOf, teamMetrics } from '../../lib/teams';
+import { UI } from '../../lib/brand';
 
 export const runtime = 'experimental-edge';
 
@@ -109,8 +110,8 @@ export default function TeamPage({ data }) {
       </Head>
       <Breadcrumbs items={[{ label: 'Teams', href: '/teams' }, { label: team.name }]} />
 
-      <section className="card mb-4 flex flex-col gap-5 p-5 md:flex-row md:items-center" style={{ borderTop: `3px solid ${team.color || '#2f3743'}` }}>
-        <div className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-xl font-display text-2xl font-extrabold text-white" style={{ backgroundColor: team.color || '#1f2a44' }}>
+      <section className="card mb-4 flex flex-col gap-5 p-5 md:flex-row md:items-center" style={{ borderTop: `3px solid ${team.color || UI.lineStrong}` }}>
+        <div className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-xl font-display text-2xl font-extrabold text-ink" style={{ backgroundColor: team.color || UI.raised }}>
           {team.abbr}
         </div>
         <div className="min-w-0 flex-1">
@@ -118,7 +119,7 @@ export default function TeamPage({ data }) {
             {team.division}
             {standing ? ` · ${ordinal(standing)}` : ''}
           </div>
-          <h1 className="text-3xl font-extrabold sm:text-[2.4rem]">{team.name}</h1>
+          <h1 className="text-sub1 font-extrabold sm:text-h2">{team.name}</h1>
         </div>
         <dl className="flex flex-wrap gap-x-8 gap-y-3">
           <HeaderStat label="Record" value={record(team.wins, team.losses, team.ties)} />
@@ -161,7 +162,7 @@ export default function TeamPage({ data }) {
 
       <div className="mb-4">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-sans text-[17px] font-bold">{data.season} results</h2>
+          <h2 className="font-sans text-sub2 font-bold">{data.season} results</h2>
           {upcoming.length > 0 && (
             <button type="button" className="link text-sm" onClick={() => setAllGames((a) => !a)}>
               {allGames ? 'Played games only' : 'All games →'}
@@ -187,7 +188,7 @@ export default function TeamPage({ data }) {
                     </Link>
                     {outcome ? (
                       <>
-                        <span className={`rounded px-1.5 text-2xs font-bold ${outcome === 'W' ? 'bg-[#1d3a6b] text-good' : 'bg-[#3a2a1c] text-bad'}`}>{outcome}</span>
+                        <span className={`rounded px-1.5 text-2xs font-bold ${outcome === 'W' ? 'bg-good-fill/25 text-good' : 'bg-bad-fill/20 text-bad'}`}>{outcome}</span>
                         <span className="num w-14 text-right">{`${g.points_for}–${g.points_against}`}</span>
                       </>
                     ) : (
@@ -224,7 +225,7 @@ export default function TeamPage({ data }) {
                       <span className="font-semibold text-ink">{pctLabel(g.win_prob)}</span>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-line">
-                      <div className={`h-full ${g.win_prob >= 0.5 ? 'bg-[#4a8ef0]' : 'bg-bad'}`} style={{ width: `${g.win_prob * 100}%` }} />
+                      <div className={`h-full ${g.win_prob >= 0.5 ? 'bg-good-fill' : 'bg-bad-fill'}`} style={{ width: `${g.win_prob * 100}%` }} />
                     </div>
                     {g.proj_for != null && (
                       <div className="mt-2 text-xs text-faint">

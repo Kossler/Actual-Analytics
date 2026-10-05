@@ -1,11 +1,12 @@
 import Link from 'next/link';
+import { UI } from '../lib/brand';
 
 export function PageHeader({ eyebrow, title, right, children }) {
   return (
     <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
         {eyebrow && <div className="label mb-1.5 flex flex-wrap items-center gap-2 text-muted">{eyebrow}</div>}
-        <h1 className="text-3xl font-extrabold leading-tight tracking-tight sm:text-[2.6rem]">{title}</h1>
+        <h1 className="text-sub1 font-extrabold sm:text-h2 lg:text-h1">{title}</h1>
         {children}
       </div>
       {right && <div className="shrink-0">{right}</div>}
@@ -19,7 +20,7 @@ export function Card({ title, subtitle, action, className = '', bodyClassName = 
       {(title || action) && (
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-5 pt-4">
           <div>
-            {title && <h2 className="font-sans text-[17px] font-bold">{title}</h2>}
+            {title && <h2 className="font-sans text-p1 font-bold">{title}</h2>}
             {subtitle && <p className="mt-0.5 text-xs text-muted">{subtitle}</p>}
           </div>
           {action}
@@ -240,8 +241,8 @@ export function toneOf(value, better = 'high') {
   return (value > 0) === (better === 'high') ? 'good' : 'bad';
 }
 
-// Two-sided probability bar: the first side's share on the left. Colours default to orange / blue.
-export function ProbabilityBar({ left, leftColor = '#f0913f', rightColor = '#4a8ef0', className = '' }) {
+// Two-sided probability bar: the first side's share on the left. Colours default to brand red / blue.
+export function ProbabilityBar({ left, leftColor = UI.badFill, rightColor = UI.goodFill, className = '' }) {
   const pct = Math.max(0, Math.min(1, left)) * 100;
   return (
     <div className={`flex h-1.5 gap-px overflow-hidden rounded-full bg-line ${className}`}>
@@ -277,7 +278,7 @@ export function MatchupBar({ away, home, homeWp, colors, caption, className = ''
 
 // Horizontal rank track: a marker placed from worst (left) to best (right).
 export function RankTrack({ position, tone }) {
-  const color = tone === 'good' ? '#4a8ef0' : tone === 'bad' ? '#f0913f' : '#e7eaee';
+  const color = tone === 'good' ? UI.goodFill : tone === 'bad' ? UI.badFill : UI.ink;
   return (
     <div className="relative mt-2 h-1.5 rounded-full bg-line">
       <span

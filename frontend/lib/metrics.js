@@ -2,6 +2,8 @@
 // which direction is good, and its glossary definition. Leaderboards, player pages, tooltips,
 // comparisons and the glossary all read from here.
 
+import { blueAlpha, redAlpha } from './brand';
+
 const div = (a, b) => (b ? a / b : null);
 const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const has = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -302,8 +304,9 @@ export function shadeStyle(value, stats, better = 'high') {
   const goodness = better === 'low' ? -z : z;
   const strength = Math.min(Math.abs(goodness) / 2, 1);
   if (strength < 0.08) return undefined;
-  const alpha = 0.12 + strength * 0.5;
-  return { backgroundColor: goodness > 0 ? `rgba(61, 122, 214, ${alpha})` : `rgba(196, 110, 40, ${alpha})` };
+  // Brand blue and red are saturated; a lower ceiling keeps strongly shaded cells readable.
+  const alpha = 0.1 + strength * 0.4;
+  return { backgroundColor: goodness > 0 ? blueAlpha(alpha) : redAlpha(alpha) };
 }
 
 // A player's group from the position in their latest game (what the leaderboards use), falling

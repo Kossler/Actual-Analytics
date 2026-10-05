@@ -1,15 +1,15 @@
 import '../utils/ensureNextCssAnchor';
 import '../styles/globals.css';
 import Head from 'next/head';
-import { Archivo, Inter } from 'next/font/google';
+import { Manrope } from 'next/font/google';
 import Layout from '../components/Layout';
 
-const archivo = Archivo({ subsets: ['latin'], axes: ['wdth'], variable: '--font-archivo', display: 'swap' });
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
+// The brand typeface, Light (300) to ExtraBold (800).
+const manrope = Manrope({ subsets: ['latin'], weight: ['300', '400', '500', '600', '700', '800'], variable: '--font-manrope', display: 'swap' });
 
 export default function App({ Component, pageProps }) {
   return (
-    <div className={`${archivo.variable} ${inter.variable} font-sans`}>
+    <div className={`${manrope.variable} font-sans`}>
       <Head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Second Level Analytics</title>

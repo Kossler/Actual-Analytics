@@ -9,6 +9,7 @@ import { formatValue, shortName } from '../lib/format';
 import { METRICS, groupStats, metricValue, sortValue } from '../lib/metrics';
 import { DEFENSE_POSITIONS, LEADERBOARD_POSITIONS, OFFENSE_POSITIONS, POSITIONS, SPECIAL_POSITIONS, flattenColumns, qualifierMinimum } from '../lib/positions';
 import { downloadCsv, readStorage, recentPlayers, writeStorage } from '../lib/storage';
+import { UI, blueAlpha, redAlpha } from '../lib/brand';
 
 export async function getLeaderboardProps({ query }) {
   const pos = LEADERBOARD_POSITIONS.includes(String(query.pos).toUpperCase()) ? String(query.pos).toUpperCase() : 'QB';
@@ -274,7 +275,7 @@ export default function LeaderboardPage({ meta, board }) {
                     type="checkbox"
                     checked={selected.includes(r.player_id)}
                     onChange={() => toggleSelected(r.player_id)}
-                    className="h-4 w-4 accent-[#ed1c33]"
+                    className="h-4 w-4 accent-brand"
                     aria-label={`Select ${r.name}`}
                   />
                 ) : (
@@ -296,7 +297,7 @@ export default function LeaderboardPage({ meta, board }) {
             <>
               Shading ({shadedLabels.join(', ')}): below avg
               <span className="inline-flex h-2 overflow-hidden rounded-sm">
-                {['#9a5a26', '#5c3c22', '#2a2f37', '#263f63', '#3d7ad6'].map((c) => (
+                {[redAlpha(0.5), redAlpha(0.25), UI.line, blueAlpha(0.25), blueAlpha(0.5)].map((c) => (
                   <span key={c} className="w-4" style={{ backgroundColor: c }} />
                 ))}
               </span>
@@ -360,7 +361,7 @@ function CustomColumns({ options, value, onChange, onClose }) {
       <div className="grid max-h-72 grid-cols-2 gap-x-3 gap-y-1.5 overflow-y-auto">
         {options.map((key) => (
           <label key={key} className="flex cursor-pointer items-center gap-2 text-xs text-muted hover:text-ink">
-            <input type="checkbox" checked={value.includes(key)} onChange={() => toggle(key)} className="accent-[#ed1c33]" />
+            <input type="checkbox" checked={value.includes(key)} onChange={() => toggle(key)} className="accent-brand" />
             {METRICS[key].label}
           </label>
         ))}

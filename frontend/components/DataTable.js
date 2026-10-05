@@ -43,7 +43,7 @@ export default function DataTable({
         style={style}
         className={`num whitespace-nowrap px-3 text-right ${cellPad} ${groupStarts.has(col.key) && hasGroups ? 'border-l border-line' : ''} ${
           sorted && !style ? 'bg-white/[0.035]' : ''
-        } ${sorted || isFooter ? 'font-semibold text-ink' : 'text-[#d4d8de]'}`}
+        } ${sorted || isFooter ? 'font-semibold text-ink' : 'text-body'}`}
       >
         {col.render ? col.render(row) : formatValue(v, col.format)}
       </td>
@@ -78,7 +78,7 @@ export default function DataTable({
                     aria-sort={sorted ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
                     className={`group relative whitespace-nowrap px-3 py-3 text-right text-2xs font-semibold uppercase tracking-label ${
                       groupStarts.has(col.key) && hasGroups ? 'border-l border-line' : ''
-                    } ${sorted ? 'bg-white/[0.035] text-ink shadow-[inset_0_-2px_0_#ed1c33]' : 'text-faint'}`}
+                    } ${sorted ? 'bg-white/[0.035] text-ink shadow-[inset_0_-2px_0_theme(colors.brand)]' : 'text-faint'}`}
                   >
                     <button
                       type="button"
@@ -109,7 +109,7 @@ export default function DataTable({
             ))}
             {footerRows.map((row, i) => (
               <tr key={`footer-${i}`} className="border-t border-line-strong bg-white/[0.025]">
-                <td className={`sticky left-0 z-[5] border-r border-line bg-[#151a21] px-4 font-semibold ${cellPad}`}>{lead.render(row, -1)}</td>
+                <td className={`sticky left-0 z-[5] border-r border-line bg-surface px-4 font-semibold ${cellPad}`}>{lead.render(row, -1)}</td>
                 {columns.map((col) => renderCell(col, row, true))}
               </tr>
             ))}

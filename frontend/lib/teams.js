@@ -1,3 +1,5 @@
+import { BRAND } from './brand';
+
 // Derived team metrics from the /api/teams payload.
 const per = (num, den) => (den ? num / den : null);
 
@@ -104,7 +106,7 @@ export function divisionStanding(teams, team) {
 // black or grey primaries fall back to the secondary colour, dark colours are lightened until they
 // show, and when both teams come out alike the away team switches to its other colour.
 
-const FALLBACK = { away: '#f0913f', home: '#4a8ef0' };
+const FALLBACK = { away: BRAND.red, home: BRAND.blue };
 
 function rgb(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());

@@ -151,7 +151,7 @@ function LiveCard({ game: g, colors, selected, onSelect }) {
 function LiveBadge() {
   return (
     <span className="flex items-center gap-1.5 text-bad">
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-bad" />
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand" />
       Live
     </span>
   );
@@ -160,7 +160,7 @@ function LiveBadge() {
 function LiveTeamLine({ abbr, score, ball }) {
   return (
     <div className="flex items-baseline justify-between text-ink">
-      <span className="text-[17px]">
+      <span className="text-p1">
         {abbr}
         {ball && <span className="ml-1.5 align-middle text-[9px] text-warn" title="Possession">●</span>}
       </span>
@@ -182,7 +182,7 @@ function kickoff(g) {
 function TeamLine({ abbr, score, won, final }) {
   return (
     <div className={`flex items-baseline justify-between ${final && !won ? 'text-muted' : 'text-ink'}`}>
-      <span className={`text-[17px] ${won ? 'font-bold' : ''}`}>{abbr}</span>
+      <span className={`text-p1 ${won ? 'font-bold' : ''}`}>{abbr}</span>
       <span className={`font-display text-xl ${won ? 'font-bold' : ''}`}>{final ? score : ''}</span>
     </div>
   );
@@ -217,7 +217,7 @@ function GameDetail({ detail, live, colors }) {
             `Game detail · ${final ? 'Final' : series.length ? 'In progress' : 'Preview'}`
           )}
         </div>
-        <h2 className="mt-1 text-3xl font-extrabold">{title}</h2>
+        <h2 className="mt-1 text-sub1 font-extrabold sm:text-h2">{title}</h2>
         {inProgress && <Situation live={live} />}
         {series.length ? (
           <>
@@ -232,7 +232,7 @@ function GameDetail({ detail, live, colors }) {
         )}
       </div>
       <div>
-        <h3 className="mb-3 font-sans text-[17px] font-bold">Team comparison</h3>
+        <h3 className="mb-3 font-sans text-p1 font-bold">Team comparison</h3>
         {home && away ? (
           <>
             <div className="mb-3 flex justify-between text-sm font-bold">
@@ -292,7 +292,7 @@ function Drives({ game, colors }) {
     <section className="card mt-4 overflow-hidden">
       <div className="flex flex-wrap items-end justify-between gap-2 px-5 pt-4">
         <div>
-          <h2 className="font-sans text-[17px] font-bold">Drive chart</h2>
+          <h2 className="font-sans text-p1 font-bold">Drive chart</h2>
           <p className="text-xs text-muted">Each bar runs from the drive's start to its end, measured from the offense's own goal line. Click a drive for its plays.</p>
         </div>
         <div className="flex gap-4 text-xs">
@@ -327,7 +327,7 @@ function Drives({ game, colors }) {
               >
                 <span className="num text-xs text-muted">Q{d.quarter} {d.start_time}</span>
                 <span className="text-xs font-bold">{d.team}</span>
-                <span className="relative h-4 rounded-sm bg-[#10151b]">
+                <span className="relative h-4 rounded-sm bg-sunken">
                   {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((y) => (
                     <span key={y} className={`absolute inset-y-0 w-px ${y === 50 ? 'bg-line-strong' : 'bg-line/70'}`} style={{ left: `${y}%` }} />
                   ))}
@@ -346,7 +346,7 @@ function Drives({ game, colors }) {
                 </span>
               </button>
               {isOpen && (
-                <ol className="border-b border-line bg-[#0f1319] px-5 py-2">
+                <ol className="border-b border-line bg-sunken px-5 py-2">
                   {d.list.map((p, i) => (
                     <li key={i} className="grid grid-cols-[110px_1fr_60px] gap-3 py-1.5 text-xs">
                       <span className="text-faint">

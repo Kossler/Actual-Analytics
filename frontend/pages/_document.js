@@ -6,10 +6,10 @@ export default function Document() {
       <Head>
         <meta charSet="utf-8" />
         <meta name="description" content="Second Level Analytics: NFL player, team and game analytics built on EPA, success rate and our own predictive models." />
-        <meta name="theme-color" content="#0c0f14" />
+        <meta name="theme-color" content="#13192A" />
         <meta property="og:type" content="website" />
         <meta property="og:title" content="Second Level Analytics" />
-        <meta property="og:description" content="Unlocking the game, one stat at a time" />
+        <meta property="og:description" content="Unlocking the Game, One Stat at a Time" />
         <meta property="og:site_name" content="Second Level Analytics" />
         <meta name="twitter:card" content="summary_large_image" />
         <link rel="icon" href="/32x32.png" />

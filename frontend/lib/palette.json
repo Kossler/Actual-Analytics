@@ -1,0 +1,36 @@
+{
+  "_comment": "Brand colours from the Second Level Analytics brand guidelines (2026), and the UI colours derived from them. Used by tailwind.config.js and by the SVG charts.",
+  "brand": {
+    "offWhite": "#F0F0F3",
+    "navy": "#13192A",
+    "red": "#ED1C34",
+    "blue": "#214EEB"
+  },
+  "grayscale": {
+    "cloud": "#EDEFF7",
+    "smoke": "#D3D6E0",
+    "steel": "#BCBFCC",
+    "space": "#9DA2B3",
+    "graphite": "#6E7180",
+    "arsenic": "#40424D",
+    "phantom": "#1E1E24",
+    "black": "#000000"
+  },
+  "ui": {
+    "page": "#13192A",
+    "sunken": "#0F1424",
+    "surface": "#181F33",
+    "raised": "#1E2640",
+    "line": "#273151",
+    "lineStrong": "#36415F",
+    "ink": "#F0F0F3",
+    "body": "#D3D6E0",
+    "muted": "#9DA2B3",
+    "faint": "#6E7180",
+    "good": "#6C8BF5",
+    "goodFill": "#214EEB",
+    "bad": "#F4566A",
+    "badFill": "#ED1C34",
+    "warn": "#F2B84B"
+  }
+}
