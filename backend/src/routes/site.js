@@ -419,11 +419,11 @@ const PLAYER_GAMES_SQL = `
     ON pw.player_id = $1 AND pw.season = g.season AND pw.week = g.week
   LEFT JOIN player_week_adv pa
     ON pa.player_id = $1 AND pa.season = g.season AND pa.week = g.week
-  LEFT JOIN ff_opportunity fo ON fo.player_id = $1 AND fo.game_id = s.game_id
   LEFT JOIN player_week_kicking pk ON pk.player_id = $1 AND pk.season = g.season AND pk.week = g.week
   LEFT JOIN schedules s
     ON s.season = g.season AND s.week = g.week AND (s.home_team = g.team OR s.away_team = g.team)
   LEFT JOIN players pl ON pl.gsis_id = $1
+  LEFT JOIN ff_opportunity fo ON fo.player_id = $1 AND fo.game_id = s.game_id
   LEFT JOIN player_week_def_pbp dw
     ON dw.player_id = $1 AND dw.season = g.season AND dw.week = g.week
   LEFT JOIN snap_counts sc ON sc.game_id = s.game_id AND sc.pfr_player_id = pl.pfr_id AND sc.defense_snaps > 0
