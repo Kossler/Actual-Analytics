@@ -121,14 +121,20 @@ function WinProbability({ data }) {
         <Card title="How the model works">
           <div className="space-y-3 text-sm leading-relaxed text-muted">
             <p>
-              Every team carries three ratings, updated after each game: offensive EPA per play, defensive EPA per play allowed,
-              and scoring margin. Recent games count more than old ones, and each new season starts from a regressed version of
-              last season’s ratings{v?.params ? ` (decay ${v.params.decay}, prior weight ${v.params.prior_weight}, carry-over ${v.params.carry})` : ''}.
+              Every team carries ratings that update after each game: scoring margin, and the success rate of its offense and of the
+              offenses it faces (the share of plays that gain expected points), each judged against the strength of the opponent.
+              Recent games count more than old ones, and each season starts from a regressed version of last season’s ratings.
             </p>
             <p>
-              Two regressions turn rating differences plus home field into a projected margin and total points. The win probability
-              is the chance the actual margin lands on the right side of zero, given how far real games have scattered around our
-              projections (σ ≈ {v?.sigma ? fixed(v.sigma, 1) : '13'} points).
+              Quarterbacks matter most, so each one has their own rating from EPA per dropback across their career. When a team’s
+              listed starter is better or worse than the quarterback play it has been getting (an injury, a benching, a return),
+              the forecast moves accordingly. The model also counts the snap share of players ruled out on the injury report, and
+              estimates home-field advantage from recent seasons rather than assuming a fixed edge (it has shrunk).
+            </p>
+            <p>
+              A logistic regression turns those differences into a win probability; the projected margin is the margin that
+              probability implies (σ ≈ {v?.sigma ? fixed(v.sigma, 1) : '12'} points), so the favourite and the projected score always
+              agree. Totals come from a separate model that adds pace, quarterback quality, wind and cold.
             </p>
             <p>
               Only information available before kickoff is used: ratings come from earlier games, and the regression weights were

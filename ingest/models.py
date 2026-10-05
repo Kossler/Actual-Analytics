@@ -3,12 +3,14 @@
 Everything here is computed from tables the ingest already maintains (schedules, team_game_pbp,
 player_stats, teams) and written to model tables the API reads:
 
-- team_ratings        Team strength entering each week: offensive EPA/play, defensive EPA/play
-                      allowed and scoring margin, recency-weighted and regressed to a prior.
-- game_predictions    Pregame win probability and projected score for every game since 2006.
-                      Ratings only use games played before the one being predicted, and the
-                      regression weights are fit on earlier seasons, so current-season numbers
-                      are genuinely pregame.
+- team_ratings        Team strength entering each week: opponent-adjusted offensive EPA/play,
+                      defensive EPA/play allowed and scoring margin, recency-weighted and regressed
+                      to a prior.
+- game_predictions    Pregame win probability and projected score for every game since 2006, from
+                      team ratings, starting-quarterback ratings (and changes at QB), snap share lost
+                      to injuries and a drifting home-field estimate. Features only use games
+                      played before the one being predicted, and coefficients are fit on earlier
+                      seasons, so current-season numbers are genuinely pregame.
 - playoff_odds        Monte Carlo simulation of the rest of the current regular season.
 - player_projections  Next-game stat lines with 10th-90th percentile ranges.
 - model_runs          Validation metrics for each of the above.
@@ -24,20 +26,37 @@ from collections import defaultdict
 import numpy as np
 from psycopg2.extras import execute_values
 
-MODEL_VERSION = 'epa-ratings-v1'
-FIRST_SEASON = 2006
+MODEL_VERSION = 'epa-qb-v2'
+FIRST_SEASON = 2006        # first season the game model is trained and scored on
+WARMUP_SEASON = 1999       # ratings start here so 2006 has history behind it
+HOLDOUT_FIRST = 2022       # seasons from here on are reported as an out-of-sample test
 
 # Relocated franchises keep their rating history.
 TEAM_ALIASES = {'OAK': 'LV', 'SD': 'LAC', 'STL': 'LA'}
 
-# Rating hyperparameters searched on 2006-2021 (tuned on 2006-2017, validated on 2018-2021).
-PARAM_GRID = [
-    {'decay': decay, 'prior_weight': prior_weight, 'carry': carry}
-    for decay in (0.88, 0.92, 0.95, 0.98)
-    for prior_weight in (6.0, 10.0, 16.0, 24.0)
-    for carry in (0.6, 0.75, 0.9)
-]
-MARGIN_CAP = 24  # blowouts say little more about team strength than a 24-point win
+# Hyperparameters chosen by coordinate descent on 2006-2017 (fit) / 2018-2021 (validate); the
+# 2022-2025 holdout was scored once afterwards. Refit coefficients every run, but don't re-tune
+# these nightly: with ~270 new games a year, re-tuning mostly chases noise.
+PARAMS = {
+    'decay': 0.95,             # weight of a game relative to the next one in team ratings
+    'prior_weight': 10.0,      # games' worth of weight on the preseason prior
+    'carry': 0.9,              # share of last season's rating carried into the prior
+    'margin_cap': 21,          # cap on scoring margin when updating the margin rating
+    'opp_adjust': True,        # rate each game's EPA relative to the opponent faced
+    'qb_decay': 0.97,          # per-game decay in a quarterback's EPA/dropback history
+    'qb_prior_weight': 200.0,  # dropbacks' worth of weight on the QB prior
+    'qb_prior': -0.15,         # EPA/dropback prior for quarterbacks without much history
+    'hfa_window': 512,         # recent non-neutral games used to estimate home-field advantage
+}
+
+# Win probability: logistic regression on these (home minus away) features. EPA/play ratings and
+# starter quality (qb_diff) scored the same but overlap heavily with success rate and qb_change
+# (r = 0.90 for offense), which made their weights swing sign between refits; this lean set keeps
+# every weight positive and stable (walk-forward 2012-2025: Brier 0.2152 vs 0.2154 for the full set).
+WIN_FEATURES = ['hfa_recent', 'mar_diff', 'qb_change', 'sdef_diff', 'soff_diff', 'inj_diff']
+# Total points: linear regression.
+TOTAL_FEATURES = ['one', 'lg_total', 'off_sum', 'def_sum', 'pts_sum', 'wind', 'cold', 'dome', 'qb_sum']
+RATING_KEYS = ['off', 'def', 'mar', 'soff', 'sdef', 'pts_for', 'pts_against']
 
 SIMULATIONS = 10000
 TEAM_SHOCK_SD = 3.0  # uncertainty in a team's true strength, in points per game
@@ -52,34 +71,29 @@ def norm_cdf(x):
     return 0.5 * (1.0 + np.vectorize(math.erf)(x / math.sqrt(2.0)))
 
 
+def norm_ppf(p):
+    """Inverse normal CDF (Acklam's approximation; |error| < 1e-8 for 0 < p < 1)."""
+    p = min(max(p, 1e-9), 1 - 1e-9)
+    a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02, 1.383577518672690e+02,
+         -3.066479806614716e+01, 2.506628277459239e+00]
+    b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02, 6.680131188771972e+01,
+         -1.328068155288572e+01]
+    c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00, -2.549732539343734e+00,
+         4.374664141464968e+00, 2.938163982698783e+00]
+    d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00]
+    if p < 0.02425:
+        q = math.sqrt(-2 * math.log(p))
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+    if p > 1 - 0.02425:
+        return -norm_ppf(1 - p)
+    q = p - 0.5
+    r = q * q
+    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+
+
 # --------------------------------------------------------------------------------------------
 # Data
 # --------------------------------------------------------------------------------------------
-
-def load_games(cur):
-    cur.execute(
-        """
-        SELECT game_id, season::INT, week::INT, game_type, home_team, away_team,
-               home_score::FLOAT, away_score::FLOAT, location, gameday,
-               home_moneyline::FLOAT, away_moneyline::FLOAT
-        FROM schedules
-        WHERE season >= %s
-        ORDER BY season, week, gameday, game_id
-        """,
-        (FIRST_SEASON,),
-    )
-    games = []
-    for row in cur.fetchall():
-        game_id, season, week, game_type, home, away, hs, as_, location, gameday, home_ml, away_ml = row
-        games.append({
-            'market_wp': market_probability(home_ml, away_ml),
-            'game_id': game_id, 'season': season, 'week': week, 'game_type': game_type,
-            'home': home, 'away': away, 'home_score': hs, 'away_score': as_,
-            'neutral': location == 'Neutral', 'gameday': gameday,
-            'completed': hs is not None and as_ is not None,
-        })
-    return games
-
 
 def market_probability(home_ml, away_ml):
     """Home win probability implied by the moneylines, with the bookmaker's margin removed."""
@@ -93,124 +107,278 @@ def market_probability(home_ml, away_ml):
     return home / (home + away)
 
 
-def load_team_games(cur):
-    """{(game_id, team): {'off': epa/play, 'def': epa/play allowed, ...}} for all plays."""
+def load_games(cur):
     cur.execute(
         """
-        SELECT game_id, team, side, plays, epa, pass_plays, pass_epa, rush_plays, rush_epa
+        SELECT game_id, season::INT, week::INT, game_type, gameday, home_team, away_team,
+               home_score::FLOAT, away_score::FLOAT, location, roof, temp::FLOAT, wind::FLOAT,
+               home_qb_id, away_qb_id, home_moneyline::FLOAT, away_moneyline::FLOAT
+        FROM schedules
+        WHERE season >= %s
+        ORDER BY season, week, gameday, gametime, game_id
+        """,
+        (WARMUP_SEASON,),
+    )
+    games = []
+    for row in cur.fetchall():
+        (game_id, season, week, game_type, gameday, home, away, hs, as_, location, roof, temp, wind,
+         home_qb, away_qb, home_ml, away_ml) = row
+        games.append({
+            'game_id': game_id, 'season': season, 'week': week, 'game_type': game_type,
+            'home': home, 'away': away, 'home_score': hs, 'away_score': as_,
+            'neutral': location == 'Neutral', 'gameday': gameday,
+            'outdoor': roof in ('outdoors', 'open'), 'temp': temp, 'wind': wind,
+            'home_qb': home_qb, 'away_qb': away_qb,
+            'market_wp': market_probability(home_ml, away_ml),
+            'completed': hs is not None and as_ is not None,
+        })
+    return games
+
+
+def load_team_games(cur):
+    """{(game_id, team): {'off': {...}, 'def': {...}}} for all plays."""
+    cur.execute(
+        """
+        SELECT game_id, team, side, plays, epa, success
         FROM team_game_pbp
         WHERE situation = 'all' AND season >= %s
         """,
-        (FIRST_SEASON,),
+        (WARMUP_SEASON,),
     )
     out = defaultdict(dict)
-    for game_id, team, side, plays, epa, pass_plays, pass_epa, rush_plays, rush_epa in cur.fetchall():
+    for game_id, team, side, plays, epa, success in cur.fetchall():
         if plays:
-            out[(game_id, canon(team))][side] = {
-                'epa_pp': epa / plays, 'pass_plays': pass_plays, 'pass_epa': pass_epa,
-                'rush_plays': rush_plays, 'rush_epa': rush_epa,
-            }
+            out[(game_id, canon(team))][side] = {'epa': epa / plays, 'success': success / plays}
     return out
 
 
-# --------------------------------------------------------------------------------------------
-# Team ratings
-# --------------------------------------------------------------------------------------------
+def load_qb_games(cur):
+    """{(season, week, team): {player_id: (dropbacks, dropback_epa)}} from play-by-play."""
+    cur.execute(
+        "SELECT player_id, season, week, team, dropbacks, dropback_epa FROM player_week_pbp WHERE dropbacks > 0"
+    )
+    out = defaultdict(dict)
+    for player_id, season, week, team, dropbacks, epa in cur.fetchall():
+        out[(season, week, canon(team))][player_id] = (dropbacks, epa)
+    return out
 
-class TeamState:
-    __slots__ = ('season', 'games', 'sums', 'weights', 'priors')
 
-    def __init__(self, season):
-        self.season = season
-        self.games = 0
-        self.sums = [0.0, 0.0, 0.0]      # off EPA/play, def EPA/play allowed, margin
-        self.weights = [0.0, 0.0, 0.0]
-        self.priors = [0.0, 0.0, 0.0]
+def load_injury_impact(cur):
+    """{(season, week, team): snap share of non-QB players listed Out}.
 
-    def rating(self, prior_weight):
-        return tuple(
-            (self.sums[i] + prior_weight * self.priors[i]) / (self.weights[i] + prior_weight)
-            for i in range(3)
+    Each player's importance is the average share of offensive or defensive snaps he played in
+    earlier games that season (or last season, early on). Empty before injury/snap data exist.
+    """
+    try:
+        cur.execute(
+            """
+            SELECT i.season::INT, i.week::INT, i.team, p.pfr_id
+            FROM injuries i JOIN players p ON p.gsis_id = i.gsis_id
+            WHERE i.report_status = 'Out' AND i.position <> 'QB' AND p.pfr_id IS NOT NULL
+            """
         )
+        outs = cur.fetchall()
+        cur.execute(
+            """
+            SELECT pfr_player_id, season::INT, week::INT,
+                   COALESCE(offense_pct, 0) + COALESCE(defense_pct, 0)
+            FROM snap_counts WHERE pfr_player_id IS NOT NULL
+            """
+        )
+        snaps = defaultdict(list)
+        for pfr, season, week, share in cur.fetchall():
+            snaps[pfr].append((season, week, share))
+    except Exception as e:
+        print(f"Models: injury data unavailable ({e}); injury feature set to zero")
+        if not cur.connection.autocommit:
+            cur.connection.rollback()
+        return {}
+    impact = defaultdict(float)
+    for season, week, team, pfr in outs:
+        history = [s for (yr, wk, s) in snaps.get(pfr, ()) if yr == season and wk < week]
+        if not history:
+            history = [s for (yr, wk, s) in snaps.get(pfr, ()) if yr == season - 1]
+        if history:
+            impact[(season, week, canon(team))] += sum(history) / len(history)
+    return impact
 
 
-def compute_ratings(games, team_games, params):
-    """Ratings entering each game, plus each team's state after the last completed game."""
-    decay, prior_weight, carry = params['decay'], params['prior_weight'], params['carry']
-    states = {}
-    pregame = {}
-    recent_totals = []
+# --------------------------------------------------------------------------------------------
+# Walk-forward features
+# --------------------------------------------------------------------------------------------
+
+class Rating:
+    """Exponentially decayed average with a prior worth `prior_weight` games."""
+    __slots__ = ('total', 'weight', 'prior')
+
+    def __init__(self, prior=0.0):
+        self.total = 0.0
+        self.weight = 0.0
+        self.prior = prior
+
+    def value(self, prior_weight):
+        return (self.total + prior_weight * self.prior) / (self.weight + prior_weight)
+
+    def update(self, x, decay):
+        self.total *= decay
+        self.weight *= decay
+        if x is not None:
+            self.total += x
+            self.weight += 1.0
+
+
+def build_features(games, team_games, qb_games, injury_impact, P=PARAMS):
+    """Pregame features for every game, in order, using only games completed before it.
+
+    Returns (features, team_states) where team_states holds each team's ratings after the last
+    completed game (for the team_ratings table).
+    """
+    decay, pw, carry = P['decay'], P['prior_weight'], P['carry']
+    qb_decay, qb_pw, qb_prior = P['qb_decay'], P['qb_prior_weight'], P['qb_prior']
+    teams = {}
+    qb_history = {}      # player_id -> (decayed EPA sum, decayed dropbacks)
+    team_qb_level = {}   # team -> Rating of the QB play it has been getting
+    league_totals, home_margins = [], []
+    features = []
+
+    def team_state(team, season):
+        st = teams.get(team)
+        if st is None or st['season'] != season:
+            prev = st['ratings'] if st else None
+            ratings = {}
+            for k in RATING_KEYS:
+                last = prev[k].value(pw) if prev else None
+                if k in ('pts_for', 'pts_against'):
+                    prior = 22.0 if last is None else 22.0 + carry * (last - 22.0)
+                else:
+                    prior = 0.0 if last is None else carry * last
+                ratings[k] = Rating(prior)
+            st = {'season': season, 'ratings': ratings, 'games': 0}
+            teams[team] = st
+        return st
+
+    def qb_rating(player_id):
+        if not player_id or player_id not in qb_history:
+            return qb_prior
+        total, dropbacks = qb_history[player_id]
+        return (total + qb_pw * qb_prior) / (dropbacks + qb_pw)
+
     for g in games:
-        teams = (canon(g['home']), canon(g['away']))
-        for team in teams:
-            st = states.get(team)
-            if st is None:
-                states[team] = TeamState(g['season'])
-            elif st.season != g['season']:
-                last = st.rating(prior_weight)
-                fresh = TeamState(g['season'])
-                fresh.priors = [carry * value for value in last]
-                states[team] = fresh
-        home_r = states[teams[0]].rating(prior_weight)
-        away_r = states[teams[1]].rating(prior_weight)
-        league_total = float(np.mean(recent_totals[-256:])) if recent_totals else 44.0
-        pregame[g['game_id']] = (home_r, away_r, league_total)
-
+        home, away = canon(g['home']), canon(g['away'])
+        hs, as_ = team_state(home, g['season']), team_state(away, g['season'])
+        hr = {k: v.value(pw) for k, v in hs['ratings'].items()}
+        ar = {k: v.value(pw) for k, v in as_['ratings'].items()}
+        h_level = team_qb_level[home].value(3.0) if home in team_qb_level else qb_prior
+        a_level = team_qb_level[away].value(3.0) if away in team_qb_level else qb_prior
+        # Without a listed starter (games more than a week out), assume the usual QB play continues.
+        hq = qb_rating(g['home_qb']) if g['home_qb'] else h_level
+        aq = qb_rating(g['away_qb']) if g['away_qb'] else a_level
+        h_out = injury_impact.get((g['season'], g['week'], home), 0.0)
+        a_out = injury_impact.get((g['season'], g['week'], away), 0.0)
+        outdoor = g['outdoor']
+        features.append({
+            'game': g,
+            'one': 1.0,
+            'hfa_recent': 0.0 if g['neutral'] else (
+                float(np.mean(home_margins[-P['hfa_window']:])) if len(home_margins) > 100 else 2.5),
+            'off_diff': hr['off'] - ar['off'],
+            'def_diff': ar['def'] - hr['def'],
+            'mar_diff': hr['mar'] - ar['mar'],
+            'soff_diff': hr['soff'] - ar['soff'],
+            'sdef_diff': ar['sdef'] - hr['sdef'],
+            'qb_diff': hq - aq,
+            'qb_change': (hq - h_level) - (aq - a_level),
+            'qb_sum': hq + aq,
+            'inj_diff': a_out - h_out,
+            'lg_total': float(np.mean(league_totals[-256:])) if league_totals else 41.0,
+            'off_sum': hr['off'] + ar['off'],
+            'def_sum': hr['def'] + ar['def'],
+            'pts_sum': hr['pts_for'] + ar['pts_for'] + hr['pts_against'] + ar['pts_against'],
+            'wind': (g['wind'] or 0.0) if outdoor else 0.0,
+            'cold': max(0.0, 40.0 - (g['temp'] if g['temp'] is not None else 60.0)) if outdoor else 0.0,
+            'dome': 0.0 if outdoor else 1.0,
+            'ratings': (hr, ar),
+        })
         if not g['completed']:
             continue
-        recent_totals.append(g['home_score'] + g['away_score'])
-        margin = max(-MARGIN_CAP, min(MARGIN_CAP, g['home_score'] - g['away_score']))
-        for team, sign in ((teams[0], 1), (teams[1], -1)):
+
+        league_totals.append(g['home_score'] + g['away_score'])
+        if not g['neutral']:
+            home_margins.append(g['home_score'] - g['away_score'])
+        margin = max(-P['margin_cap'], min(P['margin_cap'], g['home_score'] - g['away_score']))
+        for team, st, opp, sign, pf, pa in ((home, hs, ar, 1, g['home_score'], g['away_score']),
+                                            (away, as_, hr, -1, g['away_score'], g['home_score'])):
             tg = team_games.get((g['game_id'], team), {})
-            st = states[team]
-            values = [
-                tg['off']['epa_pp'] if 'off' in tg else None,
-                tg['def']['epa_pp'] if 'def' in tg else None,
-                sign * margin,
-            ]
-            for i, value in enumerate(values):
-                st.sums[i] *= decay
-                st.weights[i] *= decay
-                if value is not None:
-                    st.sums[i] += value
-                    st.weights[i] += 1.0
-            st.games += 1
-    return pregame, states
+            off, de = tg.get('off'), tg.get('def')
+            values = {
+                'off': off['epa'] - (opp['def'] if P['opp_adjust'] else 0.0) if off else None,
+                'def': de['epa'] - (opp['off'] if P['opp_adjust'] else 0.0) if de else None,
+                'soff': off['success'] if off else None,
+                'sdef': de['success'] if de else None,
+                'mar': sign * margin,
+                'pts_for': pf,
+                'pts_against': pa,
+            }
+            for k, v in values.items():
+                st['ratings'][k].update(v, decay)
+            st['games'] += 1
 
-
-def game_features(g, pregame):
-    (h_off, h_def, h_mar), (a_off, a_def, a_mar), league_total = pregame[g['game_id']]
-    hfa = 0.0 if g['neutral'] else 1.0
-    margin_x = [hfa, h_off - a_off, a_def - h_def, h_mar - a_mar]
-    total_x = [1.0, league_total, h_off + a_off, h_def + a_def]
-    return margin_x, total_x
+            played = qb_games.get((g['season'], g['week'], team), {})
+            total_db = sum(db for db, _ in played.values())
+            for player_id, (db, epa) in played.items():
+                s, w = qb_history.get(player_id, (0.0, 0.0))
+                qb_history[player_id] = (s * qb_decay + epa, w * qb_decay + db)
+            if total_db:
+                level = team_qb_level.setdefault(team, Rating(qb_prior))
+                level.update(sum(qb_rating(pid) * db for pid, (db, _) in played.items()) / total_db, decay)
+    return features, teams
 
 
 # --------------------------------------------------------------------------------------------
 # Game model
 # --------------------------------------------------------------------------------------------
 
-def fit_game_model(games, pregame, seasons):
-    rows = [g for g in games if g['completed'] and g['season'] in seasons]
-    xm, xt, ym, yt = [], [], [], []
-    for g in rows:
-        m, t = game_features(g, pregame)
-        xm.append(m)
-        xt.append(t)
-        ym.append(g['home_score'] - g['away_score'])
-        yt.append(g['home_score'] + g['away_score'])
-    xm, xt, ym, yt = map(np.array, (xm, xt, ym, yt))
-    beta_m = np.linalg.lstsq(xm, ym, rcond=None)[0]
-    beta_t = np.linalg.lstsq(xt, yt, rcond=None)[0]
-    sigma = float(np.std(ym - xm @ beta_m))
-    return {'margin': beta_m, 'total': beta_t, 'sigma': sigma, 'n': len(rows)}
+def decided(f, seasons):
+    g = f['game']
+    return g['completed'] and g['season'] in seasons and g['home_score'] != g['away_score']
 
 
-def predict_game(model, g, pregame):
-    m, t = game_features(g, pregame)
-    margin = float(np.dot(model['margin'], m))
-    total = float(np.dot(model['total'], t))
-    home_wp = float(norm_cdf(margin / model['sigma']))
+def matrix(rows, names):
+    return np.array([[r[n] for n in names] for r in rows], dtype=float)
+
+
+def fit_logistic(X, y, ridge=1e-3, iterations=60):
+    beta = np.zeros(X.shape[1])
+    for _ in range(iterations):
+        p = 1.0 / (1.0 + np.exp(-X @ beta))
+        hessian = X.T @ (X * (p * (1 - p))[:, None]) + ridge * np.eye(X.shape[1])
+        step = np.linalg.solve(hessian, X.T @ (y - p) - ridge * beta)
+        beta += step
+        if np.max(np.abs(step)) < 1e-9:
+            break
+    return beta
+
+
+def fit_game_model(features, seasons):
+    win_rows = [f for f in features if decided(f, seasons)]
+    y = np.array([1.0 if f['game']['home_score'] > f['game']['away_score'] else 0.0 for f in win_rows])
+    win = fit_logistic(matrix(win_rows, WIN_FEATURES), y)
+    played = [f for f in features if f['game']['completed'] and f['game']['season'] in seasons]
+    totals = np.array([f['game']['home_score'] + f['game']['away_score'] for f in played])
+    total = np.linalg.lstsq(matrix(played, TOTAL_FEATURES), totals, rcond=None)[0]
+    # Spread of real margins around the margin implied by our win probabilities.
+    p = 1.0 / (1.0 + np.exp(-matrix(played, WIN_FEATURES) @ win))
+    implied = np.array([norm_ppf(x) for x in p])
+    margins = np.array([f['game']['home_score'] - f['game']['away_score'] for f in played])
+    sigma = float(np.dot(implied, margins) / np.dot(implied, implied))  # margin = sigma * probit(p)
+    return {'win': win, 'total': total, 'sigma': sigma, 'n': len(win_rows)}
+
+
+def predict_game(model, f):
+    home_wp = float(1.0 / (1.0 + np.exp(-np.dot(model['win'], [f[n] for n in WIN_FEATURES]))))
+    # Margin consistent with the win probability, so favourite and projected score always agree.
+    margin = model['sigma'] * norm_ppf(home_wp)
+    total = float(np.dot(model['total'], [f[n] for n in TOTAL_FEATURES]))
     return {
         'home_wp': home_wp, 'proj_margin': margin,
         'home_proj': (total + margin) / 2.0, 'away_proj': (total - margin) / 2.0,
@@ -230,15 +398,16 @@ def score_probabilities(probs, outcomes):
     }
 
 
-def evaluate(model, games, pregame, seasons):
+def evaluate(model, features, seasons):
     """Scores the model on completed games, alongside the betting market on the same games."""
     probs, outcomes, margin_err, total_err = [], [], [], []
     m_probs, m_model, m_outcomes = [], [], []
-    for g in games:
+    for f in features:
+        g = f['game']
         if not g['completed'] or g['season'] not in seasons:
             continue
         actual = g['home_score'] - g['away_score']
-        p = predict_game(model, g, pregame)
+        p = predict_game(model, f)
         margin_err.append(abs(p['proj_margin'] - actual))
         total_err.append(abs(p['home_proj'] + p['away_proj'] - g['home_score'] - g['away_score']))
         if actual == 0:
@@ -257,18 +426,6 @@ def evaluate(model, games, pregame, seasons):
     result['market'] = score_probabilities(m_probs, m_outcomes)
     result['model_on_market_games'] = score_probabilities(m_model, m_outcomes)
     return result
-
-
-def select_params(games, team_games):
-    tune_fit, tune_eval = set(range(2006, 2018)), set(range(2018, 2022))
-    best = None
-    for params in PARAM_GRID:
-        pregame, _ = compute_ratings(games, team_games, params)
-        model = fit_game_model(games, pregame, tune_fit)
-        score = evaluate(model, games, pregame, tune_eval)['log_loss']
-        if best is None or score < best[0]:
-            best = (score, params)
-    return best[1]
 
 
 # --------------------------------------------------------------------------------------------
@@ -373,15 +530,15 @@ STAT_CV = {
     'attempts': 0.25, 'completions': 0.28, 'passing_yards': 0.32, 'carries': 0.4,
     'rushing_yards': 0.55, 'targets': 0.45, 'receptions': 0.5, 'receiving_yards': 0.6,
 }
-OPPONENT_SIDE = {
-    'passing_yards': 'pass', 'passing_tds': 'pass', 'completions': 'pass',
-    'receiving_yards': 'pass', 'receiving_tds': 'pass', 'receptions': 'pass',
-    'rushing_yards': 'rush', 'rushing_tds': 'rush',
-    'passing_interceptions': 'pass_inverse',
-}
 USAGE_FLOOR = {'QB': ('attempts', 15.0), 'RB': ('touches', 5.0), 'WR': ('targets', 2.5), 'TE': ('targets', 2.0)}
+# Backtested on 2023-2024, scored on 2025 (about 1% lower error than the previous settings): recent
+# games matter, last season much less, and the opponent adjustment is position-specific. The
+# earlier adjustment from a defense's overall EPA allowed made projections worse and was removed.
 RECENCY = 0.88
-LAST_SEASON_WEIGHT = 0.6
+LAST_SEASON_WEIGHT = 0.3
+OPPONENT_STATS = ('passing_yards', 'rushing_yards', 'receiving_yards', 'receptions')
+OPPONENT_SHRINK = 4.0   # games of league-average defense mixed into each defense's record
+OPPONENT_POWER = 0.5    # dampens the adjustment (1.0 would apply it in full)
 Z90 = 1.2816
 
 
@@ -395,10 +552,11 @@ def poisson_quantile(mean, q):
         p *= mean / k
 
 
-def project_player(history, position, season, opp_factor):
+def project_player(history, position, season, adjust):
     """history: per-game stat dicts, most recent first. Returns {stat: (mean, sd)}.
 
     sd is None for count stats (TDs, INTs), whose ranges come from a Poisson distribution.
+    adjust: {stat: multiplier} for the opponent's defense.
     """
     weights = np.array([
         (RECENCY ** i) * (1.0 if h['season'] == season else LAST_SEASON_WEIGHT)
@@ -408,10 +566,7 @@ def project_player(history, position, season, opp_factor):
     out = {}
     for stat in PROJECTION_STATS[position]:
         values = np.array([h.get(stat) or 0.0 for h in history], dtype=float)
-        mean = float(np.dot(weights, values) / n_eff)
-        side = OPPONENT_SIDE.get(stat)
-        if side:
-            mean *= opp_factor['pass'] if side.startswith('pass') else opp_factor['rush']
+        mean = float(np.dot(weights, values) / n_eff) * adjust.get(stat, 1.0)
         if stat in COUNT_STATS:
             out[stat] = (mean, None)
             continue
@@ -460,46 +615,42 @@ def load_player_games(cur, seasons):
     return by_player
 
 
-def opponent_factors(team_games_by_season, season, before_week):
-    """Per defense: multiplier on yardage/TDs from EPA allowed per pass and rush play so far."""
-    allowed = defaultdict(lambda: {'pass_plays': 0, 'pass_epa': 0.0, 'rush_plays': 0, 'rush_epa': 0.0})
-    league = {'pass_plays': 0, 'pass_epa': 0.0, 'rush_plays': 0, 'rush_epa': 0.0}
-    for (week, team), d in team_games_by_season.get(season, {}).items():
-        if week >= before_week:
+def defense_allowed(by_player):
+    """{(season, defense, week): {(position, stat): total}} from opposing players' game lines."""
+    allowed = defaultdict(lambda: defaultdict(float))
+    for rows in by_player.values():
+        for r in rows:
+            if r['position'] in PROJECTION_STATS and r['opponent']:
+                bucket = allowed[(r['season'], r['opponent'], r['week'])]
+                for stat in OPPONENT_STATS:
+                    bucket[(r['position'], stat)] += r.get(stat) or 0.0
+    return allowed
+
+
+def position_factors(allowed, season, before_week):
+    """{(defense, position, stat): multiplier} from what each defense allowed to each position
+    group earlier in the season, shrunk toward the league average."""
+    games, totals, league = defaultdict(int), defaultdict(float), defaultdict(float)
+    league_games = 0
+    for (s, defense, week), values in allowed.items():
+        if s != season or week >= before_week:
             continue
-        for key in league:
-            allowed[team][key] += d[key]
-            league[key] += d[key]
+        games[defense] += 1
+        league_games += 1
+        for key, value in values.items():
+            totals[(defense,) + key] += value
+            league[key] += value
     factors = {}
-    if not league['pass_plays']:
-        return factors, {'pass': 1.0, 'rush': 1.0}
-    lg_pass = league['pass_epa'] / league['pass_plays']
-    lg_rush = league['rush_epa'] / max(league['rush_plays'], 1)
-    for team, d in allowed.items():
-        shrink = 150.0  # plays of league-average defense mixed in
-        pass_rate = (d['pass_epa'] + shrink * lg_pass) / (d['pass_plays'] + shrink)
-        rush_rate = (d['rush_epa'] + shrink * lg_rush) / (d['rush_plays'] + shrink)
-        factors[team] = {
-            'pass': min(1.15, max(0.85, 1.0 + 1.5 * (pass_rate - lg_pass))),
-            'rush': min(1.15, max(0.85, 1.0 + 1.5 * (rush_rate - lg_rush))),
-        }
-    return factors, {'pass': 1.0, 'rush': 1.0}
+    for (defense, position, stat), value in totals.items():
+        average = league[(position, stat)] / league_games
+        if average > 0:
+            shrunk = (value + OPPONENT_SHRINK * average) / (games[defense] + OPPONENT_SHRINK)
+            factors[(defense, position, stat)] = min(1.3, max(0.7, shrunk / average)) ** OPPONENT_POWER
+    return factors
 
 
-def load_defense_games(cur, seasons):
-    cur.execute(
-        """
-        SELECT season, week, team, pass_plays, pass_epa, rush_plays, rush_epa
-        FROM team_game_pbp
-        WHERE side = 'def' AND situation = 'all' AND season_type = 'REG' AND season = ANY(%s)
-        """,
-        (list(seasons),),
-    )
-    out = defaultdict(dict)
-    for season, week, team, pass_plays, pass_epa, rush_plays, rush_epa in cur.fetchall():
-        out[season][(week, team)] = {'pass_plays': pass_plays, 'pass_epa': pass_epa,
-                                     'rush_plays': rush_plays, 'rush_epa': rush_epa}
-    return out
+def opponent_adjustment(factors, opponent, position):
+    return {stat: factors.get((opponent, position, stat), 1.0) for stat in OPPONENT_STATS}
 
 
 # Depth-chart filters for the upcoming week: quarterbacks must be QB1; others must be listed within
@@ -549,7 +700,7 @@ def load_availability(cur, season, week):
 def build_projections(cur, games, season):
     """Projections for the next unplayed week, plus a backtest over completed weeks."""
     by_player = load_player_games(cur, (season - 1, season))
-    defenses = load_defense_games(cur, (season - 1, season))
+    allowed = defense_allowed(by_player)
 
     def history_before(rows, s, week):
         return [r for r in reversed(rows) if (r['season'], r['week']) < (s, week)]
@@ -561,7 +712,7 @@ def build_projections(cur, games, season):
         for week in weeks:
             if week < 3:
                 continue
-            factors, neutral = opponent_factors(defenses, s, week)
+            factors = position_factors(allowed, s, week)
             for rows in by_player.values():
                 actual = next((r for r in rows if r['season'] == s and r['week'] == week), None)
                 if actual is None or actual['position'] not in PROJECTION_STATS:
@@ -570,7 +721,7 @@ def build_projections(cur, games, season):
                 if len(history) < 2 or not usage(history, actual['position'], s):
                     continue
                 proj = project_player(history, actual['position'], s,
-                                      factors.get(actual['opponent'], neutral))
+                                      opponent_adjustment(factors, actual['opponent'], actual['position']))
                 for stat, (mean, sd) in proj.items():
                     samples[stat].append((s, mean, sd, actual.get(stat) or 0.0))
 
@@ -602,7 +753,7 @@ def build_projections(cur, games, season):
     for g in week_games:
         matchup[g['home']] = (g['away'], True, g['game_id'])
         matchup[g['away']] = (g['home'], False, g['game_id'])
-    factors, neutral = opponent_factors(defenses, season, week)
+    factors = position_factors(allowed, season, week)
     injury_status, depth, teams_with_depth = load_availability(cur, season, week)
 
     rows_out = []
@@ -616,7 +767,7 @@ def build_projections(cur, games, season):
         if position not in PROJECTION_STATS or team not in matchup or not usage(history, position, season):
             continue
         opponent, home, game_id = matchup[team]
-        proj = project_player(history, position, season, factors.get(opponent, neutral))
+        proj = project_player(history, position, season, opponent_adjustment(factors, opponent, position))
         stats_json = {}
         for stat, (mean, sd) in proj.items():
             low, high = interval(mean, sd, scales.get(stat, 1.0))
@@ -647,34 +798,34 @@ def run(conn):
     if not games:
         print("Models: no games found; skipping")
         return
-    team_games = load_team_games(cur)
+    features, team_states = build_features(
+        games, load_team_games(cur), load_qb_games(cur), load_injury_impact(cur))
     current_season = max(g['season'] for g in games)
     completed_seasons = set(range(FIRST_SEASON, current_season))
+    holdout = {s for s in completed_seasons if s >= HOLDOUT_FIRST}
 
-    params = select_params(games, team_games)
-    pregame, states = compute_ratings(games, team_games, params)
+    validation_model = fit_game_model(features, completed_seasons - holdout)
+    validation = evaluate(validation_model, features, holdout)
+    model = fit_game_model(features, completed_seasons)
+    current = evaluate(model, features, {current_season})
+    print(f"Models: holdout {min(holdout)}-{max(holdout)} {validation}; {current_season} so far {current}")
 
-    holdout = {s for s in completed_seasons if s >= 2022}
-    validation_model = fit_game_model(games, pregame, completed_seasons - holdout)
-    validation = evaluate(validation_model, games, pregame, holdout)
-    model = fit_game_model(games, pregame, completed_seasons)
-    current = evaluate(model, games, pregame, {current_season})
-    print(f"Models: params {params}; holdout 2022+ {validation}; {current_season} so far {current}")
-
-    predictions = {g['game_id']: predict_game(model, g, pregame) for g in games}
+    scored = [f for f in features if f['game']['season'] >= FIRST_SEASON]
+    games = [f['game'] for f in scored]
+    predictions = {f['game']['game_id']: predict_game(model, f) for f in scored}
     rng = np.random.default_rng(current_season * 1000 + len([g for g in games if g['completed']]))
     odds = simulate_season(cur, games, predictions, model, current_season, rng)
     projections, backtest = build_projections(cur, games, current_season)
 
-    rating_rows = []
-    for g in games:
+    rating_rows = {}
+    for f in scored:
+        g = f['game']
         if g['season'] < current_season - 1:
             continue
-        home_r, away_r, _ = pregame[g['game_id']]
-        for team, r in ((g['home'], home_r), (g['away'], away_r)):
-            st = states.get(canon(team))
-            rating_rows.append((g['season'], g['week'], team, r[0], r[1], r[2], st.games if st else 0))
-    rating_rows = list({(r[0], r[1], r[2]): r for r in rating_rows}.values())
+        for team, r in ((g['home'], f['ratings'][0]), (g['away'], f['ratings'][1])):
+            st = team_states.get(canon(team))
+            rating_rows[(g['season'], g['week'], team)] = (
+                g['season'], g['week'], team, r['off'], r['def'], r['mar'], st['games'] if st else 0)
 
     cur.execute('BEGIN')
     try:
@@ -690,7 +841,7 @@ def run(conn):
         ], page_size=5000)
         execute_values(cur, """
             INSERT INTO team_ratings (season, week, team, off_epa, def_epa, margin, games) VALUES %s
-        """, rating_rows, page_size=5000)
+        """, list(rating_rows.values()), page_size=5000)
         if odds:
             cur.execute('DELETE FROM playoff_odds WHERE season = %s', (current_season,))
             execute_values(cur, """
@@ -707,9 +858,13 @@ def run(conn):
             """, projections)
         execute_values(cur, "INSERT INTO model_runs (model, version, metrics) VALUES %s", [
             ('game', MODEL_VERSION, json.dumps({
-                'params': params, 'sigma': model['sigma'], 'trained_games': model['n'],
+                'params': PARAMS, 'sigma': model['sigma'], 'trained_games': model['n'],
                 'trained_seasons': [min(completed_seasons), max(completed_seasons)],
-                'coefficients': {'margin': model['margin'].tolist(), 'total': model['total'].tolist()},
+                'features': WIN_FEATURES,
+                'coefficients': {
+                    'win': dict(zip(WIN_FEATURES, model['win'].tolist())),
+                    'total': dict(zip(TOTAL_FEATURES, model['total'].tolist())),
+                },
                 'holdout': {'seasons': [min(holdout), max(holdout)], **validation},
                 'current_season': {'season': current_season, **current},
             })),
