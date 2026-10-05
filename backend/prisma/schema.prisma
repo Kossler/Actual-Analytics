@@ -1675,3 +1675,11 @@ model live_models {
   metrics    Json
   created_at DateTime @default(now()) @db.Timestamptz(6)
 }
+
+/// Version (ETag) of each nflverse file as of its last successful load (ingest/sources.py).
+model source_files {
+  url        String   @id
+  table_name String
+  version    String
+  loaded_at  DateTime @default(now()) @db.Timestamptz(6)
+}

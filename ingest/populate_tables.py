@@ -406,10 +406,63 @@ def worker(task):
         print(f"Error processing {fname} {seasons or ''}: {e}")
         return False, 0
 
+def check_sources(selected_funcs, changed_only):
+    """Read the current version of every selected table's nflverse files before downloading, so
+    the versions can be recorded once the loads succeed. With changed_only (CHANGED_ONLY=1), also
+    drop the loaders whose files are unchanged since their last load. Returns (loaders, versions);
+    versions is None for multi-season loads (backfills), which are not tracked."""
+    import sources
+    seasons = requested_seasons()
+    if seasons is True or len(seasons) != 1:
+        if changed_only:
+            print('CHANGED_ONLY applies to single-season loads; loading everything selected.')
+        return selected_funcs, None
+    creds = parse_database_url(get_database_url())
+    conn = psycopg2.connect(dbname=creds['dbname'], user=creds['user'], password=creds['password'],
+                            host=creds['host'], port=creds['port'])
+    try:
+        tables = [f.replace('load_', '') for f in selected_funcs]
+        changed, versions = sources.changed_tables(conn.cursor(), tables, seasons[0])
+    finally:
+        conn.close()
+    if not changed_only:
+        return selected_funcs, versions
+    skipped = [t for t in tables if t not in changed]
+    if skipped:
+        print(f"Unchanged since the last load, skipping: {', '.join(skipped)}")
+    return [f for f in selected_funcs if f.replace('load_', '') in changed], versions
+
+
+def record_versions(versions, loaded_tables):
+    """Store the file versions of the tables that loaded, so the next run can skip them."""
+    import sources
+    creds = parse_database_url(get_database_url())
+    conn = psycopg2.connect(dbname=creds['dbname'], user=creds['user'], password=creds['password'],
+                            host=creds['host'], port=creds['port'])
+    try:
+        with conn, conn.cursor() as cur:
+            for table in loaded_tables:
+                sources.record_loaded(cur, table, versions.get(table, {}))
+    except Exception as e:
+        # Not fatal: those tables just reload on the next run.
+        print(f"WARNING: could not record source versions: {e}")
+    finally:
+        conn.close()
+
+
 def main():
     selected_funcs = get_selected_funcs()
     if not selected_funcs:
         print('No loaders selected. Set TABLES or LOADERS, or leave unset to run all.')
+        return
+    try:
+        selected_funcs, versions = check_sources(selected_funcs, env_flag('CHANGED_ONLY'))
+    except Exception as e:
+        # Can't tell what changed (e.g. GitHub unreachable): load everything selected.
+        print(f"WARNING: could not check source versions, loading everything selected: {e}")
+        versions = None
+    if not selected_funcs:
+        print('No source files changed since the last load; nothing to do.')
         return
 
     requested = os.getenv('PROCESSES', '').strip()
@@ -437,6 +490,8 @@ def main():
     # Finalize even after partial failures: the tables that did load still need fresh stats,
     # the season view refreshed and the API cache invalidated.
     finalized = finalize_load([f.replace('load_', '') for f in selected_funcs])
+    if versions is not None:
+        record_versions(versions, [f.replace('load_', '') for f, ok in zip(selected_funcs, results) if ok])
 
     failed = [f for f, ok in zip(selected_funcs, results) if not ok]
     if failed or not finalized:

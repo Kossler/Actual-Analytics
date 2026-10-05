@@ -60,17 +60,14 @@ This guide covers deploying the Second Level Analytics application across Cloudf
 
 ## Step 3: Set Up GitHub Actions for Data Ingestion
 
-1. **Add secrets to GitHub**:
-   - Go to your repository settings → Secrets
-   - Add `DB_PASSWORD`: Your PostgreSQL password
+1. **Add secrets to GitHub** (repository settings → Secrets and variables → Actions):
+   - `RAILWAY_DATABASE_URL`: your Railway PostgreSQL connection string
 
-2. **Add environment variable to GitHub Actions**:
-   - Update `.github/workflows/daily-ingestion.yml` with your Railway PostgreSQL connection string
-
-3. **Configure the workflow**:
-   - The workflow runs daily at 2 AM UTC
-   - Adjust the cron schedule in `.github/workflows/daily-ingestion.yml` as needed
-   - Or manually trigger by going to Actions → Daily Data Ingestion → Run workflow
+2. **How it runs**:
+   - `.github/workflows/daily-ingestion.yml` checks nflverse's files every 30 minutes in season
+     (every 3 hours in the offseason) and loads only the tables whose files changed. See
+     `ingest/SCHEDULE.md` for when each dataset updates.
+   - To load on demand: Actions → Data Ingestion → Run workflow
 
 ## Local Development
 
@@ -116,7 +113,7 @@ NEXT_PUBLIC_API_URL=https://your-railway-backend.up.railway.app
 
 - **Cloudflare Pages**: Deployments → Deployment status
 - **Railway**: Dashboard → Services → Logs
-- **GitHub Actions**: Actions → Daily Data Ingestion → Workflow runs
+- **GitHub Actions**: Actions → Data Ingestion → Workflow runs
 
 ## Troubleshooting
 

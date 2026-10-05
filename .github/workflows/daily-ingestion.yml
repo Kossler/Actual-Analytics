@@ -1,31 +1,16 @@
-name: Daily Data Ingestion
+name: Data Ingestion
 
+# Loads nflverse data as soon as it is published. Each dataset has its own schedule (see
+# ingest/SCHEDULE.md), and the actual publish times drift, so rather than guessing times this
+# checks every source file often and loads only the tables whose files changed. The check is a
+# few HEAD requests and takes seconds; a run where nothing changed stops there.
 on:
   schedule:
-    # All schedules are in UTC (GitHub Actions standard).
-    # Times are set to run ~3 hours after the final game of each slate ends (ET).
-    # Daylight Saving Time is handled automatically via UTC → ET conversion.
-
-    # TNF (Thursday Night Football)
-    # Game ends ~11:15 PM ET → Run at ~2:15 AM ET (7:15 AM UTC Friday)
-    - cron: "15 7 * 1,2,9-12 5"
-
-    # Sunday Early Window
-    # Games end ~4:15 PM ET → Run at ~7:15 PM ET (12:15 AM UTC Monday)
-    - cron: "15 0 * 1,2,9-12 1"
-
-    # Sunday Late Window
-    # Games end ~7:15 PM ET → Run at ~10:15 PM ET (3:15 AM UTC Monday)
-    - cron: "15 3 * 1,2,9-12 1"
-
-    # Sunday Night Football (SNF)
-    # Game ends ~11:15 PM ET → Run at ~2:15 AM ET (7:15 AM UTC Monday)
-    - cron: "15 7 * 1,2,9-12 1"
-
-    # Monday Night Football (MNF)
-    # Game ends ~11:15 PM ET → Run at ~2:15 AM ET (7:15 AM UTC Tuesday)
-    - cron: "15 7 * 1,2,9-12 2"
-
+    # All times UTC. In season (September-February): every 30 minutes.
+    - cron: "7,37 * * 1,2,9-12 *"
+    # Offseason (March-August): every 3 hours, for free agency, the draft, roster moves and
+    # depth charts; game data does not change.
+    - cron: "17 */3 * 3-8 *"
 
   workflow_dispatch:
     inputs:
@@ -37,10 +22,47 @@ on:
         description: 'Load every season instead of only the latest (backfills)'
         type: boolean
         default: false
+      changed_only:
+        description: 'Only load tables whose source files changed (what scheduled runs do)'
+        type: boolean
+        default: false
 
+# One ingestion at a time; a run that starts while another is loading waits for it.
+concurrency:
+  group: ingestion
+  cancel-in-progress: false
+
+env:
+  # The tables the site uses. participation is omitted: nflverse publishes it only after each
+  # season, and the app doesn't use it.
+  DEFAULT_TABLES: schedules,teams,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving,contracts,injuries,depth_charts_current,pfr_advstats_pass,pfr_advstats_rush,pfr_advstats_rec,pfr_advstats_def,ftn_charting
 
 jobs:
+  # Which tables have new source files since they were last loaded (scheduled runs only).
+  check-sources:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tables: ${{ steps.check.outputs.tables }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - run: pip install requests psycopg2-binary
+      - id: check
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+          TABLES: ${{ env.DEFAULT_TABLES }}
+        run: |
+          cd ingest
+          python sources.py check
+
   ingest-data:
+    needs: check-sources
+    # Scheduled: only when something changed. Manual: always.
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (needs.check-sources.result == 'success' && needs.check-sources.outputs.tables != '')) }}
     runs-on: ubuntu-latest
     # A full-history backfill of every table takes a while; a stuck run shouldn't burn 6 hours.
     timeout-minutes: 180
@@ -58,13 +80,14 @@ jobs:
           cd ingest
           pip install -r requirements.txt
       
-      - name: Run current season data update
+      - name: Load changed data
         env:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
           LATEST_SEASON: ${{ inputs.all_seasons && '0' || '1' }}
-          # Refresh app-critical tables (these tables contain all seasons; we load only the latest season rows).
-          # participation is omitted: nflverse stopped publishing it after 2025 and the app doesn't use it.
-          TABLES: ${{ inputs.tables || 'schedules,teams,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving,contracts,injuries,depth_charts_current,pfr_advstats_pass,pfr_advstats_rush,pfr_advstats_rec,pfr_advstats_def,ftn_charting' }}
+          # Scheduled runs: the changed tables. Manual runs: the requested tables, else all of them.
+          TABLES: ${{ inputs.tables || needs.check-sources.outputs.tables || env.DEFAULT_TABLES }}
+          # Re-checked at load time, which also reads the file versions to record after loading.
+          CHANGED_ONLY: ${{ (github.event_name == 'schedule' || inputs.changed_only) && '1' || '0' }}
           # Upsert only the tables that can change as stats are recalculated.
           UPSERT_TABLES: 'schedules,players,rosters_weekly,player_stats,pbp,snap_counts,nextgen_stats,nextgen_rushing,nextgen_receiving,injuries,pfr_advstats_pass,pfr_advstats_rush,pfr_advstats_rec,pfr_advstats_def,ftn_charting'
           UPSERT: '0'

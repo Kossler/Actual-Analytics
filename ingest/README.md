@@ -8,7 +8,9 @@ This directory contains scripts and tools for ingesting, cleaning, and populatin
 - **check_unique_constraints.py**: Ensures unique constraints in the database
 - **clear_tables.py**: Clears all data from tables
 - **drop_nfl_tables.py / .sql**: Drops NFL-related tables
-- **populate_tables.py**: Populates tables with new data
+- **populate_tables.py**: Populates tables with new data (`CHANGED_ONLY=1` loads only tables whose source files changed)
+- **sources.py**: Maps each table to its nflverse source files and checks which changed since the last load
+- **SCHEDULE.md**: When each dataset updates, and how the scheduled ingest follows it
 - **requirements.txt**: Python dependencies for ingest scripts
 
 ## Features
