@@ -502,6 +502,50 @@ def load_defense_games(cur, seasons):
     return out
 
 
+# Depth-chart filters for the upcoming week: quarterbacks must be QB1; others must be listed within
+# these ranks at their position.
+DEPTH_LIMIT = {'QB': 1, 'RB': 3, 'WR': 3, 'TE': 2}
+
+
+def load_availability(cur, season, week):
+    """Injury report status and best depth-chart rank per player for the upcoming week."""
+    status = {}
+    try:
+        cur.execute(
+            """
+            SELECT DISTINCT ON (gsis_id) gsis_id, report_status
+            FROM injuries
+            WHERE season = %s AND week = %s AND gsis_id IS NOT NULL
+            ORDER BY gsis_id, game_type DESC
+            """,
+            (season, week),
+        )
+        status = {gsis: s for gsis, s in cur.fetchall()}
+    except Exception as e:  # table missing on an old schema: no injury filter
+        print(f"Models: injuries unavailable ({e})")
+        if not cur.connection.autocommit:
+            cur.connection.rollback()
+    depth, teams_with_depth = {}, set()
+    try:
+        cur.execute(
+            """
+            SELECT gsis_id, team, pos_abb, MIN(pos_rank)::INT
+            FROM depth_charts_current
+            WHERE gsis_id IS NOT NULL AND pos_abb IN ('QB', 'RB', 'FB', 'WR', 'TE')
+            GROUP BY gsis_id, team, pos_abb
+            """
+        )
+        for gsis, team, pos, rank in cur.fetchall():
+            teams_with_depth.add(team)
+            pos = 'RB' if pos == 'FB' else pos
+            depth.setdefault(gsis, {})[pos] = min(rank, depth.get(gsis, {}).get(pos, rank))
+    except Exception as e:
+        print(f"Models: depth charts unavailable ({e})")
+        if not cur.connection.autocommit:
+            cur.connection.rollback()
+    return status, depth, teams_with_depth
+
+
 def build_projections(cur, games, season):
     """Projections for the next unplayed week, plus a backtest over completed weeks."""
     by_player = load_player_games(cur, (season - 1, season))
@@ -559,8 +603,10 @@ def build_projections(cur, games, season):
         matchup[g['home']] = (g['away'], True, g['game_id'])
         matchup[g['away']] = (g['home'], False, g['game_id'])
     factors, neutral = opponent_factors(defenses, season, week)
+    injury_status, depth, teams_with_depth = load_availability(cur, season, week)
 
     rows_out = []
+    skipped = defaultdict(int)
     for player_id, rows in by_player.items():
         history = history_before(rows, season, week)
         if len(history) < 2:
@@ -575,8 +621,19 @@ def build_projections(cur, games, season):
         for stat, (mean, sd) in proj.items():
             low, high = interval(mean, sd, scales.get(stat, 1.0))
             stats_json[stat] = {'mean': round(mean, 1), 'low': round(low, 1), 'high': round(high, 1)}
+        status = injury_status.get(player_id)
+        rank = depth.get(player_id, {}).get(position)
+        if status == 'Out':
+            skipped['out'] += 1
+            continue
+        # Only filter on the depth chart when the team has one; a missing feed shouldn't empty the week.
+        if team in teams_with_depth and (rank is None or rank > DEPTH_LIMIT[position]):
+            skipped['depth_chart'] += 1
+            continue
         rows_out.append((season, week, player_id, latest['name'], position, team, opponent, home,
-                         game_id, json.dumps(stats_json)))
+                         game_id, json.dumps(stats_json), status, rank))
+    if skipped:
+        print(f"Models: projections skipped {dict(skipped)}")
     return rows_out, backtest
 
 
@@ -645,7 +702,7 @@ def run(conn):
         if projections:
             execute_values(cur, """
                 INSERT INTO player_projections (season, week, player_id, player_name, position, team,
-                                                opponent, home, game_id, stats)
+                                                opponent, home, game_id, stats, injury_status, depth_rank)
                 VALUES %s
             """, projections)
         execute_values(cur, "INSERT INTO model_runs (model, version, metrics) VALUES %s", [

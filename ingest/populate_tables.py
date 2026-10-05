@@ -67,7 +67,8 @@ funcs = [
     'load_ff_playerids', 'load_ff_rankings', 'load_ftn_charting', 'load_injuries', 'load_nextgen_stats',
     'load_officials', 'load_participation', 'load_pbp', 'load_player_stats', 'load_players', 'load_rosters',
     'load_rosters_weekly', 'load_schedules', 'load_snap_counts', 'load_team_stats', 'load_teams', 'load_trades',
-    'load_nextgen_rushing', 'load_nextgen_receiving',
+    'load_nextgen_rushing', 'load_nextgen_receiving', 'load_depth_charts_current',
+    'load_pfr_advstats_pass', 'load_pfr_advstats_rush', 'load_pfr_advstats_rec', 'load_pfr_advstats_def',
 ]
 
 # Loaders that call an nflreadpy function with fixed arguments: loader name -> (function, kwargs).
@@ -75,7 +76,36 @@ funcs = [
 LOADER_ALIASES = {
     'load_nextgen_rushing': ('load_nextgen_stats', {'stat_type': 'rushing'}),
     'load_nextgen_receiving': ('load_nextgen_stats', {'stat_type': 'receiving'}),
+    'load_depth_charts_current': ('load_depth_charts', {}),
+    'load_pfr_advstats_pass': ('load_pfr_advstats', {'stat_type': 'pass', 'summary_level': 'week'}),
+    'load_pfr_advstats_rush': ('load_pfr_advstats', {'stat_type': 'rush', 'summary_level': 'week'}),
+    'load_pfr_advstats_rec': ('load_pfr_advstats', {'stat_type': 'rec', 'summary_level': 'week'}),
+    'load_pfr_advstats_def': ('load_pfr_advstats', {'stat_type': 'def', 'summary_level': 'week'}),
 }
+
+# Datasets nflverse publishes as complete snapshots: the table is replaced on every load (inside
+# the load's transaction, so readers keep seeing the old rows until it commits).
+REPLACE_TABLES = {'contracts', 'depth_charts_current'}
+
+# nflverse lists relocated and alias franchises (LAR for LA, OAK, SD, STL) next to the 32 current
+# teams; they share team_id, so keeping them would make the stored abbreviation depend on load order.
+TEAM_ALIASES = {'LAR', 'OAK', 'SD', 'STL'}
+
+
+def transform(table_name, df):
+    """Per-table adjustments applied after download and before insert."""
+    if table_name == 'depth_charts_current' and 'dt' in df.columns and len(df):
+        # Since 2026 nflverse publishes timestamped snapshots; keep only the newest one.
+        df = df.filter(pl.col('dt') == df['dt'].max())
+    if table_name == 'teams' and 'team_abbr' in df.columns:
+        df = df.filter(~pl.col('team_abbr').is_in(list(TEAM_ALIASES)))
+    if table_name == 'contracts':
+        # The snapshot repeats some rows verbatim; distinct deals can share player, team and year.
+        flat = [c for c in df.columns if df.schema[c] not in (pl.List, pl.Struct) and not isinstance(df.schema[c], (pl.List, pl.Struct))]
+        df = df.unique(subset=flat, keep='first', maintain_order=True)
+    if table_name == 'injuries' and 'gsis_id' in df.columns:
+        df = df.filter(pl.col('gsis_id').is_not_null())
+    return df
 
 
 def get_selected_funcs():
@@ -107,7 +137,6 @@ def get_selected_funcs():
 # Table unique keys mapping
 TABLE_UNIQUE_KEYS = {
     "combine": ["pfr_id"],
-    "contracts": ["otc_id", "gsis_id", "year_signed", "team"],
     "depth_charts": ["gsis_id", "season", "week", "elias_id"],
     "draft_picks": ["season", "round", "pick", "pfr_player_id"],
     "ff_opportunity": ["game_id", "player_id"],
@@ -128,7 +157,12 @@ TABLE_UNIQUE_KEYS = {
     "rosters_weekly": ["season", "team", "gsis_id", "espn_id", "sportradar_id", "yahoo_id", "rotowire_id", "pff_id", "pfr_id", "fantasy_data_id", "sleeper_id", "week"],
     "schedules": ["game_id", "season", "week"],
     "snap_counts": ["game_id", "pfr_game_id", "pfr_player_id", "season", "week"],
-    "team_stats": ["season", "week"],
+    "team_stats": ["season", "week", "team"],
+    "injuries": ["season", "game_type", "week", "gsis_id"],
+    "pfr_advstats_pass": ["game_id", "pfr_player_id"],
+    "pfr_advstats_rush": ["game_id", "pfr_player_id"],
+    "pfr_advstats_rec": ["game_id", "pfr_player_id"],
+    "pfr_advstats_def": ["game_id", "pfr_player_id"],
     "teams": ["team_id"],
     "trades": ["trade_id", "pfr_id"],
 }
@@ -231,6 +265,7 @@ def process_table(fname, creds):
             return False
     table_name = fname.replace('load_', '')
     upsert = upsert_all if upsert_tables is None else (table_name in upsert_tables)
+    df = transform(table_name, df)
     df = select_table_columns(cur, table_name, df)
     columns = df.columns
     col_names = ', '.join([f'"{col}"' for col in columns])
@@ -244,8 +279,10 @@ def process_table(fname, creds):
         conn.close()
         return False
     if table_name == 'players':
-        # One row per player; a batch with repeated keys would make ON CONFLICT DO UPDATE fail.
-        df = df.filter(pl.col('gsis_id').is_not_null()).unique(subset=['gsis_id'], keep='last', maintain_order=True)
+        df = df.filter(pl.col('gsis_id').is_not_null())
+    if upsert and unique_cols:
+        # A batch with a repeated key makes ON CONFLICT DO UPDATE fail; keep the last row per key.
+        df = df.unique(subset=unique_cols, keep='last', maintain_order=True)
     if unique_cols:
         conflict_cols = ', '.join([f'"{col}"' for col in unique_cols])
         if upsert:
@@ -266,17 +303,25 @@ def process_table(fname, creds):
     print(f"Populating table {table_name} with {len(df)} rows...")
     BIGINT_MIN = -9223372036854775808
     BIGINT_MAX = 9223372036854775807
+    def jsonable(value):
+        if isinstance(value, np.ndarray):
+            value = value.tolist()
+        if isinstance(value, list):
+            return [jsonable(v) for v in value]
+        if isinstance(value, dict):
+            return {k: jsonable(v) for k, v in value.items()}
+        return value
+
     def serialize_cell(cell):
-        if isinstance(cell, (list, np.ndarray)):
-            return json.dumps([serialize_cell(x) for x in cell], default=str)
-        if isinstance(cell, dict):
-            return json.dumps({k: serialize_cell(v) for k, v in cell.items()}, default=str)
+        # Nested values (lists, structs) are stored as one JSON document, encoded once.
+        if isinstance(cell, (list, np.ndarray, dict)):
+            return json.dumps(jsonable(cell), default=str)
         if isinstance(cell, (int, np.integer)):
             if cell < BIGINT_MIN or cell > BIGINT_MAX:
                 return str(cell)
         return cell
     try:
-        if clear_before_load:
+        if clear_before_load or table_name in REPLACE_TABLES:
             cur.execute(f'TRUNCATE TABLE "{table_name}"')
         total_rows = len(df)
         # Use .to_dicts() for fast row extraction

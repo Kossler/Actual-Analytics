@@ -111,6 +111,13 @@ export default function TeamPage({ data }) {
         </Card>
       </div>
 
+      {(data.depth?.length > 0 || data.injuries?.length > 0) && (
+        <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {data.depth?.length > 0 && <DepthChart depth={data.depth} />}
+          <InjuryReport injuries={data.injuries || []} />
+        </div>
+      )}
+
       <div className="mb-4">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="font-sans text-[17px] font-bold">{data.season} results</h2>
@@ -199,6 +206,62 @@ export default function TeamPage({ data }) {
         </Card>
       )}
     </>
+  );
+}
+
+// Starters (rank 1 at each slot) from the latest depth chart, grouped by unit.
+function DepthChart({ depth }) {
+  const starters = depth.filter((d) => d.pos_rank === 1);
+  const unit = (d) => (d.pos_grp === 'Special Teams' ? 'Special teams' : / D$/.test(d.pos_grp) ? 'Defense' : 'Offense');
+  const units = ['Offense', 'Defense', 'Special teams'].map((u) => ({ u, rows: starters.filter((d) => unit(d) === u) })).filter((x) => x.rows.length);
+  const updated = depth[0]?.dt ? new Date(depth[0].dt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+  return (
+    <Card title="Depth chart" subtitle={`Starters${updated ? ` · updated ${updated}` : ''}`}>
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
+        {units.map(({ u, rows }) => (
+          <div key={u}>
+            <div className="label mb-2">{u}</div>
+            <ul className="space-y-1 text-sm">
+              {rows.map((d) => (
+                <li key={`${d.pos_abb}-${d.pos_slot}`} className="flex gap-2">
+                  <span className="w-10 shrink-0 text-xs font-semibold text-faint">{d.pos_abb}</span>
+                  {d.gsis_id ? (
+                    <Link href={`/players/${d.gsis_id}`} className="min-w-0 break-words hover:underline">{d.player_name}</Link>
+                  ) : (
+                    <span className="min-w-0 break-words">{d.player_name}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function InjuryReport({ injuries }) {
+  const week = injuries[0]?.week;
+  const tone = { Out: 'border-bad/70 text-bad', Doubtful: 'border-bad/50 text-bad', Questionable: 'border-warn/60 text-warn' };
+  return (
+    <Card title="Injury report" subtitle={week ? `Week ${week} game designations` : 'No designations this week'}>
+      {injuries.length === 0 ? (
+        <p className="text-sm text-muted">No players listed as out, doubtful or questionable.</p>
+      ) : (
+        <ul className="divide-y divide-line/70 text-sm">
+          {injuries.map((i) => (
+            <li key={i.gsis_id} className="flex items-center gap-3 py-2">
+              <span className={`w-24 shrink-0 rounded border px-1.5 py-0.5 text-center text-2xs font-bold uppercase ${tone[i.report_status] || 'border-line-strong text-muted'}`}>
+                {i.report_status}
+              </span>
+              <Link href={`/players/${i.gsis_id}`} className="min-w-0 flex-1 truncate font-semibold hover:underline">{i.full_name}</Link>
+              <span className="text-xs text-faint">{i.position}</span>
+              <span className="w-24 truncate text-right text-xs text-muted">{i.report_primary_injury || ''}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

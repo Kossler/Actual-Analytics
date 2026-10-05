@@ -83,6 +83,23 @@ router.get('/search', handle(async (req, res) => {
 
 const POSITION_FILTER = { QB: ['QB'], RB: ['RB', 'FB'], WR: ['WR'], TE: ['TE'] };
 
+// Pro Football Reference advanced stats, summed per player. pfr_* aliases keep them apart from the
+// nflverse columns with similar names (e.g. carries).
+const PFR_FIELDS = {
+  pass: ['passing_bad_throws AS pfr_bad_throws', 'times_pressured AS pfr_pressured', 'times_blitzed AS pfr_blitzed',
+    'times_hurried AS pfr_hurried', 'times_hit AS pfr_hit', 'passing_drops AS pfr_drops_thrown'],
+  rush: ['carries AS pfr_carries', 'rushing_yards_before_contact AS pfr_ybc', 'rushing_yards_after_contact AS pfr_yac_rush',
+    'rushing_broken_tackles AS pfr_rush_broken'],
+  rec: ['receiving_drop AS pfr_rec_drops', 'receiving_broken_tackles AS pfr_rec_broken', 'receiving_int AS pfr_rec_int'],
+  def: ['def_targets AS pfr_def_targets', 'def_completions_allowed AS pfr_def_completions', 'def_yards_allowed AS pfr_def_yards',
+    'def_receiving_td_allowed AS pfr_def_td', 'def_ints AS pfr_def_ints', 'def_pressures AS pfr_def_pressures',
+    'def_times_hurried AS pfr_def_hurries', 'def_times_blitzed AS pfr_def_blitzes', 'def_missed_tackles AS pfr_def_missed',
+    'def_tackles_combined AS pfr_def_tackles', 'def_yards_after_catch AS pfr_def_yac'],
+};
+const PFR_KINDS = ['pass', 'rush', 'rec', 'def'];
+const pfrColumn = (f) => f.split(' AS ')[0];
+const pfrAlias = (f) => f.split(' AS ')[1];
+
 // Per-player totals over a week range, with play-by-play and Next Gen Stats sums so the client
 // can compute any rate for any column set.
 const LEADERBOARD_SQL = `
@@ -165,16 +182,46 @@ const LEADERBOARD_SQL = `
     WHERE season = $1 AND season_type = 'REG' AND week BETWEEN GREATEST($2, 1) AND $3
     GROUP BY player_gsis_id
   )
+  ,
+  pfr_pass AS (
+    SELECT pl.gsis_id AS player_id, ${PFR_FIELDS.pass.map((f) => `SUM(t.${pfrColumn(f)})::FLOAT AS ${pfrAlias(f)}`).join(', ')}
+    FROM pfr_advstats_pass t JOIN public.players pl ON pl.pfr_id = t.pfr_player_id
+    WHERE t.season = $1 AND t.game_type = 'REG' AND t.week BETWEEN $2 AND $3
+    GROUP BY pl.gsis_id
+  )
+  ,
+  pfr_rush AS (
+    SELECT pl.gsis_id AS player_id, ${PFR_FIELDS.rush.map((f) => `SUM(t.${pfrColumn(f)})::FLOAT AS ${pfrAlias(f)}`).join(', ')}
+    FROM pfr_advstats_rush t JOIN public.players pl ON pl.pfr_id = t.pfr_player_id
+    WHERE t.season = $1 AND t.game_type = 'REG' AND t.week BETWEEN $2 AND $3
+    GROUP BY pl.gsis_id
+  )
+  ,
+  pfr_rec AS (
+    SELECT pl.gsis_id AS player_id, ${PFR_FIELDS.rec.map((f) => `SUM(t.${pfrColumn(f)})::FLOAT AS ${pfrAlias(f)}`).join(', ')}
+    FROM pfr_advstats_rec t JOIN public.players pl ON pl.pfr_id = t.pfr_player_id
+    WHERE t.season = $1 AND t.game_type = 'REG' AND t.week BETWEEN $2 AND $3
+    GROUP BY pl.gsis_id
+  )
+  ,
+  pfr_def AS (
+    SELECT pl.gsis_id AS player_id, ${PFR_FIELDS.def.map((f) => `SUM(t.${pfrColumn(f)})::FLOAT AS ${pfrAlias(f)}`).join(', ')}
+    FROM pfr_advstats_def t JOIN public.players pl ON pl.pfr_id = t.pfr_player_id
+    WHERE t.season = $1 AND t.game_type = 'REG' AND t.week BETWEEN $2 AND $3
+    GROUP BY pl.gsis_id
+  )
   SELECT p.*, pbp.dropbacks, pbp.dropback_epa, pbp.dropback_success, pbp.cpoe_sum, pbp.cpoe_n,
          pbp.pbp_carries, pbp.pbp_rush_epa, pbp.rush_success, pbp.pbp_targets, pbp.target_epa,
          pbp.target_success, np.time_to_throw, np.aggressiveness, np.intended_air_yards,
          nr.ryoe, nr.ngs_rush_attempts, nr.stacked_box_pct,
-         nc.separation, nc.cushion, nc.yac_over_expected
+         nc.separation, nc.cushion, nc.yac_over_expected,
+         ${PFR_KINDS.map((k) => PFR_FIELDS[k].map((f) => `pfr_${k}.${pfrAlias(f)}`).join(', ')).join(',\n         ')}
   FROM players p
   LEFT JOIN pbp ON pbp.player_id = p.player_id
   LEFT JOIN ngs_pass np ON np.player_id = p.player_id
   LEFT JOIN ngs_rush nr ON nr.player_id = p.player_id
   LEFT JOIN ngs_rec nc ON nc.player_id = p.player_id
+  ${PFR_KINDS.map((k) => `LEFT JOIN pfr_${k} ON pfr_${k}.player_id = p.player_id`).join('\n  ')}
   WHERE p.position = ANY($4)
 `;
 
@@ -225,12 +272,15 @@ const PLAYER_GAMES_SQL = `
     pw.cpoe_n::FLOAT AS cpoe_n, pw.carries::FLOAT AS pbp_carries, pw.rush_epa AS pbp_rush_epa,
     pw.rush_success, pw.targets::FLOAT AS pbp_targets, pw.target_epa, pw.target_success,
     s.game_id, s.home_team, s.away_team, s.home_score::FLOAT AS home_score,
-    s.away_score::FLOAT AS away_score, s.gameday, s.roof, s.game_type
+    s.away_score::FLOAT AS away_score, s.gameday, s.roof, s.game_type,
+    ${PFR_KINDS.map((k) => PFR_FIELDS[k].map((f) => `pfr_${k}.${pfrColumn(f)}::FLOAT AS ${pfrAlias(f)}`).join(', ')).join(',\n    ')}
   FROM player_stats ps
   LEFT JOIN player_week_pbp pw
     ON pw.player_id = ps.player_id AND pw.season = ps.season AND pw.week = ps.week
   LEFT JOIN schedules s
     ON s.season = ps.season AND s.week = ps.week AND (s.home_team = ps.team OR s.away_team = ps.team)
+  LEFT JOIN players pl ON pl.gsis_id = ps.player_id
+  ${PFR_KINDS.map((k) => `LEFT JOIN pfr_advstats_${k} pfr_${k} ON pfr_${k}.game_id = s.game_id AND pfr_${k}.pfr_player_id = pl.pfr_id`).join('\n  ')}
   WHERE ps.player_id = $1
   ORDER BY ps.season, ps.week
 `;
@@ -257,7 +307,7 @@ const PLAYER_NGS_SQL = `
 
 router.get('/players/:id/page', handle(async (req, res) => {
   const id = req.params.id;
-  const [players, games, ngs, contracts] = await Promise.all([
+  const [players, games, ngs, contracts, injuries, depth] = await Promise.all([
     query(`SELECT gsis_id, display_name, first_name, last_name, position, position_group, latest_team,
                   jersey_number, height::FLOAT AS height, weight::FLOAT AS weight, college_name, headshot,
                   birth_date, years_of_experience, rookie_season, draft_year, draft_round, draft_pick,
@@ -266,14 +316,91 @@ router.get('/players/:id/page', handle(async (req, res) => {
     query(PLAYER_GAMES_SQL, id),
     query(PLAYER_NGS_SQL, id),
     query(`SELECT c.year_signed::INT AS year_signed, c.years::INT AS years, c.value, c.apy, c.guaranteed,
-                  c.apy_cap_pct, c.team, c.is_active
+                  c.apy_cap_pct, c.team, c.is_active, c.season_history
            FROM contracts c
            WHERE c.gsis_id = $1
               OR c.otc_id = (SELECT otc_id FROM players WHERE gsis_id = $1 AND otc_id IS NOT NULL LIMIT 1)
-           ORDER BY c.year_signed DESC NULLS LAST`, id),
+           ORDER BY c.is_active DESC NULLS LAST, c.year_signed DESC NULLS LAST, c.value DESC NULLS LAST`, id),
+    // Latest injury report entry (each week's report covers that week's game).
+    query(`SELECT season::INT AS season, week::INT AS week, game_type, team, report_status, report_primary_injury,
+                  practice_status, practice_primary_injury
+           FROM injuries WHERE gsis_id = $1
+           ORDER BY season DESC, week DESC LIMIT 1`, id),
+    query(`SELECT team, pos_abb, pos_name, pos_rank::INT AS pos_rank, dt FROM depth_charts_current
+           WHERE gsis_id = $1 ORDER BY pos_rank`, id),
   ]);
   if (!players.length) return res.status(404).json({ error: 'Player not found' });
-  res.json({ player: players[0], games, ngs, contracts });
+  res.json({ player: players[0], games, ngs, contracts, injury: injuries[0] || null, depth });
+}));
+
+// FTN charting splits (2022+): play-action, blitzes, pocket, box counts, catchable/contested targets.
+const CHARTED_PLAYS = `
+  FROM pbp p
+  JOIN ftn_charting f ON f.nflverse_game_id = p.game_id AND f.nflverse_play_id = p.play_id`;
+const SPLIT_SUMS = `
+  COUNT(*)::INT AS plays, SUM(p.epa) AS epa, SUM(p.success) AS success,
+  SUM(COALESCE(p.complete_pass, 0))::FLOAT AS completions,
+  SUM(CASE WHEN p.pass_attempt = 1 AND COALESCE(p.sack, 0) = 0 THEN 1 ELSE 0 END)::FLOAT AS attempts,
+  SUM(COALESCE(p.yards_gained, 0))::FLOAT AS yards, SUM(COALESCE(p.sack, 0))::FLOAT AS sacks,
+  SUM(COALESCE(p.interception, 0))::FLOAT AS interceptions`;
+
+router.get('/players/:id/charting', handle(async (req, res) => {
+  const id = req.params.id;
+  const seasons = await query(`
+    SELECT DISTINCT p.season::INT AS season ${CHARTED_PLAYS}
+    WHERE p.passer_player_id = $1 OR p.receiver_player_id = $1 OR p.rusher_player_id = $1
+    ORDER BY 1 DESC`, id);
+  if (!seasons.length) return res.json({ seasons: [], season: null, passing: [], receiving: null, rushing: [] });
+  const season = intParam(req.query.season, seasons[0].season);
+  const where = `WHERE p.season = $2 AND p.season_type = 'REG' AND p.epa IS NOT NULL`;
+  const [passing, receiving, rushing] = await Promise.all([
+    query(`
+      SELECT s.split, s.ord, ${SPLIT_SUMS},
+             SUM(CASE WHEN f.is_interception_worthy THEN 1 ELSE 0 END)::FLOAT AS int_worthy,
+             SUM(CASE WHEN f.is_throw_away THEN 1 ELSE 0 END)::FLOAT AS throwaways
+      ${CHARTED_PLAYS}
+      CROSS JOIN LATERAL (VALUES
+        ('All dropbacks', 0, TRUE),
+        ('Play-action', 1, f.is_play_action), ('No play-action', 2, NOT f.is_play_action),
+        ('Blitzed', 3, f.n_blitzers > 0), ('Not blitzed', 4, f.n_blitzers = 0),
+        ('In pocket', 5, NOT f.is_qb_out_of_pocket), ('Out of pocket', 6, f.is_qb_out_of_pocket),
+        ('Screens', 7, f.is_screen_pass), ('RPO', 8, f.is_rpo)
+      ) AS s(split, ord, included)
+      ${where} AND p.passer_player_id = $1 AND p.qb_dropback = 1 AND s.included
+      GROUP BY s.split, s.ord ORDER BY s.ord`, id, season),
+    query(`
+      SELECT
+        COUNT(*)::INT AS targets,
+        SUM(COALESCE(p.complete_pass, 0))::FLOAT AS receptions,
+        SUM(CASE WHEN f.is_catchable_ball THEN 1 ELSE 0 END)::FLOAT AS catchable,
+        SUM(CASE WHEN f.is_catchable_ball AND p.complete_pass = 1 THEN 1 ELSE 0 END)::FLOAT AS catchable_caught,
+        SUM(CASE WHEN f.is_contested_ball THEN 1 ELSE 0 END)::FLOAT AS contested,
+        SUM(CASE WHEN f.is_contested_ball AND p.complete_pass = 1 THEN 1 ELSE 0 END)::FLOAT AS contested_caught,
+        SUM(CASE WHEN f.is_drop THEN 1 ELSE 0 END)::FLOAT AS drops,
+        SUM(CASE WHEN f.is_created_reception THEN 1 ELSE 0 END)::FLOAT AS created,
+        SUM(CASE WHEN f.is_play_action THEN 1 ELSE 0 END)::FLOAT AS play_action_targets,
+        SUM(CASE WHEN f.is_screen_pass THEN 1 ELSE 0 END)::FLOAT AS screen_targets,
+        SUM(p.epa) AS epa
+      ${CHARTED_PLAYS}
+      ${where} AND p.receiver_player_id = $1 AND p.pass_attempt = 1 AND COALESCE(p.sack, 0) = 0`, id, season),
+    query(`
+      SELECT s.split, s.ord, ${SPLIT_SUMS}
+      ${CHARTED_PLAYS}
+      CROSS JOIN LATERAL (VALUES
+        ('All carries', 0, TRUE),
+        ('Light box (6 or fewer)', 1, f.n_defense_box <= 6), ('7 in the box', 2, f.n_defense_box = 7),
+        ('Stacked box (8+)', 3, f.n_defense_box >= 8)
+      ) AS s(split, ord, included)
+      ${where} AND p.rusher_player_id = $1 AND p.rush_attempt = 1 AND COALESCE(p.qb_scramble, 0) = 0 AND s.included
+      GROUP BY s.split, s.ord ORDER BY s.ord`, id, season),
+  ]);
+  res.json({
+    seasons: seasons.map((r) => r.season),
+    season,
+    passing,
+    receiving: receiving[0]?.targets ? receiving[0] : null,
+    rushing,
+  });
 }));
 
 // ---------------------------------------------------------------------------------------------
@@ -334,7 +461,7 @@ router.get('/teams/:abbr', handle(async (req, res) => {
   const abbr = String(req.params.abbr).toUpperCase();
   const current = await currentSeasonAndWeek();
   const season = intParam(req.query.season, current.season);
-  const [teams, games, gameEpa, quarterbacks, leaders] = await Promise.all([
+  const [teams, games, gameEpa, quarterbacks, leaders, depth, injuries] = await Promise.all([
     teamSeason(season, 'all'),
     query(`
       SELECT s.game_id, s.week::INT AS week, s.game_type, s.gameday, s.home_team, s.away_team,
@@ -376,6 +503,15 @@ router.get('/teams/:abbr', handle(async (req, res) => {
       )
       SELECT t.*, pbp.dropbacks, pbp.dropback_epa, pbp.pbp_carries, pbp.pbp_rush_epa, pbp.pbp_targets, pbp.target_epa
       FROM totals t LEFT JOIN pbp USING (player_id)`, season, abbr),
+    query(`SELECT gsis_id, player_name, pos_grp, pos_abb, pos_slot::INT AS pos_slot, pos_rank::INT AS pos_rank, dt
+           FROM depth_charts_current WHERE team = $1 ORDER BY pos_grp, pos_abb, pos_slot, pos_rank`, abbr),
+    query(`SELECT i.gsis_id, i.full_name, i.position, i.week::INT AS week, i.report_status, i.report_primary_injury,
+                  i.practice_status
+           FROM injuries i
+           WHERE i.team = $1 AND i.season = $2
+             AND i.week = (SELECT MAX(week) FROM injuries WHERE team = $1 AND season = $2)
+             AND i.report_status IS NOT NULL
+           ORDER BY CASE i.report_status WHEN 'Out' THEN 0 WHEN 'Doubtful' THEN 1 ELSE 2 END, i.full_name`, abbr, season),
   ]);
   const team = teams.find((t) => t.abbr === abbr);
   if (!team) return res.status(404).json({ error: 'Team not found' });
@@ -408,6 +544,8 @@ router.get('/teams/:abbr', handle(async (req, res) => {
     season, team, teams,
     leaders: { passing: top('passing_yards'), rushing: top('rushing_yards'), receiving: top('receiving_yards') },
     schedule,
+    depth,
+    injuries,
   });
 }));
 
@@ -459,6 +597,56 @@ router.get('/games/:gameId', handle(async (req, res) => {
   const step = Math.max(1, Math.ceil(plays.length / 240));
   const series = plays.filter((_, i) => i % step === 0 || i === plays.length - 1);
   res.json({ game, series, teams: sides });
+}));
+
+// "BUF 33" -> yards from the possessing team's goal line (0-100), the drive chart's x axis.
+function fieldPosition(spot, team) {
+  if (!spot) return null;
+  const match = String(spot).trim().match(/^([A-Z]{2,3})?\s*(\d+)$/);
+  if (!match) return null;
+  const yard = Number(match[2]);
+  if (!match[1] || yard === 50) return 50;
+  return match[1] === team ? yard : 100 - yard;
+}
+
+// Drive chart and play-by-play. fixed_drive numbers drives consistently across both teams.
+router.get('/games/:gameId/drives', handle(async (req, res) => {
+  const gameId = req.params.gameId;
+  const plays = await query(`
+    SELECT play_id::FLOAT AS play_id, fixed_drive::INT AS drive, posteam, defteam, qtr::INT AS qtr, "time", down::INT AS down,
+           ydstogo::INT AS ydstogo, yrdln, yardline_100::INT AS yardline_100, play_type, "desc" AS description,
+           yards_gained::INT AS yards, epa, wpa, home_wp, total_home_score::INT AS home_score,
+           total_away_score::INT AS away_score, touchdown::INT AS touchdown, fixed_drive_result AS drive_result,
+           drive_start_yard_line AS drive_start, drive_end_yard_line AS drive_end,
+           drive_play_count::INT AS drive_plays, drive_time_of_possession AS drive_top,
+           drive_first_downs::INT AS drive_first_downs
+    FROM pbp
+    WHERE game_id = $1 AND COALESCE(play_deleted, 0) = 0
+    ORDER BY play_id`, gameId);
+  if (!plays.length) return res.json({ drives: [] });
+  const drives = [];
+  for (const play of plays) {
+    if (play.drive == null || !play.posteam) continue;
+    let drive = drives[drives.length - 1];
+    if (!drive || drive.number !== play.drive) {
+      drive = {
+        number: play.drive, team: play.posteam, quarter: play.qtr, start_time: play.time,
+        start: play.drive_start, end: play.drive_end, result: play.drive_result,
+        plays: play.drive_plays, top: play.drive_top, first_downs: play.drive_first_downs,
+        from: fieldPosition(play.drive_start, play.posteam), to: fieldPosition(play.drive_end, play.posteam),
+        yards: 0, epa: 0, list: [],
+      };
+      drives.push(drive);
+    }
+    if (['pass', 'run'].includes(play.play_type)) drive.yards += play.yards || 0;
+    if (Number.isFinite(play.epa)) drive.epa += play.epa;
+    drive.list.push({
+      qtr: play.qtr, time: play.time, down: play.down, ydstogo: play.ydstogo, yrdln: play.yrdln,
+      type: play.play_type, description: play.description, epa: play.epa, wpa: play.wpa,
+      home_score: play.home_score, away_score: play.away_score,
+    });
+  }
+  res.json({ drives });
 }));
 
 // ---------------------------------------------------------------------------------------------
@@ -523,7 +711,8 @@ router.get('/models/win-probability', handle(async (req, res) => {
 
 router.get('/models/projections', handle(async (req, res) => {
   const [rows, [run]] = await Promise.all([
-    query(`SELECT season, week, player_id, player_name, position, team, opponent, home, game_id, stats
+    query(`SELECT season, week, player_id, player_name, position, team, opponent, home, game_id, stats,
+                  injury_status, depth_rank
            FROM player_projections
            WHERE season = (SELECT MAX(season) FROM player_projections)
            ORDER BY position, player_name`),

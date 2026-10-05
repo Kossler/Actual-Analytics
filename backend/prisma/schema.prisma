@@ -37,7 +37,9 @@ model contracts {
   cols                String?
   id                  Int      @id @default(autoincrement())
 
-  @@unique([otc_id, gsis_id, year_signed, team], map: "contracts_unique")
+  season_history Json?
+
+  @@index([otc_id], map: "contracts_otc_id_idx")
   @@index([gsis_id], map: "contracts_gsis_id_idx")
 }
 
@@ -62,7 +64,6 @@ model combine {
   cone        Float?
   shuttle     Float?
   id          Int     @id @default(autoincrement())
-
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -879,6 +880,9 @@ model pbp {
 
   @@id([game_id, play_id])
   @@unique([game_id, play_id], map: "pbp_unique")
+  @@index([passer_player_id, season], map: "pbp_passer_season_idx")
+  @@index([receiver_player_id, season], map: "pbp_receiver_season_idx")
+  @@index([rusher_player_id, season], map: "pbp_rusher_season_idx")
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -1046,10 +1050,9 @@ model players {
   draft_team                   String?
   id                           Int     @id @default(autoincrement())
 
+  @@unique([gsis_id], map: "players_gsis_id_key")
   @@index([display_name], map: "players_display_name_idx")
   @@index([display_name(ops: raw("gin_trgm_ops"))], map: "players_display_name_trgm_idx", type: Gin)
-
-  @@unique([gsis_id], map: "players_gsis_id_key")
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -1321,7 +1324,7 @@ model team_stats {
   gwfg_distance               BigInt?
   id                          Int     @id @default(autoincrement())
 
-  @@unique([season, week], map: "team_stats_unique")
+  @@unique([season, week, team], map: "team_stats_unique")
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -1343,7 +1346,6 @@ model teams {
   team_league_logo     String?
   team_logo_squared    String?
   id                   Int     @id @default(autoincrement())
-
 }
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
@@ -1485,9 +1487,11 @@ model player_projections {
   team        String?
   opponent    String?
   home        Boolean?
-  game_id     String?
-  stats       Json
-  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+  game_id       String?
+  stats         Json
+  injury_status String?
+  depth_rank    Int?
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
 
   @@id([season, week, player_id])
 }
@@ -1499,4 +1503,166 @@ model model_runs {
   version    String
   metrics    Json
   created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// Weekly injury reports (nflverse).
+model injuries {
+  id                        Int     @id @default(autoincrement())
+  season                    BigInt?
+  season_type               String?
+  game_type                 String?
+  team                      String?
+  week                      BigInt?
+  gsis_id                   String?
+  position                  String?
+  full_name                 String?
+  first_name                String?
+  last_name                 String?
+  report_primary_injury     String?
+  report_secondary_injury   String?
+  report_status             String?
+  practice_primary_injury   String?
+  practice_secondary_injury String?
+  practice_status           String?
+
+  @@unique([season, game_type, week, gsis_id], map: "injuries_unique")
+  @@index([gsis_id, season, week], map: "injuries_gsis_id_idx")
+}
+
+/// Latest nflverse depth chart snapshot, replaced on every load.
+model depth_charts_current {
+  id          Int     @id @default(autoincrement())
+  dt          String?
+  team        String?
+  player_name String?
+  espn_id     String?
+  gsis_id     String?
+  pos_grp_id  String?
+  pos_grp     String?
+  pos_id      String?
+  pos_name    String?
+  pos_abb     String?
+  pos_slot    BigInt?
+  pos_rank    BigInt?
+
+  @@index([team], map: "depth_charts_current_team_idx")
+  @@index([gsis_id], map: "depth_charts_current_gsis_id_idx")
+}
+
+/// Pro Football Reference advanced passing per player-game.
+model pfr_advstats_pass {
+  id                    Int     @id @default(autoincrement())
+  game_id               String?
+  pfr_game_id           String?
+  season                BigInt?
+  week                  BigInt?
+  game_type             String?
+  team                  String?
+  opponent              String?
+  pfr_player_name       String?
+  pfr_player_id         String?
+  passing_drops         Float?
+  passing_drop_pct      Float?
+  receiving_drop        Float?
+  receiving_drop_pct    Float?
+  passing_bad_throws    Float?
+  passing_bad_throw_pct Float?
+  times_sacked          Float?
+  times_blitzed         Float?
+  times_hurried         Float?
+  times_hit             Float?
+  times_pressured       Float?
+  times_pressured_pct   Float?
+  def_times_blitzed     Float?
+  def_times_hurried     Float?
+  def_times_hitqb       Float?
+
+  @@unique([game_id, pfr_player_id], map: "pfr_advstats_pass_unique")
+  @@index([pfr_player_id], map: "pfr_advstats_pass_player_idx")
+}
+
+/// Pro Football Reference advanced rushing per player-game.
+model pfr_advstats_rush {
+  id                               Int     @id @default(autoincrement())
+  game_id                          String?
+  pfr_game_id                      String?
+  season                           BigInt?
+  week                             BigInt?
+  game_type                        String?
+  team                             String?
+  opponent                         String?
+  pfr_player_name                  String?
+  pfr_player_id                    String?
+  carries                          Float?
+  rushing_yards_before_contact     Float?
+  rushing_yards_before_contact_avg Float?
+  rushing_yards_after_contact      Float?
+  rushing_yards_after_contact_avg  Float?
+  rushing_broken_tackles           Float?
+  receiving_broken_tackles         Float?
+
+  @@unique([game_id, pfr_player_id], map: "pfr_advstats_rush_unique")
+  @@index([pfr_player_id], map: "pfr_advstats_rush_player_idx")
+}
+
+/// Pro Football Reference advanced receiving per player-game.
+model pfr_advstats_rec {
+  id                       Int     @id @default(autoincrement())
+  game_id                  String?
+  pfr_game_id              String?
+  season                   BigInt?
+  week                     BigInt?
+  game_type                String?
+  team                     String?
+  opponent                 String?
+  pfr_player_name          String?
+  pfr_player_id            String?
+  rushing_broken_tackles   Float?
+  receiving_broken_tackles Float?
+  passing_drops            Float?
+  passing_drop_pct         Float?
+  receiving_drop           Float?
+  receiving_drop_pct       Float?
+  receiving_int            Float?
+  receiving_rat            Float?
+
+  @@unique([game_id, pfr_player_id], map: "pfr_advstats_rec_unique")
+  @@index([pfr_player_id], map: "pfr_advstats_rec_player_idx")
+}
+
+/// Pro Football Reference advanced defense per player-game.
+model pfr_advstats_def {
+  id                        Int     @id @default(autoincrement())
+  game_id                   String?
+  pfr_game_id               String?
+  season                    BigInt?
+  week                      BigInt?
+  game_type                 String?
+  team                      String?
+  opponent                  String?
+  pfr_player_name           String?
+  pfr_player_id             String?
+  def_ints                  Float?
+  def_targets               Float?
+  def_completions_allowed   Float?
+  def_completion_pct        Float?
+  def_yards_allowed         Float?
+  def_yards_allowed_per_cmp Float?
+  def_yards_allowed_per_tgt Float?
+  def_receiving_td_allowed  Float?
+  def_passer_rating_allowed Float?
+  def_adot                  Float?
+  def_air_yards_completed   Float?
+  def_yards_after_catch     Float?
+  def_times_blitzed         Float?
+  def_times_hurried         Float?
+  def_times_hitqb           Float?
+  def_sacks                 Float?
+  def_pressures             Float?
+  def_tackles_combined      Float?
+  def_missed_tackles        Float?
+  def_missed_tackle_pct     Float?
+
+  @@unique([game_id, pfr_player_id], map: "pfr_advstats_def_unique")
+  @@index([pfr_player_id], map: "pfr_advstats_def_player_idx")
 }
