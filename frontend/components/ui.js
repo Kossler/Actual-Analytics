@@ -206,16 +206,20 @@ export function LeaderCard({ label, value, tone, title, tag, href, sub }) {
   return (
     <div className="card min-w-0 px-4 py-3.5">
       <div className="label mb-1.5">{label}</div>
+      {/* Name and team move together: when they don't fit beside the value, both wrap to the next
+          line rather than leaving the team tag on a line of its own. */}
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <span className={`font-display text-[28px] font-bold leading-none ${toneClass}`}>{value}</span>
-        {href ? (
-          <Link href={href} className="text-[15px] font-semibold leading-tight hover:underline">
-            {title}
-          </Link>
-        ) : (
-          <span className="text-[15px] font-semibold leading-tight">{title}</span>
-        )}
-        {tag && <span className="text-2xs font-semibold text-faint">{tag}</span>}
+        <span className={`shrink-0 font-display text-[28px] font-bold leading-none ${toneClass}`}>{value}</span>
+        <span className="flex min-w-0 max-w-full items-baseline gap-1.5 whitespace-nowrap">
+          {href ? (
+            <Link href={href} title={title} className="truncate text-[15px] font-semibold leading-tight hover:underline">
+              {title}
+            </Link>
+          ) : (
+            <span title={title} className="truncate text-[15px] font-semibold leading-tight">{title}</span>
+          )}
+          {tag && <span className="shrink-0 text-2xs font-semibold text-faint">{tag}</span>}
+        </span>
       </div>
       {sub && <div className="mt-1.5 truncate text-xs text-muted">{sub}</div>}
     </div>

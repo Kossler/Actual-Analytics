@@ -168,83 +168,88 @@ export default function LeaderboardPage({ meta, board }) {
         ))}
       </div>
 
-      <div className="card mb-4 flex flex-wrap items-end gap-x-2.5 gap-y-3 px-4 py-3.5">
-        <Field label="Season">
-          <Select value={board.season} onChange={(s) => navigate({ season: s, from: undefined, to: undefined })} options={meta.seasons} className="w-[88px]" />
-        </Field>
-        <Field label="Weeks">
-          <Select
-            value={`${board.from}-${board.to}`}
-            onChange={(v) => {
-              const [from, to] = v.split('-');
-              const all = from === '1' && Number(to) === board.maxWeek;
-              navigate({ from: all ? undefined : from, to: all ? undefined : to });
-            }}
-            options={weekOptions(board.maxWeek)}
-            className="w-[124px]"
-          />
-        </Field>
-        <Field label={config.qualifier.label}>
-          <Stepper value={minVolume} onChange={setMinVolume} step={5} className="w-[88px]" />
-        </Field>
-        <Field label="Team">
-          <Select
-            value={team}
-            onChange={setTeam}
-            options={[{ value: '', label: 'All teams' }, ...meta.teams.map((t) => ({ value: t.abbr, label: t.name }))]}
-            className="w-[124px]"
-          />
-        </Field>
-        <div className="relative flex flex-col gap-1.5">
-          <span className="text-xs text-muted">Column set</span>
-          <ButtonGroup
-            options={[...Object.keys(config.columnSets), { value: 'Custom', label: 'Custom…' }]}
-            value={columnSet}
-            onChange={(v) => {
-              if (v === 'Custom') setShowCustom((s) => !s);
-              setColumnSet(v);
-            }}
-          />
-          {showCustom && (
-            <CustomColumns
-              options={config.customOptions}
-              value={customColumns || flattenColumns(config.columnSets.Standard).map((c) => c.key)}
-              onChange={(cols) => {
-                setCustomColumns(cols);
-                writeStorage(`sla:columns:${pos}`, cols);
+      {/* Filters and actions on the first row; the column sets get a row of their own so the bar
+          never wraps unevenly as positions gain sets. */}
+      <div className="card mb-4 divide-y divide-line">
+        <div className="flex flex-wrap items-end gap-x-2.5 gap-y-3 px-4 py-3.5">
+          <Field label="Season">
+            <Select value={board.season} onChange={(s) => navigate({ season: s, from: undefined, to: undefined })} options={meta.seasons} className="w-[88px]" />
+          </Field>
+          <Field label="Weeks">
+            <Select
+              value={`${board.from}-${board.to}`}
+              onChange={(v) => {
+                const [from, to] = v.split('-');
+                const all = from === '1' && Number(to) === board.maxWeek;
+                navigate({ from: all ? undefined : from, to: all ? undefined : to });
               }}
-              onClose={() => setShowCustom(false)}
+              options={weekOptions(board.maxWeek)}
+              className="w-[124px]"
             />
-          )}
-        </div>
-        <div className="ml-auto flex items-end gap-2">
-          <span className="pb-2 text-xs leading-tight text-faint">
-            {visible.length}
-            <br />
-            players
-          </span>
-          {selecting ? (
-            <>
-              <button type="button" className="btn" onClick={() => { setSelecting(false); setSelected([]); }}>
-                Cancel
+          </Field>
+          <Field label={config.qualifier.label}>
+            <Stepper value={minVolume} onChange={setMinVolume} step={5} className="w-[88px]" />
+          </Field>
+          <Field label="Team">
+            <Select
+              value={team}
+              onChange={setTeam}
+              options={[{ value: '', label: 'All teams' }, ...meta.teams.map((t) => ({ value: t.abbr, label: t.name }))]}
+              className="w-[124px]"
+            />
+          </Field>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="whitespace-nowrap pr-1 text-xs text-faint">{visible.length} players</span>
+            {selecting ? (
+              <>
+                <button type="button" className="btn" onClick={() => { setSelecting(false); setSelected([]); }}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={selected.length < 2}
+                  onClick={() => router.push(`/compare?ids=${selected.join(',')}&season=${board.season}`)}
+                >
+                  Compare {selected.length ? `(${selected.length})` : ''}
+                </button>
+              </>
+            ) : (
+              <button type="button" className="btn px-3" onClick={() => setSelecting(true)} title="Pick 2–4 players to compare">
+                Compare
               </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={selected.length < 2}
-                onClick={() => router.push(`/compare?ids=${selected.join(',')}&season=${board.season}`)}
-              >
-                Compare {selected.length ? `(${selected.length})` : ''}
-              </button>
-            </>
-          ) : (
-            <button type="button" className="btn px-3" onClick={() => setSelecting(true)} title="Pick 2–4 players to compare">
-              Compare
+            )}
+            <button type="button" className="btn px-3" onClick={exportCsv}>
+              Export CSV
             </button>
-          )}
-          <button type="button" className="btn px-3" onClick={exportCsv}>
-            Export CSV
-          </button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+          <span className="text-xs text-muted">Columns</span>
+          {/* Scrolls sideways on narrow screens; the popup sits outside the scroller so it isn't clipped. */}
+          <div className="relative min-w-0 max-w-full">
+            <div className="overflow-x-auto">
+              <ButtonGroup
+                options={[...Object.keys(config.columnSets), { value: 'Custom', label: 'Custom…' }]}
+                value={columnSet}
+                onChange={(v) => {
+                  if (v === 'Custom') setShowCustom((s) => !s);
+                  setColumnSet(v);
+                }}
+              />
+            </div>
+            {showCustom && (
+              <CustomColumns
+                options={config.customOptions}
+                value={customColumns || flattenColumns(config.columnSets.Standard).map((c) => c.key)}
+                onChange={(cols) => {
+                  setCustomColumns(cols);
+                  writeStorage(`sla:columns:${pos}`, cols);
+                }}
+                onClose={() => setShowCustom(false)}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -345,7 +350,7 @@ function leaderFor(card, rows) {
 function CustomColumns({ options, value, onChange, onClose }) {
   const toggle = (key) => onChange(value.includes(key) ? value.filter((k) => k !== key) : [...value, key]);
   return (
-    <div className="absolute left-0 top-full z-30 mt-2 w-[340px] rounded-xl border border-line-strong bg-raised p-4 shadow-2xl">
+    <div className="absolute left-0 top-full z-30 mt-2 w-[340px] max-w-[calc(100vw-2rem)] rounded-xl border border-line-strong bg-raised p-4 shadow-2xl">
       <div className="mb-3 flex items-center justify-between">
         <span className="text-sm font-semibold">Choose columns</span>
         <button type="button" onClick={onClose} className="text-xs text-muted hover:text-ink">
