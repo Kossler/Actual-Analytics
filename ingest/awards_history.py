@@ -27,7 +27,14 @@ PAGES = {
     'droy': 'AP_NFL_Defensive_Rookie_of_the_Year',
     'cpoy': 'AP_NFL_Comeback_Player_of_the_Year',
     'coy': 'AP_NFL_Coach_of_the_Year',
+    'poy': 'NFL_Protector_of_the_Year',
 }
+# AP first-team All-Pro offensive linemen (two tackles, two guards, a center) since snap counts
+# start: the training labels for Protector of the Year, which was first awarded for 2025.
+ALL_PRO_FIRST_SEASON = 2013
+# The AP has picked by side since 2016 (left tackle, left guard, ...).
+ALL_PRO_LINE = {'tackle': 'T', 'offensive tackle': 'T', 'left tackle': 'T', 'right tackle': 'T',
+                'guard': 'G', 'left guard': 'G', 'right guard': 'G', 'center': 'C'}
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'award_winners.csv')
 
 # Shared awards that Wikipedia lists in a single cell: (award, season) -> the winners.
@@ -75,7 +82,11 @@ def clean(text):
 def winners(award, page):
     rows = []
     for t in tables(page):
-        cols = {str(c).split('[')[0].strip().lower(): c for c in t.columns}
+        # Two-row headers ("Season / Season", "Team / Statistics") come back as tuples: use the top row.
+        name = lambda c: (c[0] if isinstance(c, tuple) else str(c)).split('[')[0].strip().lower()
+        cols = {}
+        for c in t.columns:
+            cols.setdefault(name(c), c)
         season_col = cols.get('season') or cols.get('year')
         name_col = cols.get('player') or cols.get('coach') or cols.get('winner')
         if season_col is None or name_col is None:
@@ -95,12 +106,36 @@ def winners(award, page):
     return pd.DataFrame(rows).drop_duplicates(['award', 'season', 'name'])
 
 
+def all_pro_line(season):
+    """AP first-team offensive linemen from Wikipedia's "<season> All-Pro Team" page."""
+    rows = []
+    for t in tables(f'{season}_All-Pro_Team'):
+        flat = [' '.join(str(x) for x in c) if isinstance(c, tuple) else str(c) for c in t.columns]
+        pos_col = next((c for c, f in zip(t.columns, flat) if 'Position' in f), None)
+        first_col = next((c for c, f in zip(t.columns, flat) if 'First team' in f), None)
+        if pos_col is None or first_col is None:
+            continue
+        for _, r in t.iterrows():
+            position = ALL_PRO_LINE.get(clean(r[pos_col]).lower())
+            if not position:
+                continue
+            # "Name, Team (AP, PFWA, TSN) Name, Team (AP-2) ...": keep the AP first-team picks.
+            for name, team, selectors in re.findall(r'([^,()]+?),\s*([^,()]+?)\s*\(([^)]*)\)', clean(r[first_col])):
+                if 'AP' in [x.strip() for x in selectors.split(',')]:
+                    rows.append({'award': 'allpro_ol', 'season': season, 'name': name.strip(), 'team': team.strip(),
+                                 'position': position})
+    return pd.DataFrame(rows).drop_duplicates(['season', 'name']) if rows else pd.DataFrame()
+
+
 OFFENSE = {'quarterback', 'running back', 'wide receiver', 'tight end', 'fullback', 'qb', 'rb', 'wr', 'te', 'fb',
            'offensive tackle', 'guard', 'center', 'ot', 'g', 'c', 'kick returner', 'kr'}
 
 
-def main():
+def main(last_season=None):
     frames = [winners(award, page) for award, page in PAGES.items()]
+    last_season = last_season or max(int(f.season.max()) for f in frames if len(f))
+    for season in range(ALL_PRO_FIRST_SEASON, last_season + 1):
+        frames.append(all_pro_line(season))
     df = pd.concat(frames, ignore_index=True)
     # Both rookie pages redirect to one combined page listing the offensive and defensive winner;
     # assign each rookie to the award for their side of the ball.

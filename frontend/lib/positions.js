@@ -1,7 +1,7 @@
 // Per-position layout: leaderboard columns, leader cards, qualification, and player-page sections.
 import { METRICS } from './metrics';
 
-export const OFFENSE_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
+export const OFFENSE_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'OL'];
 export const DEFENSE_POSITIONS = ['DL', 'LB', 'CB', 'S'];
 export const SPECIAL_POSITIONS = ['K'];
 export const LEADERBOARD_POSITIONS = [...OFFENSE_POSITIONS, ...DEFENSE_POSITIONS, ...SPECIAL_POSITIONS];
@@ -411,6 +411,53 @@ export const POSITIONS = {
       scatter: { x: 'def_yds_per_tgt', y: 'stop_rate' },
     },
   }),
+  OL: {
+    title: 'Offensive Line',
+    plural: 'Offensive linemen',
+    rankLabel: 'linemen',
+    qualifier: { metric: 'ol_snaps', label: 'Min. snaps', perWeek: 30 },
+    leaderCards: [
+      { metric: 'ol_pen_rate', label: 'Fewest penalties per 100 snaps' },
+      { metric: 'line_pressure_rate', label: 'Lowest line pressure rate' },
+      { metric: 'line_ybc', label: 'Yards before contact per carry' },
+      { metric: 'ol_snaps', label: 'Offensive snaps' },
+    ],
+    defaultSort: 'ol_snaps',
+    columnSets: {
+      Standard: [
+        { group: 'Usage', columns: ['games', 'ol_snaps', 'ol_snap_share'] },
+        { group: 'Discipline', columns: ['ol_penalties', 'ol_holding', 'ol_false_starts'] },
+        { group: 'Line on the field', columns: ['line_sack_rate', 'line_pressure_rate', 'line_ybc'] },
+      ],
+      Efficiency: [
+        { group: 'Pass protection', columns: ['line_sack_rate', 'line_pressure_rate', 'line_pass_epa'] },
+        { group: 'Run blocking', columns: ['line_ybc', 'line_stuff_rate', 'line_rush_epa'] },
+        { group: 'Discipline', columns: ['ol_pen_rate'] },
+      ],
+    },
+    customOptions: ['games', 'ol_snaps', 'ol_snap_share', 'ol_penalties', 'ol_holding', 'ol_false_starts', 'ol_pen_rate',
+      'line_sack_rate', 'line_pressure_rate', 'line_pass_epa', 'line_ybc', 'line_stuff_rate', 'line_rush_epa'],
+    player: {
+      cards: ['ol_snap_share', 'ol_pen_rate', 'line_pressure_rate', 'line_ybc'],
+      weekChart: ['ol_snaps', 'ol_penalties'],
+      gameLog: [
+        { group: 'Usage', columns: ['ol_snaps', 'ol_snap_share'] },
+        { group: 'Discipline', columns: ['ol_penalties', 'ol_holding', 'ol_false_starts'] },
+        { group: 'Line on the field', columns: ['line_sack_rate', 'line_stuff_rate', 'line_rush_epa'] },
+      ],
+      career: [
+        { group: 'Overall', columns: ['games', 'ol_snaps', 'ol_snap_share'] },
+        { group: 'Discipline', columns: ['ol_penalties', 'ol_holding', 'ol_false_starts', 'ol_pen_rate'] },
+        { group: 'Line on the field', columns: ['line_sack_rate', 'line_pressure_rate', 'line_ybc', 'line_stuff_rate'] },
+      ],
+      scatter: { x: 'line_pressure_rate', y: 'line_ybc' },
+      scatterOptions: ['line_pressure_rate', 'line_sack_rate', 'line_ybc', 'line_stuff_rate', 'line_rush_epa', 'line_pass_epa',
+        'ol_pen_rate', 'ol_snap_share', 'ol_snaps'],
+      splits: ['games', 'ol_snaps', 'ol_penalties', 'line_sack_rate', 'line_ybc'],
+      advanced: ['ol_snap_share', 'ol_pen_rate', 'line_sack_rate', 'line_pressure_rate', 'line_pass_epa', 'line_ybc',
+        'line_stuff_rate', 'line_rush_epa'],
+    },
+  },
   K: {
     title: 'Kicker',
     plural: 'Kickers',

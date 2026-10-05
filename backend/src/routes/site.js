@@ -112,6 +112,11 @@ const ADV_FIELDS = ['pass_wpa', 'rush_wpa', 'rec_wpa', 'deep_att', 'deep_epa', '
   'explosive_catches', 'rz_targets', 'ez_targets', 'yac_tracked', 'xyac', 'xyac_n'];
 // Expected fantasy points and touchdowns from ff_opportunity (PPR scoring).
 const FFO_FIELDS = ['total_fantasy_points', 'total_fantasy_points_exp', 'total_touchdown', 'total_touchdown_exp'];
+// Columns of player_week_ol (offensive linemen): snaps and penalties, plus the line's results
+// while the player was on the field. snaps / team_snaps are returned as off_snaps / team_off_snaps.
+const OL_FIELDS = ['holding', 'false_starts', 'penalties', 'on_dropbacks', 'on_sacks', 'on_qb_hits', 'on_pass_epa',
+  'on_pressures', 'on_pressure_dropbacks', 'on_rushes', 'on_rush_epa', 'on_rush_success', 'on_stuffed', 'on_ybc',
+  'on_pfr_carries'];
 // Columns of player_week_kicking.
 const KICK_FIELDS = ['fg_attempts', 'fg_makes', 'fg_expected', 'fg_50_attempts', 'fg_50_makes'];
 // Columns of player_week_def_pbp.
@@ -339,10 +344,26 @@ const DEFENSE_LEADERBOARD_SQL = `
   WHERE p.position = ANY($4)
 `;
 
+// Offensive linemen have no box-score rows: everything comes from player_week_ol.
+const LINE_LEADERBOARD_SQL = `
+  SELECT o.player_id,
+         pl.display_name AS name, pl.headshot,
+         (ARRAY_AGG(o.team ORDER BY o.week DESC))[1] AS team,
+         (ARRAY_AGG(o.position ORDER BY o.week DESC))[1] AS position,
+         COUNT(*)::INT AS games,
+         SUM(o.snaps)::FLOAT AS off_snaps, SUM(o.team_snaps)::FLOAT AS team_off_snaps,
+         ${OL_FIELDS.map((f) => `SUM(o.${f})::FLOAT AS ${f}`).join(', ')}
+  FROM player_week_ol o
+  JOIN public.players pl ON pl.gsis_id = o.player_id
+  WHERE o.season = $1 AND o.game_type = 'REG' AND o.week BETWEEN $2 AND $3
+  GROUP BY o.player_id, pl.display_name, pl.headshot
+`;
+
 router.get('/leaderboard/:pos', handle(async (req, res) => {
   const pos = String(req.params.pos).toUpperCase();
   const defense = DEFENSE_FILTER[pos];
-  if (!POSITION_FILTER[pos] && !defense) return res.status(400).json({ error: 'Unknown position' });
+  const line = pos === 'OL';
+  if (!POSITION_FILTER[pos] && !defense && !line) return res.status(400).json({ error: 'Unknown position' });
   const current = await currentSeasonAndWeek();
   const season = intParam(req.query.season, current.season);
   const [{ max_week: maxWeek }] = await query(
@@ -351,9 +372,11 @@ router.get('/leaderboard/:pos', handle(async (req, res) => {
   );
   const from = Math.max(1, intParam(req.query.from, 1));
   const to = Math.min(maxWeek || 18, intParam(req.query.to, maxWeek || 18));
-  const rows = defense
-    ? await query(DEFENSE_LEADERBOARD_SQL, season, from, to, defense)
-    : await query(LEADERBOARD_SQL, season, from, to, POSITION_FILTER[pos]);
+  const rows = line
+    ? await query(LINE_LEADERBOARD_SQL, season, from, to)
+    : defense
+      ? await query(DEFENSE_LEADERBOARD_SQL, season, from, to, defense)
+      : await query(LEADERBOARD_SQL, season, from, to, POSITION_FILTER[pos]);
   res.json({ season, position: pos, from, to, maxWeek, players: rows });
 }));
 
@@ -386,6 +409,8 @@ const PLAYER_GAMES_SQL = `
     ${ADV_FIELDS.map((f) => `pa.${f}::FLOAT AS ${f}`).join(', ')},
     ${FFO_FIELDS.map((f) => `fo.${f}::FLOAT AS ${f}`).join(', ')},
     ${KICK_FIELDS.map((f) => `pk.${f}::FLOAT AS ${f}`).join(', ')},
+    ol.snaps::FLOAT AS off_snaps, ol.team_snaps::FLOAT AS team_off_snaps,
+    ${OL_FIELDS.map((f) => `ol.${f}::FLOAT AS ${f}`).join(', ')},
     ps.carries::FLOAT AS carries, ps.rushing_yards::FLOAT AS rushing_yards,
     ps.rushing_tds::FLOAT AS rushing_tds, ps.rushing_epa::FLOAT AS rushing_epa,
     ps.targets::FLOAT AS targets, ps.receptions::FLOAT AS receptions,
@@ -420,6 +445,7 @@ const PLAYER_GAMES_SQL = `
   LEFT JOIN player_week_adv pa
     ON pa.player_id = $1 AND pa.season = g.season AND pa.week = g.week
   LEFT JOIN player_week_kicking pk ON pk.player_id = $1 AND pk.season = g.season AND pk.week = g.week
+  LEFT JOIN player_week_ol ol ON ol.player_id = $1 AND ol.season = g.season AND ol.week = g.week
   LEFT JOIN schedules s
     ON s.season = g.season AND s.week = g.week AND (s.home_team = g.team OR s.away_team = g.team)
   LEFT JOIN players pl ON pl.gsis_id = $1
@@ -963,7 +989,7 @@ router.get('/models/projections', handle(async (req, res) => {
 const AWARDS = [
   ['mvp', 'Most Valuable Player'], ['opoy', 'Offensive Player of the Year'], ['dpoy', 'Defensive Player of the Year'],
   ['oroy', 'Offensive Rookie of the Year'], ['droy', 'Defensive Rookie of the Year'],
-  ['cpoy', 'Comeback Player of the Year'], ['coy', 'Coach of the Year'],
+  ['cpoy', 'Comeback Player of the Year'], ['poy', 'Protector of the Year'], ['coy', 'Coach of the Year'],
 ];
 
 router.get('/models/awards', handle(async (req, res) => {
