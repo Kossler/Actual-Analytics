@@ -105,9 +105,15 @@ const PFR_KINDS = ['pass', 'rush', 'rec', 'def'];
 // Box-score defense from player_stats, summed per player.
 const DEF_BOX_SUMS = ['def_tackles_solo', 'def_tackle_assists', 'def_tackles_for_loss', 'def_sacks', 'def_qb_hits',
   'def_interceptions', 'def_interception_yards', 'def_pass_defended', 'def_fumbles_forced', 'def_fumbles', 'def_tds',
-  'def_safeties'].map((f) => `SUM(w.${f})::FLOAT AS ${f}`).join(',\n      ');
+  'def_safeties'].map((f) => `COALESCE(SUM(w.${f}), 0)::FLOAT AS ${f}`).join(',\n      ');
 // Columns of player_week_def_pbp.
 const DEF_PBP_FIELDS = ['tackle_plays', 'stops', 'run_tackles', 'run_stops', 'run_tackle_yards', 'rec_tackles', 'rec_tackle_yards'];
+// Zero instead of missing when the player was on the field on defense: the play-by-play and PFR
+// tables only have rows for players who recorded something (PFR's defensive data starts in 2018).
+const ON_DEFENSE = 'CASE WHEN sc.defense_snaps > 0 THEN 0 END';
+const PFR_FIRST_SEASON = 2018;
+const PFR_DEF_COUNTS = ['pfr_def_targets', 'pfr_def_completions', 'pfr_def_ints', 'pfr_def_pressures', 'pfr_def_hurries',
+  'pfr_def_blitzes', 'pfr_def_missed', 'pfr_def_tackles'];
 const pfrColumn = (f) => f.split(' AS ')[0];
 const pfrAlias = (f) => f.split(' AS ')[1];
 
@@ -244,17 +250,27 @@ const DEFENSE_LEADERBOARD_SQL = `
     SELECT * FROM player_stats
     WHERE season = $1 AND season_type = 'REG' AND week BETWEEN $2 AND $3
   ),
+  -- Games with a stat row, plus games the player was on the field without recording a stat.
+  appearances AS (
+    SELECT player_id, week, team, position, player_display_name AS name, headshot_url AS headshot FROM weeks
+    UNION ALL
+    SELECT pl.gsis_id, sc.week, sc.team, sc.position, pl.display_name, pl.headshot
+    FROM snap_counts sc JOIN public.players pl ON pl.pfr_id = sc.pfr_player_id
+    WHERE sc.season = $1 AND sc.game_type = 'REG' AND sc.week BETWEEN $2 AND $3 AND sc.defense_snaps > 0
+      AND NOT EXISTS (SELECT 1 FROM weeks x WHERE x.player_id = pl.gsis_id AND x.week = sc.week)
+  ),
   players AS (
     SELECT
-      w.player_id,
-      (ARRAY_AGG(w.player_display_name ORDER BY w.week DESC))[1] AS name,
-      (ARRAY_AGG(w.team ORDER BY w.week DESC))[1] AS team,
-      (ARRAY_AGG(w.position ORDER BY w.week DESC))[1] AS position,
-      (ARRAY_AGG(w.headshot_url ORDER BY w.week DESC))[1] AS headshot,
+      a.player_id,
+      (ARRAY_AGG(a.name ORDER BY a.week DESC))[1] AS name,
+      (ARRAY_AGG(a.team ORDER BY a.week DESC))[1] AS team,
+      (ARRAY_AGG(a.position ORDER BY a.week DESC))[1] AS position,
+      (ARRAY_AGG(a.headshot ORDER BY a.week DESC))[1] AS headshot,
       COUNT(*)::INT AS games,
       ${DEF_BOX_SUMS}
-    FROM weeks w
-    GROUP BY w.player_id
+    FROM appearances a
+    LEFT JOIN weeks w ON w.player_id = a.player_id AND w.week = a.week
+    GROUP BY a.player_id
   ),
   snaps AS (
     SELECT pl.gsis_id AS player_id, SUM(sc.defense_snaps)::FLOAT AS def_snaps,
@@ -276,8 +292,10 @@ const DEFENSE_LEADERBOARD_SQL = `
     GROUP BY pl.gsis_id
   )
   SELECT p.*, snaps.def_snaps, snaps.team_def_snaps,
-         ${DEF_PBP_FIELDS.map((f) => `dpbp.${f}`).join(', ')},
-         ${PFR_FIELDS.def.map((f) => `pfr_def.${pfrAlias(f)}`).join(', ')}
+         ${DEF_PBP_FIELDS.map((f) => `COALESCE(dpbp.${f}, CASE WHEN snaps.def_snaps > 0 THEN 0 END) AS ${f}`).join(', ')},
+         ${PFR_FIELDS.def.map((f) => (PFR_DEF_COUNTS.includes(pfrAlias(f))
+    ? `COALESCE(pfr_def.${pfrAlias(f)}, CASE WHEN snaps.def_snaps > 0 AND $1 >= ${PFR_FIRST_SEASON} THEN 0 END) AS ${pfrAlias(f)}`
+    : `pfr_def.${pfrAlias(f)}`)).join(', ')}
   FROM players p
   LEFT JOIN snaps ON snaps.player_id = p.player_id
   LEFT JOIN dpbp ON dpbp.player_id = p.player_id
@@ -307,10 +325,21 @@ router.get('/leaderboard/:pos', handle(async (req, res) => {
 // Player page
 // ---------------------------------------------------------------------------------------------
 
+// Games come from the weekly stats plus snap counts: nflverse writes a stat row only when a player
+// records a stat, so a defender who plays without one (no tackle, no pass breakup) would otherwise
+// have no game at all.
 const PLAYER_GAMES_SQL = `
+  WITH appearances AS (
+    SELECT season, week, season_type, team, opponent_team AS opponent, position
+    FROM player_stats WHERE player_id = $1
+    UNION ALL
+    SELECT sc.season, sc.week, CASE WHEN sc.game_type = 'REG' THEN 'REG' ELSE 'POST' END, sc.team, sc.opponent, sc.position
+    FROM snap_counts sc JOIN players p ON p.pfr_id = sc.pfr_player_id
+    WHERE p.gsis_id = $1 AND (sc.offense_snaps > 0 OR sc.defense_snaps > 0)
+      AND NOT EXISTS (SELECT 1 FROM player_stats x WHERE x.player_id = $1 AND x.season = sc.season AND x.week = sc.week)
+  )
   SELECT
-    ps.season::INT AS season, ps.week::INT AS week, ps.season_type, ps.team, ps.opponent_team AS opponent,
-    ps.position,
+    g.season::INT AS season, g.week::INT AS week, g.season_type, g.team, g.opponent, g.position,
     ps.completions::FLOAT AS completions, ps.attempts::FLOAT AS attempts,
     ps.passing_yards::FLOAT AS passing_yards, ps.passing_tds::FLOAT AS passing_tds,
     ps.passing_interceptions::FLOAT AS interceptions, ps.sacks_suffered::FLOAT AS sacks,
@@ -324,15 +353,15 @@ const PLAYER_GAMES_SQL = `
     ps.receiving_yards_after_catch::FLOAT AS receiving_yac, ps.target_share::FLOAT AS target_share,
     ps.wopr::FLOAT AS wopr, ps.fantasy_points_ppr::FLOAT AS fantasy_points_ppr,
     (COALESCE(ps.rushing_fumbles_lost, 0) + COALESCE(ps.receiving_fumbles_lost, 0) + COALESCE(ps.sack_fumbles_lost, 0))::FLOAT AS fumbles_lost,
-    ps.def_tackles_solo::FLOAT AS def_tackles_solo, ps.def_tackle_assists::FLOAT AS def_tackle_assists,
-    ps.def_tackles_for_loss::FLOAT AS def_tackles_for_loss, ps.def_sacks::FLOAT AS def_sacks,
-    ps.def_qb_hits::FLOAT AS def_qb_hits, ps.def_interceptions::FLOAT AS def_interceptions,
-    ps.def_pass_defended::FLOAT AS def_pass_defended, ps.def_fumbles_forced::FLOAT AS def_fumbles_forced,
-    ps.def_tds::FLOAT AS def_tds, ps.def_interception_yards::FLOAT AS def_interception_yards,
-    ps.def_fumbles::FLOAT AS def_fumbles, ps.def_safeties::FLOAT AS def_safeties,
+    COALESCE(ps.def_tackles_solo, 0)::FLOAT AS def_tackles_solo, COALESCE(ps.def_tackle_assists, 0)::FLOAT AS def_tackle_assists,
+    COALESCE(ps.def_tackles_for_loss, 0)::FLOAT AS def_tackles_for_loss, COALESCE(ps.def_sacks, 0)::FLOAT AS def_sacks,
+    COALESCE(ps.def_qb_hits, 0)::FLOAT AS def_qb_hits, COALESCE(ps.def_interceptions, 0)::FLOAT AS def_interceptions,
+    COALESCE(ps.def_pass_defended, 0)::FLOAT AS def_pass_defended, COALESCE(ps.def_fumbles_forced, 0)::FLOAT AS def_fumbles_forced,
+    COALESCE(ps.def_tds, 0)::FLOAT AS def_tds, COALESCE(ps.def_interception_yards, 0)::FLOAT AS def_interception_yards,
+    COALESCE(ps.def_fumbles, 0)::FLOAT AS def_fumbles, COALESCE(ps.def_safeties, 0)::FLOAT AS def_safeties,
     sc.defense_snaps::FLOAT AS def_snaps,
     ROUND(sc.defense_snaps / NULLIF(sc.defense_pct, 0))::FLOAT AS team_def_snaps,
-    ${DEF_PBP_FIELDS.map((f) => `dw.${f}::FLOAT AS ${f}`).join(', ')},
+    ${DEF_PBP_FIELDS.map((f) => `COALESCE(dw.${f}, ${ON_DEFENSE})::FLOAT AS ${f}`).join(', ')},
     ps.fg_made::FLOAT AS fg_made, ps.fg_att::FLOAT AS fg_att, ps.fg_long::FLOAT AS fg_long,
     ps.pat_made::FLOAT AS pat_made, ps.pat_att::FLOAT AS pat_att,
     pw.dropbacks::FLOAT AS dropbacks, pw.dropback_epa, pw.dropback_success, pw.cpoe_sum,
@@ -340,19 +369,21 @@ const PLAYER_GAMES_SQL = `
     pw.rush_success, pw.targets::FLOAT AS pbp_targets, pw.target_epa, pw.target_success,
     s.game_id, s.home_team, s.away_team, s.home_score::FLOAT AS home_score,
     s.away_score::FLOAT AS away_score, s.gameday, s.roof, s.game_type,
-    ${PFR_KINDS.map((k) => PFR_FIELDS[k].map((f) => `pfr_${k}.${pfrColumn(f)}::FLOAT AS ${pfrAlias(f)}`).join(', ')).join(',\n    ')}
-  FROM player_stats ps
+    ${PFR_KINDS.map((k) => PFR_FIELDS[k].map((f) => (k === 'def' && PFR_DEF_COUNTS.includes(pfrAlias(f))
+    ? `COALESCE(pfr_def.${pfrColumn(f)}, CASE WHEN g.season >= ${PFR_FIRST_SEASON} THEN ${ON_DEFENSE} END)::FLOAT AS ${pfrAlias(f)}`
+    : `pfr_${k}.${pfrColumn(f)}::FLOAT AS ${pfrAlias(f)}`)).join(', ')).join(',\n    ')}
+  FROM appearances g
+  LEFT JOIN player_stats ps ON ps.player_id = $1 AND ps.season = g.season AND ps.week = g.week
   LEFT JOIN player_week_pbp pw
-    ON pw.player_id = ps.player_id AND pw.season = ps.season AND pw.week = ps.week
+    ON pw.player_id = $1 AND pw.season = g.season AND pw.week = g.week
   LEFT JOIN schedules s
-    ON s.season = ps.season AND s.week = ps.week AND (s.home_team = ps.team OR s.away_team = ps.team)
-  LEFT JOIN players pl ON pl.gsis_id = ps.player_id
+    ON s.season = g.season AND s.week = g.week AND (s.home_team = g.team OR s.away_team = g.team)
+  LEFT JOIN players pl ON pl.gsis_id = $1
   LEFT JOIN player_week_def_pbp dw
-    ON dw.player_id = ps.player_id AND dw.season = ps.season AND dw.week = ps.week
+    ON dw.player_id = $1 AND dw.season = g.season AND dw.week = g.week
   LEFT JOIN snap_counts sc ON sc.game_id = s.game_id AND sc.pfr_player_id = pl.pfr_id AND sc.defense_snaps > 0
   ${PFR_KINDS.map((k) => `LEFT JOIN pfr_advstats_${k} pfr_${k} ON pfr_${k}.game_id = s.game_id AND pfr_${k}.pfr_player_id = pl.pfr_id`).join('\n  ')}
-  WHERE ps.player_id = $1
-  ORDER BY ps.season, ps.week
+  ORDER BY g.season, g.week
 `;
 
 const PLAYER_NGS_SQL = `

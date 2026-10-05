@@ -266,7 +266,8 @@ function Overview({ player, games, regular, totals, previous, season, group, con
       {peers.length > 0 && self && (
         <p className="text-xs text-faint">
           Ranks compare against the {qualifiedCount} qualifying {config.plural.toLowerCase()} on the {season} leaderboard
-          {peers.length > qualifiedCount ? ` plus ${shortName(player.display_name)}` : ''}.
+          {peers.length > qualifiedCount ? ` plus ${shortName(player.display_name)}` : ''}
+          {peers.length > qualifiedCount && shortName(player.display_name).endsWith('.') ? '' : '.'}
         </p>
       )}
 
