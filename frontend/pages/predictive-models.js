@@ -289,6 +289,12 @@ function Projections() {
                 <span className="text-xs text-faint">
                   {p.team} {p.home ? 'vs' : '@'} {p.opponent}
                 </span>
+                {p.depth_rank > 1 && <span className="text-2xs font-semibold text-faint">{p.position}{p.depth_rank}</span>}
+                {p.injury_status && (
+                  <span className={`rounded border px-1 text-2xs font-bold ${p.injury_status === 'Doubtful' ? 'border-bad/60 text-bad' : 'border-warn/60 text-warn'}`}>
+                    {p.injury_status === 'Questionable' ? 'Q' : p.injury_status === 'Doubtful' ? 'D' : p.injury_status}
+                  </span>
+                )}
               </div>
             ),
           }}
@@ -300,7 +306,8 @@ function Projections() {
         <div className="space-y-2 text-sm text-muted">
           <p>
             Each player’s recent games are averaged with more weight on the latest ones (last season counts less), then adjusted for
-            the opponent’s EPA allowed per pass or run so far this season. Players need a regular role to be listed.
+            the opponent’s EPA allowed per pass or run so far this season. Players listed Out on the injury report, or not on
+            their team’s current depth chart (quarterbacks must be QB1), are left off; Q and D mark questionable and doubtful.
           </p>
           <p>
             Ranges come from the player’s game-to-game variation, widened or narrowed so that last season roughly 80% of outcomes

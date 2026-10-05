@@ -1,9 +1,10 @@
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useState } from 'react';
 import WinProbabilityChart from '../components/charts/WinProbabilityChart';
 import { EmptyState, PageHeader, ProbabilityBar } from '../components/ui';
-import { fetchJson, loadProps, queryString } from '../lib/api';
+import { fetchJson, loadProps, queryString, useApi } from '../lib/api';
 import { fixed, int, pctLabel, shortWeekLabel, signed, weekLabel } from '../lib/format';
 
 export const runtime = 'experimental-edge';
@@ -81,7 +82,7 @@ export default function GamesPage({ data, detail }) {
         </div>
       )}
 
-      {detail && <GameDetail detail={detail} />}
+      {detail && <GameDetail key={detail.game.game_id} detail={detail} />}
     </>
   );
 }
@@ -135,6 +136,7 @@ function TeamLine({ abbr, score, won, final }) {
 }
 
 function GameDetail({ detail }) {
+  const [showDrives, setShowDrives] = useState(false);
   const { game, series, teams } = detail;
   const final = isFinal(game);
   const home = teams.find((t) => t.team === game.home_team);
@@ -144,6 +146,7 @@ function GameDetail({ detail }) {
     : `${game.away_team} @ ${game.home_team}`;
 
   return (
+    <>
     <section className="card grid grid-cols-1 gap-6 p-5 lg:grid-cols-[1fr_280px]">
       <div className="min-w-0">
         <div className="label">Game detail · {final ? 'Final' : series.length ? 'In progress' : 'Preview'}</div>
@@ -174,10 +177,107 @@ function GameDetail({ detail }) {
         ) : (
           <p className="text-sm text-muted">Available once the game starts.</p>
         )}
-        <Link href={`/teams/${game.home_team}`} className="link mt-4 inline-block text-sm">
+        {series.length > 0 && (
+          <button type="button" className="link mt-4 block text-sm" onClick={() => setShowDrives((v) => !v)}>
+            {showDrives ? 'Hide play-by-play' : 'Play-by-play & drive chart →'}
+          </button>
+        )}
+        <Link href={`/teams/${game.home_team}`} className="link mt-2 inline-block text-sm">
           {game.home_team} team page →
         </Link>
       </div>
+    </section>
+    {showDrives && <Drives game={game} />}
+    </>
+  );
+}
+
+const RESULT_TONE = { Touchdown: 'text-good', 'Field goal': 'text-good', Turnover: 'text-bad', 'Turnover on downs': 'text-bad', Safety: 'text-bad', 'Opp touchdown': 'text-bad' };
+
+// One row per drive: a bar across the field from where the drive started to where it ended,
+// measured from the offense's own goal line, so every drive reads left to right.
+function Drives({ game }) {
+  const { data, loading } = useApi(`/api/games/${game.game_id}/drives`);
+  const [open, setOpen] = useState(null);
+  if (loading || !data) return <div className="card mt-4 p-5 text-sm text-muted">Loading drives…</div>;
+  if (!data.drives.length) return <div className="card mt-4 p-5 text-sm text-muted">No play-by-play for this game yet.</div>;
+  let quarter = null;
+  return (
+    <section className="card mt-4 overflow-hidden">
+      <div className="flex flex-wrap items-end justify-between gap-2 px-5 pt-4">
+        <div>
+          <h2 className="font-sans text-[17px] font-bold">Drive chart</h2>
+          <p className="text-xs text-muted">Each bar runs from the drive's start to its end, measured from the offense's own goal line. Click a drive for its plays.</p>
+        </div>
+        <div className="flex gap-4 text-xs">
+          <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-sm bg-bad" />{game.away_team}</span>
+          <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded-sm bg-[#4a8ef0]" />{game.home_team}</span>
+        </div>
+      </div>
+      <div className="mt-3">
+        <div className="grid grid-cols-[64px_44px_1fr_150px] gap-3 border-y border-line px-5 py-2 text-2xs font-semibold uppercase tracking-label text-faint max-md:grid-cols-[56px_40px_1fr]">
+          <span>Start</span>
+          <span>Team</span>
+          <span className="flex justify-between"><span>Own goal</span><span>50</span><span>Opp goal</span></span>
+          <span className="max-md:hidden">Result</span>
+        </div>
+        {data.drives.map((d) => {
+          const header = d.quarter !== quarter ? (quarter = d.quarter) : null;
+          const home = d.team === game.home_team;
+          const lo = Math.min(d.from ?? 0, d.to ?? d.from ?? 0);
+          const hi = Math.max(d.from ?? 0, d.to ?? d.from ?? 0);
+          const isOpen = open === d.number;
+          return (
+            <div key={d.number}>
+              {header != null && (
+                <div className="bg-white/[0.02] px-5 py-1 text-2xs font-semibold uppercase tracking-label text-faint">
+                  {header > 4 ? 'Overtime' : `Quarter ${header}`}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setOpen(isOpen ? null : d.number)}
+                className={`grid w-full grid-cols-[64px_44px_1fr_150px] items-center gap-3 border-b border-line/60 px-5 py-2 text-left text-sm hover:bg-white/[0.02] max-md:grid-cols-[56px_40px_1fr] ${isOpen ? 'bg-white/[0.03]' : ''}`}
+              >
+                <span className="num text-xs text-muted">Q{d.quarter} {d.start_time}</span>
+                <span className="text-xs font-bold">{d.team}</span>
+                <span className="relative h-4 rounded-sm bg-[#10151b]">
+                  {[10, 20, 30, 40, 50, 60, 70, 80, 90].map((y) => (
+                    <span key={y} className={`absolute inset-y-0 w-px ${y === 50 ? 'bg-line-strong' : 'bg-line/70'}`} style={{ left: `${y}%` }} />
+                  ))}
+                  {d.from != null && (
+                    <span
+                      className={`absolute inset-y-[3px] rounded-sm ${home ? 'bg-[#4a8ef0]' : 'bg-bad'}`}
+                      style={{ left: `${lo}%`, width: `${Math.max(1, hi - lo)}%` }}
+                    />
+                  )}
+                </span>
+                <span className="max-md:col-span-3 max-md:pl-[112px]">
+                  <span className={`text-xs font-semibold ${RESULT_TONE[d.result] || 'text-muted'}`}>{d.result}</span>
+                  <span className="block text-2xs text-faint">
+                    {d.plays} plays · {d.yards} yds · {d.top}
+                  </span>
+                </span>
+              </button>
+              {isOpen && (
+                <ol className="border-b border-line bg-[#0f1319] px-5 py-2">
+                  {d.list.map((p, i) => (
+                    <li key={i} className="grid grid-cols-[110px_1fr_60px] gap-3 py-1.5 text-xs">
+                      <span className="text-faint">
+                        {p.down ? `${p.down}${['', 'st', 'nd', 'rd', 'th'][p.down]} & ${p.ydstogo}` : p.type === 'kickoff' ? 'Kickoff' : ''}
+                        {p.yrdln ? ` · ${p.yrdln}` : ''}
+                      </span>
+                      <span className="text-muted">{p.description}</span>
+                      <span className={`num text-right ${p.epa > 0 ? 'text-good' : p.epa < 0 ? 'text-bad' : 'text-faint'}`}>{p.epa != null ? signed(p.epa, 2) : ''}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="px-5 py-3 text-xs text-faint">EPA per play is from the offense's perspective.</p>
     </section>
   );
 }

@@ -6,6 +6,17 @@ const div = (a, b) => (b ? a / b : null);
 const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const has = (v) => typeof v === 'number' && Number.isFinite(v);
 
+// NFL passer rating from summed totals (each component capped at 0-2.375).
+function passerRating(cmp, att, yds, td, ints) {
+  if (!has(att) || !att) return null;
+  const clamp = (v) => Math.max(0, Math.min(2.375, v));
+  const a = clamp((n(cmp) / att - 0.3) * 5);
+  const b = clamp((n(yds) / att - 3) * 0.25);
+  const c = clamp((n(td) / att) * 20);
+  const d = clamp(2.375 - (n(ints) / att) * 25);
+  return ((a + b + c + d) / 6) * 100;
+}
+
 const passEpa = (r) => (has(r.dropback_epa) && r.dropbacks ? r.dropback_epa : r.passing_epa);
 const passPlays = (r) => (r.dropbacks ? r.dropbacks : n(r.attempts) + n(r.sacks));
 
@@ -56,6 +67,9 @@ export const METRICS = {
   time_to_throw: { label: 'Time to throw', short: 'TTT', format: 'dec2', group: 'Passing', value: (r) => r.time_to_throw, description: 'Average seconds from snap to throw (Next Gen Stats).' },
   aggressiveness: { label: 'Aggressiveness', short: 'AGG%', format: 'dec1', group: 'Passing', value: (r) => r.aggressiveness, description: 'Share of throws into tight coverage (defender within a yard) (Next Gen Stats).' },
 
+  pressure_rate: { label: 'Pressure rate', short: 'PRSS%', format: 'pct', group: 'Passing', value: (r) => (has(r.pfr_pressured) ? div(r.pfr_pressured, n(r.attempts) + n(r.sacks)) : null), description: 'Share of dropbacks under pressure (hurried, hit or sacked), as charted by Pro Football Reference. Reflects the offensive line as much as the quarterback.' },
+  bad_throw_pct: { label: 'Bad throw rate', short: 'BAD%', format: 'pct', group: 'Passing', better: 'low', shade: true, value: (r) => (has(r.pfr_bad_throws) ? div(r.pfr_bad_throws, r.attempts) : null), description: 'Share of pass attempts charted as poorly thrown by Pro Football Reference.' },
+
   // ---- Rushing
   carries: { label: 'Carries', short: 'CAR', format: 'int', group: 'Rushing', better: 'high', value: (r) => r.carries, description: 'Rushing attempts.' },
   rushing_yards: { label: 'Rushing yards', short: 'YDS', format: 'int', group: 'Rushing', better: 'high', value: (r) => r.rushing_yards, description: 'Rushing yards.' },
@@ -74,6 +88,9 @@ export const METRICS = {
     description: 'Rushing yards beyond what an average back would gain given blocking and defender positions at the handoff (Next Gen Stats).',
   },
   ryoe: { label: 'Rush yards over expected', short: 'RYOE', format: 'signedInt', group: 'Rushing', better: 'high', value: (r) => (has(r.ryoe) ? r.ryoe : null), description: 'Total rushing yards over expected (Next Gen Stats).' },
+  ybc_per_att: { label: 'Yards before contact per carry', short: 'YBC/ATT', format: 'dec1', group: 'Rushing', better: 'high', value: (r) => (has(r.pfr_ybc) ? div(r.pfr_ybc, r.pfr_carries) : null), description: 'Yards gained before the first defender makes contact, per carry (Pro Football Reference). Mostly a blocking measure.' },
+  yac_rush_per_att: { label: 'Yards after contact per carry', short: 'YAC/ATT', format: 'dec1', group: 'Rushing', better: 'high', shade: true, value: (r) => (has(r.pfr_yac_rush) ? div(r.pfr_yac_rush, r.pfr_carries) : null), description: 'Yards gained after first contact, per carry (Pro Football Reference). Mostly a runner measure.' },
+  broken_tackles: { label: 'Broken tackles', short: 'BTK', format: 'int', group: 'Rushing', better: 'high', value: (r) => (has(r.pfr_rush_broken) || has(r.pfr_rec_broken) ? n(r.pfr_rush_broken) + n(r.pfr_rec_broken) : null), description: 'Tackles broken as a runner or receiver (Pro Football Reference).' },
   stacked_box_pct: { label: 'Stacked-box rate', short: '8+ BOX%', format: 'dec1', group: 'Rushing', value: (r) => r.stacked_box_pct, description: 'Share of carries against eight or more defenders in the box (Next Gen Stats).' },
 
   // ---- Receiving
@@ -96,6 +113,8 @@ export const METRICS = {
   wopr: { label: 'Weighted opportunity rating', short: 'WOPR', format: 'dec2', group: 'Receiving', better: 'high', value: (r) => r.wopr, description: '1.5 × target share + 0.7 × air yards share. Measures a receiver’s role in the passing game.' },
   adot_rec: { label: 'Average depth of target', short: 'aDOT', format: 'dec1', group: 'Receiving', value: (r) => div(n(r.receiving_air_yards), r.targets), description: 'Air yards per target.' },
   yac_per_rec: { label: 'Yards after catch per reception', short: 'YAC/R', format: 'dec1', group: 'Receiving', better: 'high', value: (r) => div(n(r.receiving_yac), r.receptions), description: 'Yards gained after the catch, per reception.' },
+  rec_drops: { label: 'Drops', short: 'DROP', format: 'int', group: 'Receiving', better: 'low', value: (r) => (has(r.pfr_rec_drops) ? r.pfr_rec_drops : null), description: 'Catchable passes dropped (Pro Football Reference).' },
+  drop_rate: { label: 'Drop rate', short: 'DROP%', format: 'pct', group: 'Receiving', better: 'low', shade: true, value: (r) => (has(r.pfr_rec_drops) ? div(r.pfr_rec_drops, r.targets) : null), description: 'Drops per target (Pro Football Reference).' },
   separation: { label: 'Average separation', short: 'SEP', format: 'dec1', group: 'Receiving', better: 'high', shade: true, value: (r) => r.separation, description: 'Yards between receiver and nearest defender when the ball arrives (Next Gen Stats).' },
   yac_over_expected: { label: 'YAC over expected', short: 'YACOE', format: 'signed1', group: 'Receiving', better: 'high', shade: true, value: (r) => r.yac_over_expected, description: 'Yards after catch beyond the expected amount, per reception (Next Gen Stats).' },
 
@@ -107,6 +126,12 @@ export const METRICS = {
   def_interceptions: { label: 'Interceptions', short: 'INT', format: 'int', group: 'Defense', better: 'high', value: (r) => r.def_interceptions, description: 'Interceptions made.' },
   def_pass_defended: { label: 'Passes defended', short: 'PD', format: 'int', group: 'Defense', better: 'high', value: (r) => r.def_pass_defended, description: 'Passes broken up or intercepted.' },
   def_fumbles_forced: { label: 'Forced fumbles', short: 'FF', format: 'int', group: 'Defense', better: 'high', value: (r) => r.def_fumbles_forced, description: 'Fumbles forced.' },
+  def_pressures: { label: 'Pressures', short: 'PRSS', format: 'int', group: 'Defense', better: 'high', value: (r) => (has(r.pfr_def_pressures) ? r.pfr_def_pressures : null), description: 'Hurries, QB hits and sacks combined (Pro Football Reference).' },
+  missed_tackle_pct: { label: 'Missed tackle rate', short: 'MTKL%', format: 'pct', group: 'Defense', better: 'low', shade: true, value: (r) => (has(r.pfr_def_missed) ? div(r.pfr_def_missed, n(r.pfr_def_missed) + n(r.pfr_def_tackles)) : null), description: 'Missed tackles as a share of tackle attempts (Pro Football Reference).' },
+  def_targets: { label: 'Targets allowed', short: 'TGT', format: 'int', group: 'Defense', value: (r) => (has(r.pfr_def_targets) ? r.pfr_def_targets : null), description: 'Passes thrown at the defender in coverage (Pro Football Reference).' },
+  def_cmp_pct_allowed: { label: 'Completion % allowed', short: 'CMP%', format: 'pct', group: 'Defense', better: 'low', value: (r) => (has(r.pfr_def_targets) ? div(n(r.pfr_def_completions), r.pfr_def_targets) : null), description: 'Completions allowed per target in coverage.' },
+  def_yds_per_tgt: { label: 'Yards per target allowed', short: 'Y/TGT', format: 'dec1', group: 'Defense', better: 'low', shade: true, value: (r) => (has(r.pfr_def_targets) ? div(n(r.pfr_def_yards), r.pfr_def_targets) : null), description: 'Receiving yards allowed per target in coverage.' },
+  def_rating_allowed: { label: 'Passer rating allowed', short: 'RTG', format: 'dec1', group: 'Defense', better: 'low', value: (r) => passerRating(r.pfr_def_completions, r.pfr_def_targets, r.pfr_def_yards, r.pfr_def_td, r.pfr_def_ints), description: "NFL passer rating on throws into the defender's coverage, computed from completions, yards, touchdowns and interceptions allowed." },
   def_tds: { label: 'Defensive touchdowns', short: 'TD', format: 'int', group: 'Defense', better: 'high', value: (r) => r.def_tds, description: 'Touchdowns scored on defense.' },
 
   // ---- Kicking

@@ -6,7 +6,8 @@ import BarChart from './charts/BarChart';
 import ScatterPlot from './charts/ScatterPlot';
 import DataTable from './DataTable';
 import { Breadcrumbs, Card, EmptyState, Segmented, Select, Tabs, RankTrack, toneOf } from './ui';
-import { formatValue, height as formatHeight, initials, money, ordinal, shortName } from '../lib/format';
+import { useApi } from '../lib/api';
+import { formatValue, height as formatHeight, initials, money, ordinal, pctLabel, shortName } from '../lib/format';
 import { METRICS, aggregate, groupStats, metricValue, positionGroup } from '../lib/metrics';
 import { POSITIONS, flattenColumns, qualifierMinimum } from '../lib/positions';
 import { gameLabel, gameResult, ngsBySeason, opponentLabel, seasonGames, seasonsOf, splitRows } from '../lib/player';
@@ -128,7 +129,10 @@ export default function PlayerPage({ data, board }) {
               )}
               {player.jersey_number ? ` · #${player.jersey_number}` : ''}
             </div>
-            <h1 className="text-3xl font-extrabold leading-tight sm:text-[2.4rem]">{player.display_name}</h1>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h1 className="text-3xl font-extrabold leading-tight sm:text-[2.4rem]">{player.display_name}</h1>
+              <StatusTags depth={data.depth} injury={data.injury} latestSeason={seasons[0]} />
+            </div>
           </div>
           <dl className="flex flex-wrap gap-x-7 gap-y-2 text-sm">
             <Fact label="College" value={player.college_name?.split(';').pop().trim()} />
@@ -175,11 +179,35 @@ export default function PlayerPage({ data, board }) {
       ) : tab === 'gamelog' ? (
         <GameLog games={seasonGames(games, season, { playoffs: true })} pc={pc} shading={shading} season={season} />
       ) : tab === 'splits' ? (
-        <Splits games={games} season={season} pc={pc} shading={shading} />
+        <Splits games={games} season={season} pc={pc} shading={shading} playerId={player.gsis_id} group={group} />
       ) : tab === 'advanced' ? (
         <Advanced games={games} ngs={ngs} pc={pc} group={group} />
       ) : (
         <Career games={games} pc={pc} shading={shading} contracts={contracts} player={player} season={season} />
+      )}
+    </>
+  );
+}
+
+// Depth-chart slot (e.g. "QB1") and the latest injury-report designation, when there is one.
+function StatusTags({ depth, injury, latestSeason }) {
+  const slot = depth?.[0];
+  const injured = injury && injury.season === latestSeason && injury.report_status;
+  const tone = injured === 'Out' ? 'border-bad/70 text-bad' : 'border-warn/60 text-warn';
+  return (
+    <>
+      {slot && (
+        <span className="rounded border border-line-strong px-1.5 py-0.5 text-xs font-bold text-muted" title={`${slot.pos_name}, current depth chart`}>
+          {slot.pos_abb}
+          {slot.pos_rank}
+        </span>
+      )}
+      {injured && (
+        <span className={`rounded border px-1.5 py-0.5 text-xs font-bold ${tone}`} title={injury.practice_status || undefined}>
+          {injury.report_status}
+          {injury.report_primary_injury ? ` · ${injury.report_primary_injury}` : ''}
+          <span className="ml-1 font-normal opacity-80">wk {injury.week} report</span>
+        </span>
       )}
     </>
   );
@@ -506,6 +534,7 @@ function ContractCard({ contracts, player, season }) {
   const years = Array.from({ length: Math.max(c.years || 1, 1) }, (_, i) => start + i);
   const current = years.indexOf(season);
   const guaranteedPct = c.value ? c.guaranteed / c.value : null;
+  const capYear = Array.isArray(c.season_history) ? c.season_history.find((h) => String(h.year) === String(season)) : null;
   return (
     <section id="contract" className="card h-fit scroll-mt-20 p-5">
       <h2 className="font-sans text-[17px] font-bold">Contract</h2>
@@ -529,6 +558,15 @@ function ContractCard({ contracts, player, season }) {
             {guaranteedPct != null && <span className="font-sans text-xs font-semibold text-good">{Math.round(guaranteedPct * 100)}%</span>}
           </dd>
         </div>
+        {capYear?.cap_number != null && (
+          <div className="col-span-2 rounded-lg border border-line bg-raised/40 px-3 py-2">
+            <dt className="text-xs text-muted">{season} cap hit</dt>
+            <dd className="font-display text-lg font-bold">
+              {money(capYear.cap_number)}{' '}
+              {capYear.cap_percent != null && <span className="font-sans text-xs font-normal text-muted">{pctLabel(capYear.cap_percent, 1)} of the cap</span>}
+            </dd>
+          </div>
+        )}
         <div>
           <dt className="text-xs text-muted">Signed</dt>
           <dd className="font-display text-lg font-bold">{start}</dd>
@@ -621,7 +659,7 @@ function GameLog({ games, pc, shading, season }) {
   );
 }
 
-function Splits({ games, season, pc, shading }) {
+function Splits({ games, season, pc, shading, playerId, group }) {
   const [scope, setScope] = useState('season');
   const pool = scope === 'season' ? seasonGames(games, season) : games.filter((g) => g.season_type === 'REG');
   const rows = splitRows(pool);
@@ -640,6 +678,84 @@ function Splits({ games, season, pc, shading }) {
         lead={{ header: 'Split', className: 'min-w-[180px]', render: (r) => <span className="font-semibold">{r.label}</span> }}
       />
       <p className="text-xs text-faint">Regular season only. Dome and outdoor splits use the stadium roof recorded for each game.</p>
+      {['QB', 'RB', 'WR', 'TE'].includes(group) && <ChartingSplits playerId={playerId} season={season} group={group} />}
+    </div>
+  );
+}
+
+const per = (a, b) => (b ? a / b : null);
+
+function ChartingSplits({ playerId, season, group }) {
+  const { data, loading } = useApi(`/api/players/${playerId}/charting?season=${season}`);
+  if (loading) return <p className="text-sm text-muted">Loading charting splits…</p>;
+  const charted = data && data.season === season;
+  return (
+    <section className="space-y-3 pt-4">
+      <div>
+        <h2 className="font-sans text-lg font-bold">Charting splits</h2>
+        <p className="text-xs text-muted">Every play hand-charted by FTN: play-action, blitzes, pocket movement, box counts and ball quality (2022 onward).</p>
+      </div>
+      {!charted ? (
+        <EmptyState title={`No FTN charting for ${season}`}>{data?.seasons?.length ? `Charted seasons: ${data.seasons.join(', ')}.` : 'FTN charting starts in 2022.'}</EmptyState>
+      ) : (
+        <>
+          {group === 'QB' && data.passing.length > 0 && (
+            <DataTable
+              rows={data.passing}
+              rowKey={(r) => r.split}
+              lead={{ header: 'Dropbacks', className: 'min-w-[170px]', render: (r) => <span className={r.ord === 0 ? 'font-semibold' : ''}>{r.split}</span> }}
+              columns={[
+                { key: 'plays', short: 'DB', label: 'Dropbacks', format: 'int', value: (r) => r.plays },
+                { key: 'share', short: 'SHARE', label: 'Share of dropbacks', format: 'pct', value: (r) => per(r.plays, data.passing[0].plays) },
+                { key: 'epa', short: 'EPA/PLAY', label: 'EPA per dropback', format: 'signed2', better: 'high', value: (r) => per(r.epa, r.plays) },
+                { key: 'success', short: 'SUCC%', label: 'Success rate', format: 'pct', value: (r) => per(r.success, r.plays) },
+                { key: 'cmp', short: 'CMP%', label: 'Completion %', format: 'pct', value: (r) => per(r.completions, r.attempts) },
+                { key: 'ypp', short: 'YDS/DB', label: 'Yards per dropback (incl. sacks and scrambles)', format: 'dec1', value: (r) => per(r.yards, r.plays) },
+                { key: 'sacks', short: 'SK', label: 'Sacks', format: 'int', value: (r) => r.sacks },
+                { key: 'int', short: 'INT', label: 'Interceptions', format: 'int', value: (r) => r.interceptions },
+                { key: 'iw', short: 'INT-WORTHY', label: 'Interception-worthy throws', format: 'int', value: (r) => r.int_worthy },
+              ]}
+              shading={{ epa: { mean: 0, sd: 0.2 } }}
+              dense
+            />
+          )}
+          {group === 'RB' && data.rushing.length > 0 && (
+            <DataTable
+              rows={data.rushing}
+              rowKey={(r) => r.split}
+              lead={{ header: 'Carries', className: 'min-w-[200px]', render: (r) => <span className={r.ord === 0 ? 'font-semibold' : ''}>{r.split}</span> }}
+              columns={[
+                { key: 'plays', short: 'CAR', label: 'Carries', format: 'int', value: (r) => r.plays },
+                { key: 'yards', short: 'YDS', label: 'Rushing yards', format: 'int', value: (r) => r.yards },
+                { key: 'ypc', short: 'Y/C', label: 'Yards per carry', format: 'dec2', value: (r) => per(r.yards, r.plays) },
+                { key: 'epa', short: 'EPA/CAR', label: 'EPA per carry', format: 'signed2', better: 'high', value: (r) => per(r.epa, r.plays) },
+                { key: 'success', short: 'SUCC%', label: 'Success rate', format: 'pct', value: (r) => per(r.success, r.plays) },
+              ]}
+              shading={{ epa: { mean: -0.05, sd: 0.15 } }}
+              dense
+            />
+          )}
+          {(group === 'WR' || group === 'TE' || group === 'RB') && data.receiving && (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              <ChartStat label="Catchable targets" value={pctLabel(per(data.receiving.catchable, data.receiving.targets))} sub={`${Math.round(data.receiving.catchable)} of ${data.receiving.targets}`} />
+              <ChartStat label="Catch rate on catchable" value={pctLabel(per(data.receiving.catchable_caught, data.receiving.catchable))} />
+              <ChartStat label="Contested catches" value={`${Math.round(data.receiving.contested_caught)}/${Math.round(data.receiving.contested)}`} sub={pctLabel(per(data.receiving.contested_caught, data.receiving.contested))} />
+              <ChartStat label="Drops (charted)" value={String(Math.round(data.receiving.drops))} />
+              <ChartStat label="Created receptions" value={String(Math.round(data.receiving.created))} sub="Catches made on difficult balls" />
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function ChartStat({ label, value, sub }) {
+  return (
+    <div className="card px-4 py-3">
+      <div className="label mb-1">{label}</div>
+      <div className="font-display text-xl font-bold">{value}</div>
+      {sub && <div className="text-xs text-muted">{sub}</div>}
     </div>
   );
 }
