@@ -7,7 +7,7 @@ export const LEADERBOARD_POSITIONS = [...OFFENSE_POSITIONS, ...DEFENSE_POSITIONS
 
 // Every defensive stat a defender's leaderboard, custom columns and player page can show.
 const DEFENSE_METRICS = ['games', 'def_snaps', 'snap_share', 'tackles', 'stops', 'stop_rate', 'run_stops', 'run_tackle_depth',
-  'def_tackles_for_loss', 'def_sacks', 'def_qb_hits', 'def_pressures', 'pressure_rate', 'def_blitzes', 'havoc', 'havoc_rate',
+  'def_tackles_for_loss', 'def_sacks', 'def_qb_hits', 'def_pressures', 'def_pressure_rate', 'def_blitzes', 'havoc', 'havoc_rate',
   'def_interceptions', 'def_pass_defended', 'def_fumbles_forced', 'def_tds', 'def_missed_tackles', 'missed_tackle_pct',
   'def_targets', 'snaps_per_target', 'def_cmp_pct_allowed', 'def_yds_per_tgt', 'def_yac_allowed', 'def_td_allowed',
   'def_rating_allowed'];
@@ -31,10 +31,10 @@ function defender({ player, ...config }) {
         { group: 'Pass rush', columns: ['def_sacks', 'def_qb_hits', 'def_pressures'] },
         { group: 'Coverage', columns: ['def_targets', 'def_rating_allowed', 'def_interceptions', 'def_pass_defended', 'def_fumbles_forced', 'def_tds'] },
       ],
-      scatterOptions: ['tackles', 'stops', 'stop_rate', 'run_tackle_depth', 'def_sacks', 'def_pressures', 'pressure_rate', 'havoc_rate',
+      scatterOptions: ['tackles', 'stops', 'stop_rate', 'run_tackle_depth', 'def_sacks', 'def_pressures', 'def_pressure_rate', 'havoc_rate',
         'def_yds_per_tgt', 'def_cmp_pct_allowed', 'def_rating_allowed', 'snaps_per_target', 'missed_tackle_pct', 'def_snaps'],
       splits: ['games', 'def_snaps', 'tackles', 'stops', 'def_sacks', 'def_pressures', 'def_interceptions', 'def_pass_defended'],
-      advanced: ['snap_share', 'stop_rate', 'run_tackle_depth', 'pressure_rate', 'havoc_rate', 'missed_tackle_pct', 'def_targets',
+      advanced: ['snap_share', 'stop_rate', 'run_tackle_depth', 'def_pressure_rate', 'havoc_rate', 'missed_tackle_pct', 'def_targets',
         'snaps_per_target', 'def_cmp_pct_allowed', 'def_yds_per_tgt', 'def_rating_allowed'],
     },
   };
@@ -65,11 +65,18 @@ const RECEIVER = {
       { group: 'Hands', columns: ['drop_rate', 'broken_tackles'] },
       { group: 'Value', columns: ['epa_per_target'] },
     ],
+    Impact: [
+      { group: 'Win probability', columns: ['rec_wpa'] },
+      { group: 'After the catch', columns: ['yac_oe_pbp', 'racr'] },
+      { group: 'Big plays', columns: ['explosive_catches', 'explosive_catch_rate'] },
+      { group: 'Chains & scoring', columns: ['fd_per_target', 'rz_targets', 'ez_targets'] },
+    ],
   },
   customOptions: ['games', 'targets', 'receptions', 'receiving_yards', 'receiving_tds', 'catch_pct', 'ypr', 'ypt',
     'receiving_epa', 'epa_per_target', 'target_success', 'target_share', 'air_yards_share', 'wopr', 'adot_rec',
     'yac_per_rec', 'separation', 'yac_over_expected', 'rec_drops', 'drop_rate', 'broken_tackles', 'carries', 'rushing_yards',
-    'fantasy_points_ppr'],
+    'fantasy_points_ppr', 'rec_wpa', 'yac_oe_pbp', 'racr', 'explosive_catches', 'explosive_catch_rate', 'fd_per_target',
+    'rz_targets', 'ez_targets'],
   player: {
     cards: ['epa_per_target', 'catch_pct', 'ypt', 'target_share'],
     summary: { title: 'Receiving', main: 'receiving_yards', unit: 'yds', rate: 'epa_per_target', detail: ['receptions', 'targets', 'receiving_tds'] },
@@ -88,6 +95,7 @@ const RECEIVER = {
     scatterOptions: ['epa_per_target', 'ypt', 'catch_pct', 'adot_rec', 'target_share', 'yac_per_rec', 'separation', 'receiving_yards', 'targets', 'target_success'],
     splits: ['games', 'targets', 'receptions', 'receiving_yards', 'receiving_tds', 'catch_pct', 'ypt', 'epa_per_target'],
     advanced: ['target_success', 'epa_per_target', 'adot_rec', 'yac_per_rec', 'target_share', 'wopr', 'rec_drops', 'drop_rate', 'broken_tackles'],
+    impact: ['rec_wpa', 'yac_oe_pbp', 'racr', 'explosive_catches', 'explosive_catch_rate', 'fd_per_target', 'rz_targets', 'ez_targets'],
     ngs: [
       { key: 'separation', label: 'Separation', format: 'dec1' },
       { key: 'cushion', label: 'Cushion', format: 'dec1' },
@@ -125,10 +133,18 @@ export const POSITIONS = {
         { group: 'Pressure', columns: ['pressure_rate', 'sack_rate', 'bad_throw_pct'] },
         { group: 'Value', columns: ['epa_per_play', 'cpoe'] },
       ],
+      Impact: [
+        { group: 'Win probability', columns: ['pass_wpa', 'total_wpa'] },
+        { group: 'Deep passing', columns: ['deep_rate', 'deep_cmp_pct', 'deep_epa_per'] },
+        { group: 'Risk', columns: ['iw_rate'] },
+        { group: 'Scrambling', columns: ['scramble_rate', 'scramble_epa_per'] },
+        { group: 'Receiver help', columns: ['yac_share_pass'] },
+      ],
     },
     customOptions: ['games', 'completions', 'attempts', 'cmp_pct', 'passing_yards', 'passing_tds', 'interceptions', 'sacks',
       'ypa', 'anya', 'td_rate', 'int_rate', 'sack_rate', 'dropbacks', 'pass_epa', 'epa_per_play', 'cpoe', 'dropback_success',
-      'adot', 'time_to_throw', 'aggressiveness', 'pressure_rate', 'bad_throw_pct', 'carries', 'rushing_yards', 'rushing_tds', 'rushing_epa', 'total_epa', 'fantasy_points_ppr'],
+      'adot', 'time_to_throw', 'aggressiveness', 'pressure_rate', 'bad_throw_pct', 'carries', 'rushing_yards', 'rushing_tds', 'rushing_epa', 'total_epa', 'fantasy_points_ppr',
+      'pass_wpa', 'total_wpa', 'deep_rate', 'deep_cmp_pct', 'deep_epa_per', 'iw_rate', 'scramble_rate', 'scramble_epa_per', 'yac_share_pass'],
     player: {
       cards: ['epa_per_play', 'cpoe', 'ypa', 'int_rate'],
       cardDetail: { int_rate: (t) => `${Math.round(t.interceptions || 0)} INT / ${Math.round(t.attempts || 0)} att` },
@@ -148,6 +164,7 @@ export const POSITIONS = {
       scatterOptions: ['pass_epa', 'epa_per_play', 'cpoe', 'ypa', 'anya', 'adot', 'dropback_success', 'sack_rate', 'int_rate', 'passing_yards', 'attempts', 'time_to_throw'],
       splits: ['games', 'cmp_pct', 'passing_yards', 'ypa', 'anya', 'passing_tds', 'interceptions', 'epa_per_play', 'cpoe'],
       advanced: ['dropbacks', 'dropback_success', 'epa_per_play', 'cpoe', 'adot', 'pressure_rate', 'sack_rate', 'bad_throw_pct', 'int_rate'],
+      impact: ['pass_wpa', 'total_wpa', 'deep_rate', 'deep_cmp_pct', 'deep_epa_per', 'iw_rate', 'scramble_rate', 'scramble_epa_per', 'yac_share_pass'],
       ngs: [
         { key: 'time_to_throw', label: 'Time to throw', format: 'dec2' },
         { key: 'aggressiveness', label: 'Aggressiveness', format: 'dec1' },
@@ -185,10 +202,17 @@ export const POSITIONS = {
         { group: 'Value', columns: ['total_epa', 'rushing_epa', 'receiving_epa'] },
         { group: 'Role', columns: ['target_share', 'scrimmage_yards', 'fantasy_points_ppr'] },
       ],
+      Impact: [
+        { group: 'Win probability', columns: ['rush_wpa', 'total_wpa'] },
+        { group: 'Big plays', columns: ['explosive_run_rate', 'stuff_rate'] },
+        { group: 'Chains', columns: ['rush_fd_rate'] },
+        { group: 'Goal line', columns: ['goal_line_carries', 'goal_line_td_rate'] },
+      ],
     },
     customOptions: ['games', 'carries', 'rushing_yards', 'ypc', 'rushing_tds', 'rushing_epa', 'rush_epa_per', 'rush_success',
       'ryoe', 'ryoe_per', 'stacked_box_pct', 'ybc_per_att', 'yac_rush_per_att', 'broken_tackles', 'targets', 'receptions', 'receiving_yards', 'receiving_tds', 'catch_pct', 'ypt',
-      'epa_per_target', 'target_share', 'scrimmage_yards', 'touches', 'total_epa', 'fantasy_points_ppr'],
+      'epa_per_target', 'target_share', 'scrimmage_yards', 'touches', 'total_epa', 'fantasy_points_ppr',
+      'rush_wpa', 'total_wpa', 'explosive_run_rate', 'stuff_rate', 'rush_fd_rate', 'goal_line_carries', 'goal_line_td_rate'],
     player: {
       cards: ['rush_epa_per', 'rush_success', 'ryoe_per', 'ypc'],
       summary: { title: 'Receiving', main: 'receiving_yards', unit: 'yds', rate: 'epa_per_target', detail: ['receptions', 'targets', 'receiving_tds'] },
@@ -207,6 +231,7 @@ export const POSITIONS = {
       scatterOptions: ['rush_epa_per', 'rush_success', 'ryoe_per', 'ypc', 'carries', 'rushing_yards', 'scrimmage_yards', 'epa_per_target', 'targets', 'stacked_box_pct'],
       splits: ['games', 'carries', 'rushing_yards', 'ypc', 'rush_epa_per', 'rush_success', 'receptions', 'receiving_yards'],
       advanced: ['rush_success', 'rush_epa_per', 'ypc', 'ybc_per_att', 'yac_rush_per_att', 'broken_tackles', 'epa_per_target', 'target_share'],
+      impact: ['rush_wpa', 'total_wpa', 'explosive_run_rate', 'stuff_rate', 'rush_fd_rate', 'goal_line_carries', 'goal_line_td_rate'],
       ngs: [
         { key: 'ryoe_per_att', label: 'RYOE per carry', format: 'signed2' },
         { key: 'ryoe', label: 'Rush yards over expected', format: 'signed1' },
@@ -229,7 +254,7 @@ export const POSITIONS = {
     leaderCards: [
       { metric: 'def_sacks', label: 'Sacks' },
       { metric: 'def_pressures', label: 'Pressures' },
-      { metric: 'pressure_rate', label: 'Pressure rate' },
+      { metric: 'def_pressure_rate', label: 'Pressure rate' },
       { metric: 'run_stops', label: 'Run stops' },
     ],
     defaultSort: 'def_sacks',
@@ -241,20 +266,20 @@ export const POSITIONS = {
       ],
       Efficiency: [
         { group: 'Usage', columns: ['games', 'def_snaps'] },
-        { group: 'Per snap', columns: ['pressure_rate', 'havoc_rate', 'stop_rate'] },
+        { group: 'Per snap', columns: ['def_pressure_rate', 'havoc_rate', 'stop_rate'] },
         { group: 'Tackling', columns: ['run_tackle_depth', 'missed_tackle_pct'] },
       ],
       Advanced: [
-        { group: 'Pass rush', columns: ['def_pressures', 'pressure_rate', 'def_sacks', 'def_qb_hits'] },
+        { group: 'Pass rush', columns: ['def_pressures', 'def_pressure_rate', 'def_sacks', 'def_qb_hits'] },
         { group: 'Disruption', columns: ['havoc', 'havoc_rate', 'def_fumbles_forced', 'def_pass_defended'] },
         { group: 'Run defense', columns: ['run_stops', 'run_tackle_depth'] },
       ],
     },
     player: {
-      cards: ['def_sacks', 'def_pressures', 'pressure_rate', 'run_stops'],
+      cards: ['def_sacks', 'def_pressures', 'def_pressure_rate', 'run_stops'],
       summary: { title: 'Tackling', main: 'tackles', unit: 'tkl', rate: null, detail: ['def_tackles_for_loss', 'stops', 'def_fumbles_forced'] },
       weekChart: ['def_pressures', 'def_sacks', 'tackles', 'def_snaps'],
-      scatter: { x: 'pressure_rate', y: 'stop_rate' },
+      scatter: { x: 'def_pressure_rate', y: 'stop_rate' },
     },
   }),
   LB: defender({
@@ -277,7 +302,7 @@ export const POSITIONS = {
       ],
       Efficiency: [
         { group: 'Usage', columns: ['games', 'def_snaps'] },
-        { group: 'Per snap', columns: ['stop_rate', 'havoc_rate', 'pressure_rate'] },
+        { group: 'Per snap', columns: ['stop_rate', 'havoc_rate', 'def_pressure_rate'] },
         { group: 'Tackling', columns: ['run_tackle_depth', 'missed_tackle_pct'] },
         { group: 'Coverage', columns: ['def_yds_per_tgt', 'def_rating_allowed'] },
       ],

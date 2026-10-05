@@ -31,6 +31,11 @@ export const METRICS = {
   },
   scrimmage_yards: { label: 'Scrimmage yards', short: 'SCRIM YDS', format: 'int', group: 'General', better: 'high', value: (r) => n(r.rushing_yards) + n(r.receiving_yards), description: 'Rushing plus receiving yards.' },
   touches: { label: 'Touches', short: 'TCH', format: 'int', group: 'General', better: 'high', value: (r) => n(r.carries) + n(r.receptions), description: 'Carries plus receptions.' },
+  total_wpa: {
+    label: 'Total win probability added', short: 'WPA', card: 'Total WPA', format: 'signed2', group: 'General', better: 'high', shade: true,
+    value: (r) => (has(r.pass_wpa) || has(r.rush_wpa) || has(r.rec_wpa) ? n(r.pass_wpa) + n(r.rush_wpa) + n(r.rec_wpa) : null),
+    description: "Win probability added across passing, rushing and receiving. +1.00 is a full win's worth; unlike EPA it weighs plays by how much they swung the game, so late, close-game plays count most.",
+  },
 
   // ---- Passing
   completions: { label: 'Completions', short: 'CMP', format: 'int', group: 'Passing', better: 'high', value: (r) => r.completions, description: 'Completed passes.' },
@@ -69,6 +74,14 @@ export const METRICS = {
 
   pressure_rate: { label: 'Pressure rate', short: 'PRSS%', format: 'pct', group: 'Passing', value: (r) => (has(r.pfr_pressured) ? div(r.pfr_pressured, n(r.attempts) + n(r.sacks)) : null), description: 'Share of dropbacks under pressure (hurried, hit or sacked), as charted by Pro Football Reference. Reflects the offensive line as much as the quarterback.' },
   bad_throw_pct: { label: 'Bad throw rate', short: 'BAD%', format: 'pct', group: 'Passing', better: 'low', shade: true, value: (r) => (has(r.pfr_bad_throws) ? div(r.pfr_bad_throws, r.attempts) : null), description: 'Share of pass attempts charted as poorly thrown by Pro Football Reference.' },
+  pass_wpa: { label: 'Passing win probability added', short: 'PASS WPA', format: 'signed2', group: 'Passing', better: 'high', value: (r) => (has(r.pass_wpa) ? r.pass_wpa : null), description: "Win probability added on dropbacks. +1.00 is a full win's worth." },
+  deep_rate: { label: 'Deep throw rate', short: 'DEEP%', format: 'pct', group: 'Passing', value: (r) => (has(r.deep_att) ? div(r.deep_att, r.attempts) : null), description: 'Share of pass attempts thrown 20+ yards downfield.' },
+  deep_cmp_pct: { label: 'Deep completion %', short: 'DEEP CMP%', format: 'pct', group: 'Passing', better: 'high', value: (r) => (r.deep_att ? n(r.deep_comp) / r.deep_att : null), description: 'Completions on throws 20+ yards downfield.' },
+  deep_epa_per: { label: 'EPA per deep throw', short: 'DEEP EPA', format: 'signed2', group: 'Passing', better: 'high', shade: true, value: (r) => (r.deep_att ? n(r.deep_epa) / r.deep_att : null), description: 'Expected points added per throw 20+ yards downfield.' },
+  iw_rate: { label: 'Interception-worthy throw rate', short: 'IW%', format: 'pct', group: 'Passing', better: 'low', shade: true, value: (r) => (r.charted_dropbacks ? n(r.int_worthy) / r.charted_dropbacks : null), description: 'Share of dropbacks with a throw FTN charted as interception-worthy, caught or not (2022 on). A steadier read on risk than interceptions.' },
+  scramble_rate: { label: 'Scramble rate', short: 'SCRM%', format: 'pct', group: 'Passing', value: (r) => (has(r.scrambles) && n(r.dropbacks) + n(r.scrambles) ? r.scrambles / (n(r.dropbacks) + n(r.scrambles)) : null), description: 'Share of dropbacks where the quarterback scrambled.' },
+  scramble_epa_per: { label: 'EPA per scramble', short: 'SCRM EPA', format: 'signed2', group: 'Passing', better: 'high', value: (r) => (r.scrambles ? n(r.scramble_epa) / r.scrambles : null), description: 'Expected points added per scramble.' },
+  yac_share_pass: { label: 'YAC share of passing yards', short: 'YAC%', format: 'pct', group: 'Passing', value: (r) => (r.passing_yards ? div(n(r.passing_yac), r.passing_yards) : null), description: 'Share of passing yards gained after the catch. High means receivers did more of the work.' },
 
   // ---- Rushing
   carries: { label: 'Carries', short: 'CAR', format: 'int', group: 'Rushing', better: 'high', value: (r) => r.carries, description: 'Rushing attempts.' },
@@ -92,6 +105,12 @@ export const METRICS = {
   yac_rush_per_att: { label: 'Yards after contact per carry', short: 'YAC/ATT', format: 'dec1', group: 'Rushing', better: 'high', shade: true, value: (r) => (has(r.pfr_yac_rush) ? div(r.pfr_yac_rush, r.pfr_carries) : null), description: 'Yards gained after first contact, per carry (Pro Football Reference). Mostly a runner measure.' },
   broken_tackles: { label: 'Broken tackles', short: 'BTK', format: 'int', group: 'Rushing', better: 'high', value: (r) => (has(r.pfr_rush_broken) || has(r.pfr_rec_broken) ? n(r.pfr_rush_broken) + n(r.pfr_rec_broken) : null), description: 'Tackles broken as a runner or receiver (Pro Football Reference).' },
   stacked_box_pct: { label: 'Stacked-box rate', short: '8+ BOX%', format: 'dec1', group: 'Rushing', value: (r) => r.stacked_box_pct, description: 'Share of carries against eight or more defenders in the box (Next Gen Stats).' },
+  rush_wpa: { label: 'Rushing win probability added', short: 'RUSH WPA', format: 'signed2', group: 'Rushing', better: 'high', value: (r) => (has(r.rush_wpa) ? r.rush_wpa : null), description: "Win probability added on runs (quarterback scrambles included). +1.00 is a full win's worth." },
+  explosive_run_rate: { label: 'Explosive run rate', short: 'EXPL%', format: 'pct', group: 'Rushing', better: 'high', shade: true, value: (r) => (r.pbp_carries && has(r.explosive_runs) ? r.explosive_runs / r.pbp_carries : null), description: 'Share of designed runs gaining 10+ yards.' },
+  stuff_rate: { label: 'Stuff rate', short: 'STUFF%', format: 'pct', group: 'Rushing', better: 'low', shade: true, value: (r) => (r.pbp_carries && has(r.stuffed_runs) ? r.stuffed_runs / r.pbp_carries : null), description: 'Share of designed runs stopped at or behind the line.' },
+  rush_fd_rate: { label: 'First down rate (rushing)', short: '1D%', format: 'pct', group: 'Rushing', better: 'high', value: (r) => (r.carries ? div(n(r.rushing_first_downs), r.carries) : null), description: 'Carries that gained a first down or touchdown.' },
+  goal_line_carries: { label: 'Goal-line carries', short: 'GL CAR', format: 'int', group: 'Rushing', value: (r) => (has(r.goal_line_carries) ? r.goal_line_carries : null), description: "Carries from the opponent's 5-yard line or closer." },
+  goal_line_td_rate: { label: 'Goal-line TD rate', short: 'GL TD%', format: 'pct', group: 'Rushing', better: 'high', value: (r) => (r.goal_line_carries ? n(r.goal_line_tds) / r.goal_line_carries : null), description: "Touchdowns per carry from the opponent's 5-yard line or closer." },
 
   // ---- Receiving
   targets: { label: 'Targets', short: 'TGT', format: 'int', group: 'Receiving', better: 'high', value: (r) => r.targets, description: 'Passes thrown to the player.' },
@@ -117,6 +136,14 @@ export const METRICS = {
   drop_rate: { label: 'Drop rate', short: 'DROP%', format: 'pct', group: 'Receiving', better: 'low', shade: true, value: (r) => (has(r.pfr_rec_drops) ? div(r.pfr_rec_drops, r.targets) : null), description: 'Drops per target (Pro Football Reference).' },
   separation: { label: 'Average separation', short: 'SEP', format: 'dec1', group: 'Receiving', better: 'high', shade: true, value: (r) => r.separation, description: 'Yards between receiver and nearest defender when the ball arrives (Next Gen Stats).' },
   yac_over_expected: { label: 'YAC over expected', short: 'YACOE', format: 'signed1', group: 'Receiving', better: 'high', shade: true, value: (r) => r.yac_over_expected, description: 'Yards after catch beyond the expected amount, per reception (Next Gen Stats).' },
+  rec_wpa: { label: 'Receiving win probability added', short: 'REC WPA', format: 'signed2', group: 'Receiving', better: 'high', value: (r) => (has(r.rec_wpa) ? r.rec_wpa : null), description: "Win probability added on targets. +1.00 is a full win's worth." },
+  yac_oe_pbp: { label: 'YAC over expected (all catches)', short: 'xYAC+', format: 'signed2', group: 'Receiving', better: 'high', shade: true, value: (r) => (r.xyac_n ? (n(r.yac_tracked) - n(r.xyac)) / r.xyac_n : null), description: "Yards after catch beyond nflfastR's expectation, per reception. Covers every catch, unlike the Next Gen Stats version, which the NFL only publishes for high-volume players." },
+  explosive_catches: { label: '20+ yard catches', short: '20+', format: 'int', group: 'Receiving', better: 'high', value: (r) => (has(r.explosive_catches) ? r.explosive_catches : null), description: 'Receptions gaining 20 or more yards.' },
+  explosive_catch_rate: { label: '20+ yard catches per target', short: '20+/TGT', format: 'pct', group: 'Receiving', better: 'high', shade: true, value: (r) => (r.pbp_targets && has(r.explosive_catches) ? r.explosive_catches / r.pbp_targets : null), description: 'Share of targets that became a 20+ yard catch.' },
+  racr: { label: 'Receiver air conversion ratio', short: 'RACR', format: 'dec2', group: 'Receiving', better: 'high', value: (r) => (r.receiving_air_yards > 0 ? div(n(r.receiving_yards), r.receiving_air_yards) : null), description: 'Receiving yards per air yard targeted. Above 1 means the receiver gains more than the throws were worth in the air (yards after the catch, catch rate).' },
+  fd_per_target: { label: 'First downs per target', short: '1D/TGT', format: 'pct', group: 'Receiving', better: 'high', value: (r) => (r.targets ? div(n(r.receiving_first_downs), r.targets) : null), description: 'Targets that produced a first down or touchdown.' },
+  rz_targets: { label: 'Red zone targets', short: 'RZ TGT', format: 'int', group: 'Receiving', value: (r) => (has(r.rz_targets) ? r.rz_targets : null), description: "Targets inside the opponent's 20-yard line." },
+  ez_targets: { label: 'End zone targets', short: 'EZ TGT', format: 'int', group: 'Receiving', value: (r) => (has(r.ez_targets) ? r.ez_targets : null), description: 'Targets thrown into the end zone.' },
 
   // ---- Defense
   tackles: { label: 'Tackles', short: 'TKL', format: 'int', group: 'Defense', better: 'high', value: (r) => n(r.def_tackles_solo) + n(r.def_tackle_assists), description: 'Solo plus assisted tackles.' },
@@ -141,7 +168,7 @@ export const METRICS = {
   stop_rate: { label: 'Stop rate', short: 'STOP%', format: 'pct', group: 'Defense', better: 'high', shade: true, value: (r) => (r.def_snaps && has(r.stops) ? r.stops / r.def_snaps : null), description: 'Stops per defensive snap.' },
   run_stops: { label: 'Run stops', short: 'RSTOP', format: 'int', group: 'Defense', better: 'high', value: (r) => (has(r.run_stops) ? r.run_stops : null), description: 'Tackles on designed runs and scrambles that the offense failed on (negative EPA).' },
   run_tackle_depth: { label: 'Yards per run tackle', short: 'RTKL YDS', format: 'dec1', group: 'Defense', better: 'low', shade: true, value: (r) => (r.run_tackles ? n(r.run_tackle_yards) / r.run_tackles : null), description: 'Average gain on the runs the player tackled. Lower means the player makes tackles closer to (or behind) the line.' },
-  pressure_rate: { label: 'Pressure rate', short: 'PRSS%', format: 'pct', group: 'Defense', better: 'high', shade: true, value: (r) => (has(r.pfr_def_pressures) && r.def_snaps ? r.pfr_def_pressures / r.def_snaps : null), description: 'Pressures per defensive snap. Pass-rush snaps are not published, so run snaps count too; compare players at the same position.' },
+  def_pressure_rate: { label: 'Pressure rate', short: 'PRSS%', format: 'pct', group: 'Defense', better: 'high', shade: true, value: (r) => (has(r.pfr_def_pressures) && r.def_snaps ? r.pfr_def_pressures / r.def_snaps : null), description: 'Pressures per defensive snap. Pass-rush snaps are not published, so run snaps count too; compare players at the same position.' },
   def_blitzes: { label: 'Blitzes', short: 'BLTZ', format: 'int', group: 'Defense', value: (r) => (has(r.pfr_def_blitzes) ? r.pfr_def_blitzes : null), description: 'Times sent as a blitzer (Pro Football Reference).' },
   def_missed_tackles: { label: 'Missed tackles', short: 'MTKL', format: 'int', group: 'Defense', better: 'low', value: (r) => (has(r.pfr_def_missed) ? r.pfr_def_missed : null), description: 'Missed tackles (Pro Football Reference).' },
   def_td_allowed: { label: 'Touchdowns allowed', short: 'TD ALW', format: 'int', group: 'Defense', better: 'low', value: (r) => (has(r.pfr_def_targets) ? n(r.pfr_def_td) : null), description: "Receiving touchdowns allowed in the defender's coverage (Pro Football Reference)." },

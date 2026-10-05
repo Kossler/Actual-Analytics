@@ -106,6 +106,10 @@ const PFR_KINDS = ['pass', 'rush', 'rec', 'def'];
 const DEF_BOX_SUMS = ['def_tackles_solo', 'def_tackle_assists', 'def_tackles_for_loss', 'def_sacks', 'def_qb_hits',
   'def_interceptions', 'def_interception_yards', 'def_pass_defended', 'def_fumbles_forced', 'def_fumbles', 'def_tds',
   'def_safeties'].map((f) => `COALESCE(SUM(w.${f}), 0)::FLOAT AS ${f}`).join(',\n      ');
+// Columns of player_week_adv.
+const ADV_FIELDS = ['pass_wpa', 'rush_wpa', 'rec_wpa', 'deep_att', 'deep_epa', 'deep_comp', 'scrambles', 'scramble_epa',
+  'charted_dropbacks', 'int_worthy', 'explosive_runs', 'stuffed_runs', 'goal_line_carries', 'goal_line_tds',
+  'explosive_catches', 'rz_targets', 'ez_targets', 'yac_tracked', 'xyac', 'xyac_n'];
 // Columns of player_week_def_pbp.
 const DEF_PBP_FIELDS = ['tackle_plays', 'stops', 'run_tackles', 'run_stops', 'run_tackle_yards', 'rec_tackles', 'rec_tackle_yards'];
 // Zero instead of missing when the player was on the field on defense: the play-by-play and PFR
@@ -142,6 +146,7 @@ const LEADERBOARD_SQL = `
       SUM(w.passing_epa)::FLOAT AS passing_epa,
       SUM(w.passing_air_yards)::FLOAT AS passing_air_yards,
       SUM(w.passing_first_downs)::FLOAT AS passing_first_downs,
+      SUM(w.passing_yards_after_catch)::FLOAT AS passing_yac,
       SUM(w.carries)::FLOAT AS carries,
       SUM(w.rushing_yards)::FLOAT AS rushing_yards,
       SUM(w.rushing_tds)::FLOAT AS rushing_tds,
@@ -170,6 +175,12 @@ const LEADERBOARD_SQL = `
       SUM(carries)::FLOAT AS pbp_carries, SUM(rush_epa) AS pbp_rush_epa, SUM(rush_success) AS rush_success,
       SUM(targets)::FLOAT AS pbp_targets, SUM(target_epa) AS target_epa, SUM(target_success) AS target_success
     FROM player_week_pbp
+    WHERE season = $1 AND season_type = 'REG' AND week BETWEEN $2 AND $3
+    GROUP BY player_id
+  ),
+  adv AS (
+    SELECT player_id, ${ADV_FIELDS.map((f) => `SUM(${f})::FLOAT AS ${f}`).join(', ')}
+    FROM player_week_adv
     WHERE season = $1 AND season_type = 'REG' AND week BETWEEN $2 AND $3
     GROUP BY player_id
   ),
@@ -232,9 +243,11 @@ const LEADERBOARD_SQL = `
          pbp.target_success, np.time_to_throw, np.aggressiveness, np.intended_air_yards,
          nr.ryoe, nr.ngs_rush_attempts, nr.stacked_box_pct,
          nc.separation, nc.cushion, nc.yac_over_expected,
+         ${ADV_FIELDS.map((f) => `adv.${f}`).join(', ')},
          ${PFR_KINDS.map((k) => PFR_FIELDS[k].map((f) => `pfr_${k}.${pfrAlias(f)}`).join(', ')).join(',\n         ')}
   FROM players p
   LEFT JOIN pbp ON pbp.player_id = p.player_id
+  LEFT JOIN adv ON adv.player_id = p.player_id
   LEFT JOIN ngs_pass np ON np.player_id = p.player_id
   LEFT JOIN ngs_rush nr ON nr.player_id = p.player_id
   LEFT JOIN ngs_rec nc ON nc.player_id = p.player_id
@@ -345,6 +358,9 @@ const PLAYER_GAMES_SQL = `
     ps.passing_interceptions::FLOAT AS interceptions, ps.sacks_suffered::FLOAT AS sacks,
     ps.sack_yards_lost::FLOAT AS sack_yards, ps.passing_epa::FLOAT AS passing_epa,
     ps.passing_cpoe::FLOAT AS passing_cpoe, ps.passing_air_yards::FLOAT AS passing_air_yards,
+    ps.passing_yards_after_catch::FLOAT AS passing_yac, ps.passing_first_downs::FLOAT AS passing_first_downs,
+    ps.rushing_first_downs::FLOAT AS rushing_first_downs, ps.receiving_first_downs::FLOAT AS receiving_first_downs,
+    ${ADV_FIELDS.map((f) => `pa.${f}::FLOAT AS ${f}`).join(', ')},
     ps.carries::FLOAT AS carries, ps.rushing_yards::FLOAT AS rushing_yards,
     ps.rushing_tds::FLOAT AS rushing_tds, ps.rushing_epa::FLOAT AS rushing_epa,
     ps.targets::FLOAT AS targets, ps.receptions::FLOAT AS receptions,
@@ -376,6 +392,8 @@ const PLAYER_GAMES_SQL = `
   LEFT JOIN player_stats ps ON ps.player_id = $1 AND ps.season = g.season AND ps.week = g.week
   LEFT JOIN player_week_pbp pw
     ON pw.player_id = $1 AND pw.season = g.season AND pw.week = g.week
+  LEFT JOIN player_week_adv pa
+    ON pa.player_id = $1 AND pa.season = g.season AND pa.week = g.week
   LEFT JOIN schedules s
     ON s.season = g.season AND s.week = g.week AND (s.home_team = g.team OR s.away_team = g.team)
   LEFT JOIN players pl ON pl.gsis_id = $1
@@ -502,6 +520,62 @@ router.get('/players/:id/charting', handle(async (req, res) => {
     receiving: receiving[0]?.targets ? receiving[0] : null,
     rushing,
   });
+}));
+
+// Situational splits from play-by-play (every season): how a player did by down, field position,
+// clock and score. One table per role; RBs also get carries by run direction.
+const SITUATIONS_SQL = `
+  CROSS JOIN LATERAL (VALUES
+    ('All plays', 0, TRUE),
+    ('1st & 2nd down', 1, p.down <= 2),
+    ('3rd & 4th down', 2, p.down >= 3),
+    ('3rd & 7 or more', 3, p.down = 3 AND p.ydstogo >= 7),
+    ('Red zone', 4, p.yardline_100 <= 20),
+    ('Two-minute drill', 5, p.half_seconds_remaining <= 120),
+    ('Trailing', 6, p.score_differential < 0),
+    ('Tied or leading', 7, p.score_differential >= 0)
+  ) AS s(split, ord, included)`;
+const SITUATION_SUMS = `
+  COUNT(*)::INT AS plays, SUM(p.epa) AS epa, SUM(p.success) AS success,
+  SUM(COALESCE(p.yards_gained, 0))::FLOAT AS yards,
+  -- First down or touchdown, counted once per play.
+  SUM(CASE WHEN p.first_down = 1 OR p.pass_touchdown = 1 OR p.rush_touchdown = 1 THEN 1 ELSE 0 END)::FLOAT AS first_downs,
+  -- Offensive touchdowns only (a pick-six also sets the touchdown flag).
+  SUM(COALESCE(p.pass_touchdown, 0) + COALESCE(p.rush_touchdown, 0))::FLOAT AS touchdowns,
+  SUM(COALESCE(p.complete_pass, 0))::FLOAT AS completions,
+  SUM(CASE WHEN p.pass_attempt = 1 AND COALESCE(p.sack, 0) = 0 THEN 1 ELSE 0 END)::FLOAT AS attempts,
+  SUM(COALESCE(p.interception, 0))::FLOAT AS interceptions, SUM(COALESCE(p.sack, 0))::FLOAT AS sacks`;
+
+router.get('/players/:id/situations', handle(async (req, res) => {
+  const id = req.params.id;
+  const season = intParam(req.query.season, null);
+  if (!season) return res.status(400).json({ error: 'season is required' });
+  const where = `WHERE p.season = $2 AND p.season_type = 'REG' AND p.epa IS NOT NULL AND (p.pass = 1 OR p.rush = 1)
+                 AND COALESCE(p.two_point_attempt, 0) = 0 AND s.included`;
+  const [passing, rushing, receiving, directions] = await Promise.all([
+    query(`SELECT s.split, s.ord, ${SITUATION_SUMS} FROM pbp p ${SITUATIONS_SQL}
+           ${where} AND p.passer_player_id = $1 AND p.qb_dropback = 1
+           GROUP BY s.split, s.ord ORDER BY s.ord`, id, season),
+    query(`SELECT s.split, s.ord, ${SITUATION_SUMS} FROM pbp p ${SITUATIONS_SQL}
+           ${where} AND p.rusher_player_id = $1 AND p.rush_attempt = 1 AND COALESCE(p.qb_scramble, 0) = 0
+           GROUP BY s.split, s.ord ORDER BY s.ord`, id, season),
+    query(`SELECT s.split, s.ord, ${SITUATION_SUMS} FROM pbp p ${SITUATIONS_SQL}
+           ${where} AND p.receiver_player_id = $1 AND p.pass_attempt = 1 AND COALESCE(p.sack, 0) = 0
+           GROUP BY s.split, s.ord ORDER BY s.ord`, id, season),
+    query(`
+      SELECT CASE WHEN p.run_location = 'middle' THEN 'Up the middle'
+                  ELSE INITCAP(p.run_location) || ' ' || p.run_gap END AS split,
+             CASE p.run_location || '-' || COALESCE(p.run_gap, '')
+               WHEN 'left-end' THEN 1 WHEN 'left-tackle' THEN 2 WHEN 'left-guard' THEN 3 WHEN 'middle-' THEN 4
+               WHEN 'right-guard' THEN 5 WHEN 'right-tackle' THEN 6 WHEN 'right-end' THEN 7 END AS ord,
+             ${SITUATION_SUMS}
+      FROM pbp p
+      WHERE p.season = $2 AND p.season_type = 'REG' AND p.epa IS NOT NULL AND p.rush_attempt = 1
+        AND COALESCE(p.qb_scramble, 0) = 0 AND COALESCE(p.two_point_attempt, 0) = 0 AND p.rusher_player_id = $1
+        AND (p.run_location = 'middle' OR p.run_gap IS NOT NULL)
+      GROUP BY 1, 2 ORDER BY 2`, id, season),
+  ]);
+  res.json({ season, passing, rushing, receiving, directions });
 }));
 
 // ---------------------------------------------------------------------------------------------

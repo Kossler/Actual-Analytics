@@ -679,12 +679,97 @@ function Splits({ games, season, pc, shading, playerId, group }) {
         lead={{ header: 'Split', className: 'min-w-[180px]', render: (r) => <span className="font-semibold">{r.label}</span> }}
       />
       <p className="text-xs text-faint">Regular season only. Dome and outdoor splits use the stadium roof recorded for each game.</p>
+      {['QB', 'RB', 'WR', 'TE'].includes(group) && <SituationSplits playerId={playerId} season={season} group={group} />}
       {['QB', 'RB', 'WR', 'TE'].includes(group) && <ChartingSplits playerId={playerId} season={season} group={group} />}
     </div>
   );
 }
 
 const per = (a, b) => (b ? a / b : null);
+
+// Per-play columns for a situation table, by role.
+const SITUATION_COLUMNS = {
+  passing: [
+    { key: 'plays', short: 'DB', label: 'Dropbacks', format: 'int', value: (r) => r.plays },
+    { key: 'epa', short: 'EPA/PLAY', label: 'EPA per dropback', format: 'signed2', better: 'high', value: (r) => per(r.epa, r.plays) },
+    { key: 'success', short: 'SUCC%', label: 'Success rate', format: 'pct', value: (r) => per(r.success, r.plays) },
+    { key: 'cmp', short: 'CMP%', label: 'Completion %', format: 'pct', value: (r) => per(r.completions, r.attempts) },
+    { key: 'ypa', short: 'Y/A', label: 'Yards per attempt', format: 'dec1', value: (r) => per(r.yards, r.attempts) },
+    { key: 'fd', short: '1D%', label: 'First down or touchdown rate', format: 'pct', value: (r) => per(r.first_downs, r.plays) },
+    { key: 'td', short: 'TD', label: 'Touchdowns', format: 'int', value: (r) => r.touchdowns },
+    { key: 'int', short: 'INT', label: 'Interceptions', format: 'int', value: (r) => r.interceptions },
+    { key: 'sk', short: 'SK%', label: 'Sack rate', format: 'pct', value: (r) => per(r.sacks, r.plays) },
+  ],
+  rushing: [
+    { key: 'plays', short: 'CAR', label: 'Carries', format: 'int', value: (r) => r.plays },
+    { key: 'yards', short: 'YDS', label: 'Rushing yards', format: 'int', value: (r) => r.yards },
+    { key: 'ypc', short: 'Y/C', label: 'Yards per carry', format: 'dec1', value: (r) => per(r.yards, r.plays) },
+    { key: 'epa', short: 'EPA/CAR', label: 'EPA per carry', format: 'signed2', better: 'high', value: (r) => per(r.epa, r.plays) },
+    { key: 'success', short: 'SUCC%', label: 'Success rate', format: 'pct', value: (r) => per(r.success, r.plays) },
+    { key: 'fd', short: '1D%', label: 'First down or touchdown rate', format: 'pct', value: (r) => per(r.first_downs, r.plays) },
+    { key: 'td', short: 'TD', label: 'Touchdowns', format: 'int', value: (r) => r.touchdowns },
+  ],
+  receiving: [
+    { key: 'plays', short: 'TGT', label: 'Targets', format: 'int', value: (r) => r.plays },
+    { key: 'rec', short: 'REC', label: 'Receptions', format: 'int', value: (r) => r.completions },
+    { key: 'yards', short: 'YDS', label: 'Receiving yards', format: 'int', value: (r) => r.yards },
+    { key: 'ypt', short: 'Y/TGT', label: 'Yards per target', format: 'dec1', value: (r) => per(r.yards, r.plays) },
+    { key: 'epa', short: 'EPA/TGT', label: 'EPA per target', format: 'signed2', better: 'high', value: (r) => per(r.epa, r.plays) },
+    { key: 'success', short: 'SUCC%', label: 'Success rate', format: 'pct', value: (r) => per(r.success, r.plays) },
+    { key: 'fd', short: '1D%', label: 'First down or touchdown rate', format: 'pct', value: (r) => per(r.first_downs, r.plays) },
+    { key: 'td', short: 'TD', label: 'Touchdowns', format: 'int', value: (r) => r.touchdowns },
+  ],
+};
+const SITUATION_SHADING = { epa: { mean: 0, sd: 0.2 } };
+
+// Down, field position, clock and score splits from play-by-play (every season).
+function SituationSplits({ playerId, season, group }) {
+  const { data, loading } = useApi(`/api/players/${playerId}/situations?season=${season}`);
+  if (loading) return <p className="text-sm text-muted">Loading situational splits…</p>;
+  if (!data) return null;
+  const tables = (group === 'QB' ? [['passing', 'Passing'], ['rushing', 'Rushing']]
+    : group === 'RB' ? [['rushing', 'Rushing'], ['receiving', 'Receiving']]
+    : [['receiving', 'Receiving']]).filter(([role]) => data[role]?.length);
+  if (!tables.length) return null;
+  return (
+    <section className="space-y-3 pt-4">
+      <div>
+        <h2 className="font-sans text-lg font-bold">Situations</h2>
+        <p className="text-xs text-muted">By down, field position, clock and score, {season} regular season. Two-minute drill: last two minutes of either half.</p>
+      </div>
+      {tables.map(([role, title]) => (
+        <div key={role} className="space-y-1.5">
+          {tables.length > 1 && <div className="label">{title}</div>}
+          <DataTable
+            rows={data[role]}
+            rowKey={(r) => r.split}
+            lead={{ header: 'Situation', className: 'min-w-[170px]', render: (r) => <span className={r.ord === 0 ? 'font-semibold' : ''}>{r.split}</span> }}
+            columns={SITUATION_COLUMNS[role]}
+            shading={SITUATION_SHADING}
+            dense
+          />
+        </div>
+      ))}
+      {group === 'RB' && data.directions?.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="label">By run direction</div>
+          <DataTable
+            rows={data.directions}
+            rowKey={(r) => r.split}
+            lead={{ header: 'Direction', className: 'min-w-[170px]', render: (r) => r.split }}
+            columns={[
+              ...SITUATION_COLUMNS.rushing.slice(0, 1),
+              { key: 'share', short: 'SHARE', label: 'Share of carries', format: 'pct', value: (r) => per(r.plays, data.directions.reduce((t, d) => t + d.plays, 0)) },
+              ...SITUATION_COLUMNS.rushing.slice(2),
+            ]}
+            shading={SITUATION_SHADING}
+            dense
+          />
+        </div>
+      )}
+    </section>
+  );
+}
 
 function ChartingSplits({ playerId, season, group }) {
   const { data, loading } = useApi(`/api/players/${playerId}/charting?season=${season}`);
@@ -761,27 +846,36 @@ function ChartStat({ label, value, sub }) {
   );
 }
 
+// One table per section (efficiency, impact, tracking) keeps each readable instead of one very
+// wide table.
 function Advanced({ games, ngs, pc, group }) {
   const seasons = seasonsOf(games);
   const ngsSeasons = ngsBySeason(ngs);
   const rows = seasons.map((s) => ({ season: s, ...aggregate(seasonGames(games, s)), ngs: ngsSeasons.get(s) || {} }));
-  const columns = [
-    ...flattenColumns([{ group: 'Play-by-play', columns: pc.advanced || [] }]),
-    ...(pc.ngs || []).map((n) => ({ key: `ngs_${n.key}`, short: n.label, label: n.label, group: 'Next Gen Stats', format: n.format, value: (r) => r.ngs?.[n.key] ?? null, description: METRICS[n.key]?.description })),
-  ];
-  if (!columns.length) return <EmptyState title="No advanced metrics for this position yet" />;
+  const ngsColumns = (pc.ngs || []).map((n) => ({ key: `ngs_${n.key}`, short: n.label, label: n.label, format: n.format, value: (r) => r.ngs?.[n.key] ?? null, description: METRICS[n.key]?.description }));
+  const sections = [
+    { title: 'Efficiency', subtitle: 'Play-by-play rates from nflverse.', columns: flattenColumns([{ group: undefined, columns: pc.advanced || [] }]) },
+    { title: 'Impact & big plays', subtitle: 'Win probability added, explosive plays, risk and scoring-area usage.', columns: flattenColumns([{ group: undefined, columns: pc.impact || [] }]) },
+    { title: 'Next Gen Stats', subtitle: 'NFL player tracking, published from 2016 for players above the NFL’s volume threshold.', columns: ngsColumns },
+  ].filter((s) => s.columns.length);
+  if (!sections.length) return <EmptyState title="No advanced metrics for this position yet" />;
   return (
-    <div className="space-y-3">
-      <h2 className="font-sans text-lg font-bold">Advanced metrics by season</h2>
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(r) => r.season}
-        lead={{ header: 'Season', render: (r) => <span className="font-semibold">{r.season}</span> }}
-      />
-      <p className="text-xs text-faint">
-        Play-by-play metrics come from nflverse; Next Gen Stats from the NFL's player tracking{group === 'QB' || group === 'RB' || group === 'WR' || group === 'TE' ? ' (published from 2016, for players above the NFL’s volume threshold)' : ''}.
-      </p>
+    <div className="space-y-6">
+      {sections.map((section) => (
+        <section key={section.title} className="space-y-2">
+          <div>
+            <h2 className="font-sans text-lg font-bold">{section.title}</h2>
+            <p className="text-xs text-muted">{section.subtitle}</p>
+          </div>
+          <DataTable
+            columns={section.columns.map((c) => ({ ...c, group: undefined }))}
+            rows={rows}
+            rowKey={(r) => r.season}
+            lead={{ header: 'Season', render: (r) => <span className="font-semibold">{r.season}</span> }}
+          />
+        </section>
+      ))}
+      <p className="text-xs text-faint">Regular season only · hover a column header for its definition.</p>
     </div>
   );
 }

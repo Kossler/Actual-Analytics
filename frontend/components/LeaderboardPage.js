@@ -61,6 +61,8 @@ export default function LeaderboardPage({ meta, board }) {
     setSelected([]);
     setCustomColumns(readStorage(`sla:columns:${pos}`, null));
     if (columnSet === 'Custom' && !readStorage(`sla:columns:${pos}`, null)) setColumnSet('Standard');
+    // Not every position has every set (defenders have no Impact set).
+    if (columnSet !== 'Custom' && !POSITIONS[pos].columnSets[columnSet]) setColumnSet('Standard');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pos, weeks]);
 
@@ -188,7 +190,7 @@ export default function LeaderboardPage({ meta, board }) {
         <div className="relative flex flex-col gap-1.5">
           <span className="text-xs text-muted">Column set</span>
           <ButtonGroup
-            options={['Standard', 'Efficiency', 'Advanced', { value: 'Custom', label: 'Custom…' }]}
+            options={[...Object.keys(config.columnSets), { value: 'Custom', label: 'Custom…' }]}
             value={columnSet}
             onChange={(v) => {
               if (v === 'Custom') setShowCustom((s) => !s);
