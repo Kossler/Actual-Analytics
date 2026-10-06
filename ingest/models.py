@@ -22,11 +22,12 @@ import json
 import math
 import os
 from collections import defaultdict
+from datetime import date, timedelta
 
 import numpy as np
 from psycopg2.extras import execute_values
 
-MODEL_VERSION = 'epa-qb-v2'
+MODEL_VERSION = 'epa-qb-v3'
 FIRST_SEASON = 2006        # first season the game model is trained and scored on
 WARMUP_SEASON = 1999       # ratings start here so 2006 has history behind it
 HOLDOUT_FIRST = 2022       # seasons from here on are reported as an out-of-sample test
@@ -57,6 +58,11 @@ WIN_FEATURES = ['hfa_recent', 'mar_diff', 'qb_change', 'sdef_diff', 'soff_diff',
 # Total points: linear regression.
 TOTAL_FEATURES = ['one', 'lg_total', 'off_sum', 'def_sum', 'pts_sum', 'wind', 'cold', 'dome', 'qb_sum']
 RATING_KEYS = ['off', 'def', 'mar', 'soff', 'sdef', 'pts_for', 'pts_against']
+
+# Games this close use the depth chart's QB1 when nflverse hasn't listed a starter. On 2025's dated
+# depth charts it beat the team's usual QB play up to six weeks before kickoff (Brier 0.2214 a week
+# out, 0.2234 at six weeks, vs 0.2245) and was worse further out, when injured starters return.
+DEPTH_QB_HORIZON_DAYS = 42
 
 SIMULATIONS = 10000
 TEAM_SHOCK_SD = 3.0  # uncertainty in a team's true strength, in points per game
@@ -133,6 +139,22 @@ def load_games(cur):
             'completed': hs is not None and as_ is not None,
         })
     return games
+
+
+def load_depth_qbs(cur):
+    """{team: gsis_id} of each team's QB1 on the current depth chart (the depth_chart view)."""
+    try:
+        cur.execute("""
+            SELECT DISTINCT ON (team) team, gsis_id FROM depth_chart
+            WHERE pos_abb = 'QB' AND pos_rank = 1 AND gsis_id IS NOT NULL
+            ORDER BY team, source DESC
+        """)
+        return {canon(team): gsis for team, gsis in cur.fetchall()}
+    except Exception as e:  # view missing on an old schema
+        print(f"Models: depth charts unavailable ({e}); unlisted starters use the team's usual QB play")
+        if not cur.connection.autocommit:
+            cur.connection.rollback()
+        return {}
 
 
 def load_team_games(cur):
@@ -270,7 +292,7 @@ def build_features(games, team_games, qb_games, injury_impact, P=PARAMS):
         ar = {k: v.value(pw) for k, v in as_['ratings'].items()}
         h_level = team_qb_level[home].value(3.0) if home in team_qb_level else qb_prior
         a_level = team_qb_level[away].value(3.0) if away in team_qb_level else qb_prior
-        # Without a listed starter (games more than a week out), assume the usual QB play continues.
+        # Without a starter (listed, or QB1 on the depth chart), assume the usual QB play continues.
         hq = qb_rating(g['home_qb']) if g['home_qb'] else h_level
         aq = qb_rating(g['away_qb']) if g['away_qb'] else a_level
         h_out = injury_impact.get((g['season'], g['week'], home), 0.0)
@@ -518,7 +540,7 @@ def simulate_season(cur, games, predictions, model, season, rng):
 
 PROJECTION_STATS = {
     'QB': ['attempts', 'completions', 'passing_yards', 'passing_tds', 'passing_interceptions',
-           'carries', 'rushing_yards', 'rushing_tds'],
+           'sacks_suffered', 'carries', 'rushing_yards', 'rushing_tds'],
     'RB': ['carries', 'rushing_yards', 'rushing_tds', 'targets', 'receptions', 'receiving_yards',
            'receiving_tds'],
     'WR': ['targets', 'receptions', 'receiving_yards', 'receiving_tds'],
@@ -536,7 +558,25 @@ USAGE_FLOOR = {'QB': ('attempts', 15.0), 'RB': ('touches', 5.0), 'WR': ('targets
 # earlier adjustment from a defense's overall EPA allowed made projections worse and was removed.
 RECENCY = 0.88
 LAST_SEASON_WEIGHT = 0.3
-OPPONENT_STATS = ('passing_yards', 'rushing_yards', 'receiving_yards', 'receptions')
+# Stats adjusted for what the opponent allowed to the position. Each was kept only where it lowered
+# squared error both when tuned (2013-2021) and on 2022-2025: QB rushing yards got worse adjusted;
+# receiving TDs and targets showed no consistent gain. An adjustment for the opponent's sack or
+# pressure rate added nothing to this, nor did starting offensive linemen ruled out.
+OPPONENT_STATS = {
+    'QB': ('passing_yards', 'completions', 'passing_tds', 'passing_interceptions', 'rushing_tds',
+           'sacks_suffered'),
+    'RB': ('rushing_yards', 'receiving_yards', 'receptions', 'carries', 'rushing_tds', 'receiving_tds'),
+    'WR': ('receiving_yards', 'receptions'),
+    'TE': ('receiving_yards', 'receptions'),
+}
+# A player ruled out leaves carries behind: CARRY_SHARE of what he'd have had (scaled by how much he's
+# been playing, so a long absence isn't counted twice) goes to the team's other projected players,
+# SAME_POSITION_WEIGHT times as much to his position. On 2022-2025, for teams with a player out,
+# running backs' carry error fell 7% and rushing-yard error 3%. Moving targets the same way didn't
+# help: they spread to players too minor to project.
+CARRY_SHARE = 0.5
+SAME_POSITION_WEIGHT = 3.0
+CARRY_STATS = ('carries', 'rushing_yards', 'rushing_tds')
 OPPONENT_SHRINK = 4.0   # games of league-average defense mixed into each defense's record
 OPPONENT_POWER = 0.5    # dampens the adjustment (1.0 would apply it in full)
 Z90 = 1.2816
@@ -552,21 +592,27 @@ def poisson_quantile(mean, q):
         p *= mean / k
 
 
-def project_player(history, position, season, adjust):
-    """history: per-game stat dicts, most recent first. Returns {stat: (mean, sd)}.
-
-    sd is None for count stats (TDs, INTs), whose ranges come from a Poisson distribution.
-    adjust: {stat: multiplier} for the opponent's defense.
-    """
-    weights = np.array([
+def history_weights(history, season):
+    return np.array([
         (RECENCY ** i) * (1.0 if h['season'] == season else LAST_SEASON_WEIGHT)
         for i, h in enumerate(history)
     ])
+
+
+def project_player(history, position, season, adjust, carry_ratio=1.0):
+    """history: per-game stat dicts, most recent first. Returns {stat: (mean, sd)}.
+
+    sd is None for count stats (TDs, INTs), whose ranges come from a Poisson distribution.
+    adjust: {stat: multiplier} for the opponent's defense. carry_ratio scales the rushing stats
+    for carries left by teammates ruled out (carry_ratios).
+    """
+    weights = history_weights(history, season)
     n_eff = weights.sum()
     out = {}
     for stat in PROJECTION_STATS[position]:
         values = np.array([h.get(stat) or 0.0 for h in history], dtype=float)
-        mean = float(np.dot(weights, values) / n_eff) * adjust.get(stat, 1.0)
+        scale = adjust.get(stat, 1.0) * (carry_ratio if stat in CARRY_STATS else 1.0)
+        mean = float(np.dot(weights, values) / n_eff) * scale
         if stat in COUNT_STATS:
             out[stat] = (mean, None)
             continue
@@ -574,6 +620,50 @@ def project_player(history, position, season, adjust):
         prior_sd = STAT_CV.get(stat, 0.5) * mean
         out[stat] = (mean, math.sqrt((n_eff * variance + 4.0 * prior_sd ** 2) / (n_eff + 4.0)))
     return out
+
+
+def carry_ratios(histories, team_weeks, season, week, out_ids):
+    """{player_id: multiplier on carries, rushing yards and rushing TDs} for one week.
+
+    histories: {player_id: games before the week, latest first}. team_weeks: {(season, team): weeks
+    played}. out_ids: players ruled out. Players are grouped by their latest team, as projected.
+    """
+    teams = defaultdict(list)
+    for pid, history in histories.items():
+        if history and history[0]['season'] == season and history[0]['position'] in PROJECTION_STATS:
+            teams[history[0]['team']].append(pid)
+    ratios = {}
+    for team, members in teams.items():
+        if not any(pid in out_ids for pid in members):
+            continue
+        played = sorted((w for w in team_weeks.get((season, team), ()) if w < week), reverse=True)
+        recency = [RECENCY ** i for i in range(len(played))]
+        carries, presence, position, active = {}, {}, {}, []
+        for pid in members:
+            history = histories[pid]
+            weights = history_weights(history, season)
+            carries[pid] = float(np.dot(weights, [h.get('carries') or 0.0 for h in history]) / weights.sum())
+            mine = {h['week'] for h in history if h['season'] == season and h['team'] == team}
+            presence[pid] = sum(r for r, w in zip(recency, played) if w in mine) / sum(recency) if played else 1.0
+            position[pid] = history[0]['position']
+            if (pid not in out_ids and len(history) >= 2 and position[pid] != 'QB'
+                    and usage(history, position[pid], season)):
+                active.append(pid)
+        extra = defaultdict(float)
+        for src in members:
+            if src not in out_ids or position[src] == 'QB' or not carries[src]:
+                continue
+            shares = {p: carries[p] * (SAME_POSITION_WEIGHT if position[p] == position[src] else 1.0)
+                      for p in active}
+            total = sum(shares.values())
+            if total <= 0:
+                continue
+            for p, share in shares.items():
+                extra[p] += CARRY_SHARE * carries[src] * presence[src] * share / total
+        for pid in active:
+            if carries[pid] >= 0.5 and extra[pid]:
+                ratios[pid] = max(0.5, min(2.0, (carries[pid] + extra[pid]) / carries[pid]))
+    return ratios
 
 
 def interval(mean, sd, scale):
@@ -622,7 +712,7 @@ def defense_allowed(by_player):
         for r in rows:
             if r['position'] in PROJECTION_STATS and r['opponent']:
                 bucket = allowed[(r['season'], r['opponent'], r['week'])]
-                for stat in OPPONENT_STATS:
+                for stat in OPPONENT_STATS.get(r['position'], ()):
                     bucket[(r['position'], stat)] += r.get(stat) or 0.0
     return allowed
 
@@ -650,7 +740,7 @@ def position_factors(allowed, season, before_week):
 
 
 def opponent_adjustment(factors, opponent, position):
-    return {stat: factors.get((opponent, position, stat), 1.0) for stat in OPPONENT_STATS}
+    return {stat: factors.get((opponent, position, stat), 1.0) for stat in OPPONENT_STATS.get(position, ())}
 
 
 # Depth-chart filters for the upcoming week: quarterbacks must be QB1; others must be listed within
@@ -697,10 +787,36 @@ def load_availability(cur, season, week):
     return status, depth, teams_with_depth
 
 
+def load_outs(cur, seasons):
+    """{(season, week): {gsis_id}} of players listed Out, for the backtest."""
+    try:
+        cur.execute(
+            """
+            SELECT DISTINCT season::INT, week::INT, gsis_id FROM injuries
+            WHERE report_status = 'Out' AND game_type = 'REG' AND gsis_id IS NOT NULL AND season = ANY(%s)
+            """,
+            (list(seasons),),
+        )
+    except Exception as e:  # table missing on an old schema: no carries move
+        print(f"Models: injuries unavailable ({e})")
+        if not cur.connection.autocommit:
+            cur.connection.rollback()
+        return {}
+    outs = defaultdict(set)
+    for s, w, gsis in cur.fetchall():
+        outs[(s, w)].add(gsis)
+    return outs
+
+
 def build_projections(cur, games, season):
     """Projections for the next unplayed week, plus a backtest over completed weeks."""
     by_player = load_player_games(cur, (season - 1, season))
     allowed = defense_allowed(by_player)
+    outs = load_outs(cur, (season - 1, season))
+    team_weeks = defaultdict(set)
+    for rows in by_player.values():
+        for r in rows:
+            team_weeks[(r['season'], r['team'])].add(r['week'])
 
     def history_before(rows, s, week):
         return [r for r in reversed(rows) if (r['season'], r['week']) < (s, week)]
@@ -713,15 +829,18 @@ def build_projections(cur, games, season):
             if week < 3:
                 continue
             factors = position_factors(allowed, s, week)
-            for rows in by_player.values():
+            histories = {pid: history_before(rows, s, week) for pid, rows in by_player.items()}
+            ratios = carry_ratios(histories, team_weeks, s, week, outs.get((s, week), set()))
+            for pid, rows in by_player.items():
                 actual = next((r for r in rows if r['season'] == s and r['week'] == week), None)
                 if actual is None or actual['position'] not in PROJECTION_STATS:
                     continue
-                history = history_before(rows, s, week)
+                history = histories[pid]
                 if len(history) < 2 or not usage(history, actual['position'], s):
                     continue
                 proj = project_player(history, actual['position'], s,
-                                      opponent_adjustment(factors, actual['opponent'], actual['position']))
+                                      opponent_adjustment(factors, actual['opponent'], actual['position']),
+                                      ratios.get(pid, 1.0))
                 for stat, (mean, sd) in proj.items():
                     samples[stat].append((s, mean, sd, actual.get(stat) or 0.0))
 
@@ -755,11 +874,14 @@ def build_projections(cur, games, season):
         matchup[g['away']] = (g['home'], False, g['game_id'])
     factors = position_factors(allowed, season, week)
     injury_status, depth, teams_with_depth = load_availability(cur, season, week)
+    histories = {pid: history_before(rows, season, week) for pid, rows in by_player.items()}
+    ratios = carry_ratios(histories, team_weeks, season, week,
+                          {pid for pid, status in injury_status.items() if status == 'Out'})
 
     rows_out = []
     skipped = defaultdict(int)
     for player_id, rows in by_player.items():
-        history = history_before(rows, season, week)
+        history = histories[player_id]
         if len(history) < 2:
             continue
         latest = history[0]
@@ -767,7 +889,8 @@ def build_projections(cur, games, season):
         if position not in PROJECTION_STATS or team not in matchup or not usage(history, position, season):
             continue
         opponent, home, game_id = matchup[team]
-        proj = project_player(history, position, season, opponent_adjustment(factors, opponent, position))
+        proj = project_player(history, position, season, opponent_adjustment(factors, opponent, position),
+                              ratios.get(player_id, 1.0))
         stats_json = {}
         for stat, (mean, sd) in proj.items():
             low, high = interval(mean, sd, scales.get(stat, 1.0))
@@ -798,6 +921,13 @@ def run(conn):
     if not games:
         print("Models: no games found; skipping")
         return
+    # nflverse lists starters about a week ahead; until then, the depth chart's QB1.
+    depth_qbs = load_depth_qbs(cur)
+    horizon = str(date.today() + timedelta(days=DEPTH_QB_HORIZON_DAYS))
+    for g in games:
+        if not g['completed'] and g['gameday'] and str(g['gameday']) <= horizon:
+            g['home_qb'] = g['home_qb'] or depth_qbs.get(canon(g['home']))
+            g['away_qb'] = g['away_qb'] or depth_qbs.get(canon(g['away']))
     features, team_states = build_features(
         games, load_team_games(cur), load_qb_games(cur), load_injury_impact(cur))
     current_season = max(g['season'] for g in games)

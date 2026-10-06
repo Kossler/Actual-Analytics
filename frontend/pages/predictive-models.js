@@ -140,14 +140,16 @@ function WinProbability({ data, teamColors }) {
             </p>
             <p>
               Quarterbacks matter most, so each one has their own rating from EPA per dropback across their career. When a team’s
-              listed starter is better or worse than the quarterback play it has been getting (an injury, a benching, a return),
-              the forecast moves accordingly. The model also counts the snap share of players ruled out on the injury report, and
+              starter is better or worse than the quarterback play it has been getting (an injury, a benching, a return), the
+              forecast moves accordingly. The starter is the one nflverse lists, about a week ahead; before that, the QB1 on the
+              team’s depth chart for games up to six weeks away, which forecast better than assuming nothing changes. The model also counts the snap share of players ruled out on the injury report, and
               estimates home-field advantage from recent seasons rather than assuming a fixed edge (it has shrunk).
             </p>
             <p>
               Offensive linemen count through the injury report like everyone else, and a line&apos;s quality is already part of
-              the team&apos;s EPA and success-rate ratings. Separate line features (starting linemen ruled out, a pass-protection
-              matchup) were tested and didn&apos;t improve the forecasts, so they aren&apos;t used.
+              the team&apos;s EPA and success-rate ratings. Separate line features (starting linemen ruled out, pass protection
+              and run blocking against the opponent&apos;s front, for the winner and for total points) were tested and didn&apos;t
+              improve the forecasts, so they aren&apos;t used.
             </p>
             <p>
               A logistic regression turns those differences into a win probability; the projected margin is the margin that
@@ -251,7 +253,7 @@ function WinProbability({ data, teamColors }) {
 const PROJ_STATS = {
   QB: [
     ['passing_yards', 'Pass yds'], ['passing_tds', 'Pass TD'], ['passing_interceptions', 'INT'],
-    ['completions', 'Cmp'], ['attempts', 'Att'], ['rushing_yards', 'Rush yds'],
+    ['completions', 'Cmp'], ['attempts', 'Att'], ['sacks_suffered', 'Sacks'], ['rushing_yards', 'Rush yds'],
   ],
   RB: [['rushing_yards', 'Rush yds'], ['carries', 'Carries'], ['rushing_tds', 'Rush TD'], ['receptions', 'Rec'], ['receiving_yards', 'Rec yds']],
   WR: [['receiving_yards', 'Rec yds'], ['receptions', 'Rec'], ['targets', 'Targets'], ['receiving_tds', 'Rec TD']],
@@ -330,10 +332,15 @@ function Projections() {
         <div className="space-y-2 text-sm text-muted">
           <p>
             Each player’s recent games are averaged with more weight on the latest ones (last season counts less), then adjusted for
-            the opponent’s EPA allowed per pass or run so far this season. Players listed Out on the injury report, or not on
+            what the opponent has allowed to that position so far this season. Players listed Out on the injury report, or not on
             their team’s current depth chart (quarterbacks must be QB1), are left off; Q and D mark questionable and doubtful.
-            A player’s recent games already reflect his own offensive line; starting linemen ruled out that week were tested as an
-            adjustment and didn’t make projections more accurate.
+            When a teammate is ruled out, part of the carries he would have had go to the team’s other ball carriers, most to his
+            own position.
+          </p>
+          <p>
+            Every adjustment was kept only if it made projections more accurate on seasons it wasn’t tuned on. Some weren’t:
+            moving an absent receiver’s targets to his teammates (they spread to players too minor to project), the opponent’s
+            sack or pressure rate, and starting offensive linemen ruled out. A player’s recent games already reflect his own line.
           </p>
           <p>
             Ranges come from the player’s game-to-game variation, widened or narrowed so that last season roughly 80% of outcomes
