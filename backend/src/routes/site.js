@@ -45,6 +45,16 @@ async function currentSeasonAndWeek() {
   return row || { season: null, week: 0 };
 }
 
+// The week the win probability model is forecasting: the earliest with a predicted game not yet
+// played. It moves on once the last game of a week is final. The games page opens on it too.
+async function forecastWeek(season) {
+  const [row] = await query(`
+    SELECT MIN(s.week)::INT AS week
+    FROM schedules s JOIN game_predictions gp ON gp.game_id = s.game_id
+    WHERE s.season = $1 AND s.home_score IS NULL`, season);
+  return row?.week ?? null;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Meta & search
 // ---------------------------------------------------------------------------------------------
@@ -808,13 +818,17 @@ router.get('/teams/:abbr', handle(async (req, res) => {
 router.get('/games', handle(async (req, res) => {
   const current = await currentSeasonAndWeek();
   const season = intParam(req.query.season, current.season);
-  const weeks = await query(`
-    SELECT week::INT AS week, MIN(game_type) AS game_type,
-           COUNT(*)::INT AS games, COUNT(result)::INT AS completed
-    FROM schedules WHERE season = $1 GROUP BY week ORDER BY week`, season);
-  // Default to the latest week with a completed game, or the first week of the season.
+  const [weeks, nextWeek] = await Promise.all([
+    query(`
+      SELECT week::INT AS week, MIN(game_type) AS game_type,
+             COUNT(*)::INT AS games, COUNT(result)::INT AS completed
+      FROM schedules WHERE season = $1 GROUP BY week ORDER BY week`, season),
+    forecastWeek(season),
+  ]);
+  // Default to the week the win probability model is forecasting, so both pages turn over
+  // together; without one (season over), the latest week with a completed game, or week one.
   const latestPlayed = [...weeks].reverse().find((w) => w.completed > 0);
-  const week = intParam(req.query.week, latestPlayed ? latestPlayed.week : weeks[0]?.week || 1);
+  const week = intParam(req.query.week, nextWeek ?? (latestPlayed ? latestPlayed.week : weeks[0]?.week || 1));
   const games = await query(`
     SELECT s.game_id, s.week::INT AS week, s.game_type, s.gameday, s.gametime, s.home_team, s.away_team,
            s.home_score::FLOAT AS home_score, s.away_score::FLOAT AS away_score, s.location,
@@ -924,7 +938,7 @@ function calibrationBins(rows) {
 router.get('/models/win-probability', handle(async (req, res) => {
   const current = await currentSeasonAndWeek();
   const season = intParam(req.query.season, current.season);
-  const [games, [run]] = await Promise.all([
+  const [games, [run], nextWeek] = await Promise.all([
     query(`
       SELECT s.game_id, s.week::INT AS week, s.game_type, s.gameday, s.home_team, s.away_team,
              s.home_score::FLOAT AS home_score, s.away_score::FLOAT AS away_score,
@@ -933,6 +947,7 @@ router.get('/models/win-probability', handle(async (req, res) => {
       WHERE s.season = $1
       ORDER BY s.week, s.gameday, s.gametime, s.game_id`, season),
     query(`SELECT metrics, created_at FROM model_runs WHERE model = 'game' ORDER BY id DESC LIMIT 1`),
+    forecastWeek(season),
   ]);
   const completed = games.filter((g) => g.home_score != null && g.home_score !== g.away_score);
   const scored = completed.map((g) => {
@@ -947,12 +962,10 @@ router.get('/models/win-probability', handle(async (req, res) => {
     };
   });
   const mean = (key) => (scored.length ? scored.reduce((s, r) => s + r[key], 0) / scored.length : null);
-  const upcoming = games.filter((g) => g.home_score == null);
-  const nextWeek = upcoming.length ? upcoming[0].week : null;
   res.json({
     season,
     week: nextWeek,
-    upcoming: upcoming.filter((g) => g.week === nextWeek),
+    upcoming: games.filter((g) => g.home_score == null && g.week === nextWeek),
     performance: {
       games: scored.length,
       correct: scored.filter((r) => r.correct).length,

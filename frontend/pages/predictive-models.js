@@ -5,10 +5,11 @@ import { useMemo, useState } from 'react';
 import CalibrationChart from '../components/charts/CalibrationChart';
 import ScatterPlot from '../components/charts/ScatterPlot';
 import DataTable, { sortRows } from '../components/DataTable';
-import { Card, EmptyState, Field, PageHeader, Segmented, Select, Tabs } from '../components/ui';
+import { Card, EmptyState, Field, PageHeader, ProbabilityBar, Segmented, Select, Tabs } from '../components/ui';
 import { loadProps, useApi } from '../lib/api';
 import { fixed, int, pctLabel, signed, weekLabel } from '../lib/format';
 import { TEAM_METRICS } from '../lib/metrics';
+import { matchupColors } from '../lib/teams';
 
 export const runtime = 'experimental-edge';
 
@@ -21,12 +22,16 @@ const TABS = [
 
 export async function getServerSideProps({ query }) {
   const tab = TABS.some((t) => t.value === query.tab) ? query.tab : 'win';
-  const props = await loadProps({ win: tab === 'win' ? '/api/models/win-probability' : null });
-  if (props.props) props.props.tab = tab;
-  return props;
+  const win = tab === 'win';
+  const props = await loadProps({ win: win ? '/api/models/win-probability' : null, meta: win ? '/api/meta' : null });
+  if (!props.props) return props;
+  // Only the colours are needed from the team list.
+  const { meta, ...rest } = props.props;
+  const teamColors = meta ? Object.fromEntries(meta.teams.map((t) => [t.abbr, { color: t.color, color2: t.color2 }])) : null;
+  return { props: { ...rest, tab, teamColors } };
 }
 
-export default function PredictiveModels({ tab, win }) {
+export default function PredictiveModels({ tab, win, teamColors }) {
   const router = useRouter();
   const setTab = (t) => router.push({ pathname: '/predictive-models', query: t === 'win' ? {} : { tab: t } }, undefined, { scroll: false });
   const winTab = TABS[0];
@@ -45,7 +50,7 @@ export default function PredictiveModels({ tab, win }) {
       <div className="mb-5">
         <Tabs tabs={tabs} value={tab} onChange={setTab} />
       </div>
-      {tab === 'win' && <WinProbability data={win} />}
+      {tab === 'win' && <WinProbability data={win} teamColors={teamColors} />}
       {tab === 'projections' && <Projections />}
       {tab === 'awards' && <Awards />}
       {tab === 'lab' && <RegressionLab />}
@@ -57,7 +62,9 @@ export default function PredictiveModels({ tab, win }) {
 // Win probability
 // ------------------------------------------------------------------------------------------------
 
-function WinProbability({ data }) {
+const TeamDot = ({ color }) => <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />;
+
+function WinProbability({ data, teamColors }) {
   const perf = data.performance;
   const v = data.validation;
   const holdout = v?.holdout;
@@ -85,23 +92,27 @@ function WinProbability({ data }) {
                   {data.upcoming.map((g) => {
                     const homeFav = g.home_wp >= 0.5;
                     const fav = homeFav ? g.home_team : g.away_team;
+                    const colors = matchupColors(teamColors?.[g.away_team], teamColors?.[g.home_team]);
                     return (
                       <tr key={g.game_id} className="border-b border-line/70 last:border-0">
                         <td className={`px-5 py-3.5 text-[15px] ${homeFav ? 'text-muted' : 'font-bold'}`}>
-                          <Link href={`/teams/${g.away_team}`} className="hover:underline">{g.away_team}</Link>
+                          <Link href={`/teams/${g.away_team}`} className="inline-flex items-center gap-2 hover:underline">
+                            <TeamDot color={colors.away} />
+                            {g.away_team}
+                          </Link>
                         </td>
                         <td className="px-3 py-3.5">
                           <div className="flex items-center gap-3">
-                            <span className="num w-9 text-right text-xs text-bad">{pctLabel(1 - g.home_wp)}</span>
-                            <div className="flex h-2 flex-1 overflow-hidden rounded-full">
-                              <div className="bg-bad-fill" style={{ width: `${(1 - g.home_wp) * 100}%` }} />
-                              <div className="flex-1 bg-good-fill" />
-                            </div>
-                            <span className="num w-9 text-xs text-good">{pctLabel(g.home_wp)}</span>
+                            <span className={`num w-9 text-right text-xs ${homeFav ? 'text-muted' : 'font-semibold text-ink'}`}>{pctLabel(1 - g.home_wp)}</span>
+                            <ProbabilityBar left={1 - g.home_wp} leftColor={colors.away} rightColor={colors.home} className="flex-1" />
+                            <span className={`num w-9 text-xs ${homeFav ? 'font-semibold text-ink' : 'text-muted'}`}>{pctLabel(g.home_wp)}</span>
                           </div>
                         </td>
                         <td className={`px-3 py-3.5 text-[15px] ${homeFav ? 'font-bold' : 'text-muted'}`}>
-                          <Link href={`/teams/${g.home_team}`} className="hover:underline">{g.home_team}</Link>
+                          <Link href={`/teams/${g.home_team}`} className="inline-flex items-center gap-2 hover:underline">
+                            <TeamDot color={colors.home} />
+                            {g.home_team}
+                          </Link>
                         </td>
                         <td className="num px-3 py-3.5 text-right text-muted">
                           {Math.round(g.away_proj)}–{Math.round(g.home_proj)}
