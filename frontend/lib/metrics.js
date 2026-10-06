@@ -59,7 +59,8 @@ export const METRICS = {
   ypa: { label: 'Yards per attempt', short: 'Y/A', card: 'Yards / attempt', format: 'dec2', group: 'Passing', better: 'high', value: (r) => div(n(r.passing_yards), r.attempts), description: 'Passing yards divided by attempts.' },
   anya: {
     label: 'Adjusted net yards per attempt', short: 'ANY/A', axis: 'ANY/A', format: 'dec2', group: 'Passing', better: 'high', shade: true,
-    value: (r) => div(n(r.passing_yards) + 20 * n(r.passing_tds) - 45 * n(r.interceptions) - n(r.sack_yards), n(r.attempts) + n(r.sacks)),
+    // nflverse stores sack_yards_lost as a negative number; subtract its size either way.
+    value: (r) => div(n(r.passing_yards) + 20 * n(r.passing_tds) - 45 * n(r.interceptions) - Math.abs(n(r.sack_yards)), n(r.attempts) + n(r.sacks)),
     description: '(Passing yards + 20 × TD − 45 × INT − sack yards) ÷ (attempts + sacks). Rewards touchdowns, punishes interceptions and sacks.',
   },
   td_rate: { label: 'Touchdown rate', short: 'TD%', format: 'pct', group: 'Passing', better: 'high', value: (r) => div(n(r.passing_tds), r.attempts), description: 'Touchdown passes per attempt.' },
