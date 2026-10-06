@@ -361,7 +361,10 @@ function Projections() {
 // Regression lab
 // ------------------------------------------------------------------------------------------------
 
-const LAB_X = ['net_epa', 'off_epa', 'def_epa', 'pass_off_epa', 'rush_off_epa', 'pass_def_epa', 'rush_def_epa', 'off_success', 'turnover_diff', 'point_diff', 'win_pct'];
+const LAB_X = [
+  'net_epa', 'off_epa', 'def_epa', 'pass_off_epa', 'rush_off_epa', 'pass_def_epa', 'rush_def_epa', 'off_success',
+  'anya_net', 'anya_off', 'anya_def', 'turnover_diff', 'point_diff', 'win_pct',
+];
 const LAB_Y = [
   { value: 'point_diff', label: 'Point diff per game, wk 10+' },
   { value: 'win_pct', label: 'Win %, wk 10+' },
@@ -383,6 +386,15 @@ function regression(points) {
   const slope = sxy / sxx;
   const r = sxy / Math.sqrt(sxx * syy);
   return { n, slope, intercept: my - slope * mx, r, r2: r * r };
+}
+
+// How a first-half stat is formatted, and the step its slope is quoted per.
+function xScale(key) {
+  if (key.startsWith('anya')) return { format: key === 'anya_net' ? 'signed2' : 'dec2', step: 1, hint: 'per +1 ANY/A' };
+  if (key === 'off_success' || key === 'win_pct') return { format: 'pct0', step: 0.05, hint: 'per +5 points' };
+  if (key === 'point_diff') return { format: 'signed1', step: 1, hint: 'per +1 point/game' };
+  if (key === 'turnover_diff') return { format: 'signed2', step: 1, hint: 'per +1 turnover/game' };
+  return { format: 'signed2', step: 0.1, hint: 'per +0.10 EPA/play' };
 }
 
 function xLabel(key) {
@@ -410,7 +422,7 @@ function RegressionLab() {
   const fit = regression(points);
   const seasons = [...new Set(data.rows.map((r) => r.season))].sort((a, b) => a - b);
   const yFormat = y === 'win_pct' ? 'pct0' : 'signed1';
-  const xFormat = x === 'off_success' || x === 'win_pct' ? 'pct0' : x === 'point_diff' ? 'signed1' : 'signed2';
+  const scale = xScale(x);
   const best = ranking[0];
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
@@ -435,7 +447,7 @@ function RegressionLab() {
           points={points}
           xLabel={xLabel(x)}
           yLabel={LAB_Y.find((o) => o.value === y).label}
-          xFormat={xFormat}
+          xFormat={scale.format}
           yFormat={yFormat}
           invertY={false}
           fitLine={fit}
@@ -448,8 +460,8 @@ function RegressionLab() {
             <LabStat label="Variance explained (R²)" value={pctLabel(fit.r2)} />
             <LabStat
               label="Slope"
-              value={`${fixed(fit.slope * (xFormat === 'signed2' ? 0.1 : xFormat === 'pct0' ? 0.05 : 1), y === 'win_pct' ? 3 : 2)}`}
-              hint={xFormat === 'signed2' ? 'per +0.10 EPA/play' : xFormat === 'pct0' ? 'per +5 points' : 'per +1 point/game'}
+              value={`${fixed(fit.slope * scale.step, y === 'win_pct' ? 3 : 2)}`}
+              hint={scale.hint}
             />
           </div>
         )}

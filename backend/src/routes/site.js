@@ -1042,7 +1042,7 @@ router.get('/models/awards', handle(async (req, res) => {
 }));
 
 router.get('/models/regression-lab', handle(async (req, res) => {
-  const [epa, results] = await Promise.all([
+  const [epa, results, anya] = await Promise.all([
     query(`
       SELECT season::INT AS season, team, CASE WHEN week <= 9 THEN 1 ELSE 2 END AS half, side,
              SUM(plays)::FLOAT AS plays, SUM(epa) AS epa, SUM(success) AS success,
@@ -1064,6 +1064,19 @@ router.get('/models/regression-lab', handle(async (req, res) => {
         WHERE game_type = 'REG' AND result IS NOT NULL AND season >= 2006
       ) g
       GROUP BY 1, 2, 3`),
+    // Adjusted net yards per attempt, gained and allowed: (yards + 20 x TD - 45 x INT, with sack
+    // yards counted) per dropback, scrambles excluded.
+    query(`
+      WITH d AS (
+        SELECT season::INT AS season, posteam, defteam, CASE WHEN week <= 9 THEN 1 ELSE 2 END AS half,
+               COALESCE(yards_gained, 0) + 20 * COALESCE(pass_touchdown, 0) - 45 * COALESCE(interception, 0) AS adj
+        FROM pbp
+        WHERE season_type = 'REG' AND season >= 2006 AND qb_dropback = 1 AND qb_scramble = 0 AND posteam IS NOT NULL
+      )
+      SELECT season, team, half, side, SUM(adj)::FLOAT / COUNT(*) AS anya
+      FROM (SELECT season, posteam AS team, half, 'off' AS side, adj FROM d
+            UNION ALL SELECT season, defteam, half, 'def', adj FROM d) x
+      GROUP BY 1, 2, 3, 4`),
   ]);
   const key = (r) => `${r.season}|${r.team}`;
   const rows = new Map();
@@ -1073,6 +1086,7 @@ router.get('/models/regression-lab', handle(async (req, res) => {
   };
   for (const r of epa) row(r).halves[r.half][r.side] = r;
   for (const r of results) row(r).halves[r.half].results = r;
+  for (const r of anya) row(r).halves[r.half][`anya_${r.side}`] = r.anya;
   const out = [];
   for (const r of rows.values()) {
     const h1 = r.halves[1];
@@ -1090,6 +1104,9 @@ router.get('/models/regression-lab', handle(async (req, res) => {
         pass_def_epa: h1.def.pass_epa / h1.def.pass_plays,
         rush_def_epa: h1.def.rush_epa / h1.def.rush_plays,
         off_success: h1.off.success / h1.off.plays,
+        anya_off: h1.anya_off ?? null,
+        anya_def: h1.anya_def ?? null,
+        anya_net: h1.anya_off != null && h1.anya_def != null ? h1.anya_off - h1.anya_def : null,
         turnover_diff: (h1.def.turnovers - h1.off.turnovers) / h1.results.games,
         point_diff: h1.results.point_diff / h1.results.games,
         win_pct: h1.results.wins / h1.results.games,
