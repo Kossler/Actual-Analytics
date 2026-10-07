@@ -102,7 +102,7 @@ export default function GamesPage({ data, teamColors, detail }) {
 
       {detail && <GameDetail key={detail.game.game_id} detail={detail} live={liveById.get(detail.game.game_id)} colors={colorsFor(detail.game)} />}
 
-      {(!gameType || gameType === 'REG') && <Standouts season={season} week={week} />}
+      {(!gameType || gameType === 'REG') && current?.completed > 0 && <Standouts season={season} week={week} />}
     </>
   );
 }
@@ -152,14 +152,13 @@ function topShare(pct) {
 function Standouts({ season, week }) {
   const { data, loading } = useApi(`/api/standouts${queryString({ season, week })}`);
   const [group, setGroup] = useState('all');
-  if (loading || !data?.week || !data.players.length) return null;
+  if (loading || data?.week !== week || !data.players.length) return null;
   const rows = data.players.filter((p) => group === 'all' || p.grp === group).slice(0, 10);
-  const label = data.week === week ? `Week ${data.week}` : `Last week (week ${data.week})`;
   return (
     <Card
       className="mt-5"
       title="Standout performances"
-      subtitle={`${label} · each game ranked against every game at the position since ${data.since}`}
+      subtitle={`Week ${week} · each game ranked against every game at the position since ${data.since}`}
       action={<div className="max-w-full overflow-x-auto"><ButtonGroup options={STANDOUT_GROUPS} value={group} onChange={setGroup} /></div>}
       bodyClassName="px-5 pb-4 pt-2"
     >

@@ -976,12 +976,13 @@ const STANDOUTS_SQL = `
 router.get('/standouts', handle(async (req, res) => {
   const current = await currentSeasonAndWeek();
   const season = intParam(req.query.season, current.season);
-  // The requested week, or the latest regular-season week with a completed game before it
-  // (the games page opens on the upcoming week).
+  // The requested week if it has a completed regular-season game (nothing for an upcoming week);
+  // without one, the latest week that does.
+  const requested = intParam(req.query.week, null);
   const [row] = await query(`
     SELECT MAX(week)::INT AS week FROM schedules
-    WHERE season = $1 AND game_type = 'REG' AND result IS NOT NULL AND week <= $2`,
-    season, intParam(req.query.week, 99));
+    WHERE season = $1 AND game_type = 'REG' AND result IS NOT NULL AND ($2::INT IS NULL OR week = $2)`,
+    season, requested);
   if (!row?.week || season < STANDOUT_FIRST_SEASON) return res.json({ season, week: null, players: [] });
   const players = await query(STANDOUTS_SQL, season, row.week);
   res.json({ season, week: row.week, since: STANDOUT_FIRST_SEASON, players });
