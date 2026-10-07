@@ -547,6 +547,12 @@ PROJECTION_STATS = {
     'TE': ['targets', 'receptions', 'receiving_yards', 'receiving_tds'],
 }
 COUNT_STATS = {'passing_tds', 'passing_interceptions', 'rushing_tds', 'receiving_tds'}
+# Fantasy points from a stat line: standard scoring over the stats projected for the position, so a
+# projection's points always match its stat line. Fumbles lost, two-point conversions and receivers'
+# rushing aren't projected, so they aren't scored. Formats differ only in points per reception.
+FANTASY_SCORING = {'passing_yards': 0.04, 'passing_tds': 4, 'passing_interceptions': -2, 'rushing_yards': 0.1,
+                   'rushing_tds': 6, 'receiving_yards': 0.1, 'receiving_tds': 6}
+FANTASY_FORMATS = {'fantasy_ppr': 1.0, 'fantasy_half': 0.5, 'fantasy_std': 0.0}
 # Typical game-to-game coefficient of variation, used to stabilise small samples.
 STAT_CV = {
     'attempts': 0.25, 'completions': 0.28, 'passing_yards': 0.32, 'carries': 0.4,
@@ -599,6 +605,19 @@ def history_weights(history, season):
     ])
 
 
+def fantasy_points(line, position, per_reception):
+    stats = PROJECTION_STATS[position]
+    points = sum(FANTASY_SCORING.get(st, 0.0) * (line.get(st) or 0.0) for st in stats)
+    return points + (per_reception * (line.get('receptions') or 0.0) if 'receptions' in stats else 0.0)
+
+
+def actual_value(row, stat):
+    """A game's result for a projected stat (fantasy points scored from its line)."""
+    if stat in FANTASY_FORMATS:
+        return fantasy_points(row, row['position'], FANTASY_FORMATS[stat])
+    return row.get(stat) or 0.0
+
+
 def project_player(history, position, season, adjust, carry_ratio=1.0):
     """history: per-game stat dicts, most recent first. Returns {stat: (mean, sd)}.
 
@@ -619,6 +638,14 @@ def project_player(history, position, season, adjust, carry_ratio=1.0):
         variance = float(np.dot(weights, (values - values.mean()) ** 2) / n_eff)
         prior_sd = STAT_CV.get(stat, 0.5) * mean
         out[stat] = (mean, math.sqrt((n_eff * variance + 4.0 * prior_sd ** 2) / (n_eff + 4.0)))
+    # Fantasy points: the projected line scored, with a range from his game-to-game fantasy swings.
+    line = {stat: mean for stat, (mean, _) in out.items()}
+    for fmt, per_reception in FANTASY_FORMATS.items():
+        mean = fantasy_points(line, position, per_reception)
+        values = np.array([fantasy_points(h, position, per_reception) for h in history])
+        variance = float(np.dot(weights, (values - values.mean()) ** 2) / n_eff)
+        prior_sd = 0.5 * abs(mean)
+        out[fmt] = (mean, math.sqrt((n_eff * variance + 4.0 * prior_sd ** 2) / (n_eff + 4.0)))
     return out
 
 
@@ -842,7 +869,7 @@ def build_projections(cur, games, season):
                                       opponent_adjustment(factors, actual['opponent'], actual['position']),
                                       ratios.get(pid, 1.0))
                 for stat, (mean, sd) in proj.items():
-                    samples[stat].append((s, mean, sd, actual.get(stat) or 0.0))
+                    samples[stat].append((s, mean, sd, actual_value(actual, stat)))
 
     # Widen (or narrow) each stat's normal range so it held 80% of last season's outcomes, then
     # report coverage on the current season, which the calibration never saw.

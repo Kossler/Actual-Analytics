@@ -260,11 +260,20 @@ const PROJ_STATS = {
   TE: [['receiving_yards', 'Rec yds'], ['receptions', 'Rec'], ['targets', 'Targets'], ['receiving_tds', 'Rec TD']],
 };
 
+const SCORING = [
+  { value: 'fantasy_ppr', label: 'PPR' },
+  { value: 'fantasy_half', label: 'Half PPR' },
+  { value: 'fantasy_std', label: 'Standard' },
+];
+
 function Projections() {
   const [pos, setPos] = useState('QB');
+  const [scoring, setScoring] = useState('fantasy_ppr');
   const { data, loading } = useApi('/api/models/projections');
   if (loading || !data) return <EmptyState title="Loading projections…" />;
-  const stats = PROJ_STATS[pos];
+  // Fantasy points lead (and sort the table) when the projections include them.
+  const hasFantasy = data.projections.some((p) => p.stats[scoring]);
+  const stats = [...(hasFantasy ? [[scoring, 'Fantasy pts']] : []), ...PROJ_STATS[pos]];
   const rows = sortRows(
     data.projections.filter((p) => p.position === pos || (pos === 'RB' && p.position === 'FB')),
     (p) => p.stats[stats[0][0]]?.mean,
@@ -280,7 +289,7 @@ function Projections() {
       if (!s) return '–';
       return (
         <span className="inline-flex flex-col items-end leading-tight">
-          <span className="font-semibold text-ink">{key.endsWith('tds') || key.includes('interceptions') ? fixed(s.mean, 1) : int(s.mean)}</span>
+          <span className="font-semibold text-ink">{key.endsWith('tds') || key.includes('interceptions') || key.startsWith('fantasy') ? fixed(s.mean, 1) : int(s.mean)}</span>
           <span className="text-2xs text-faint">
             {int(s.low)}–{int(s.high)}
           </span>
@@ -299,7 +308,10 @@ function Projections() {
           </h2>
           <p className="text-xs text-muted">Projection with an 80% range (10th–90th percentile) underneath</p>
         </div>
-        <Segmented options={['QB', 'RB', 'WR', 'TE']} value={pos} onChange={setPos} />
+        <div className="flex flex-wrap gap-2">
+          {hasFantasy && <Segmented options={SCORING} value={scoring} onChange={setScoring} />}
+          <Segmented options={['QB', 'RB', 'WR', 'TE']} value={pos} onChange={setPos} />
+        </div>
       </div>
       {rows.length ? (
         <DataTable
@@ -341,6 +353,12 @@ function Projections() {
             Every adjustment was kept only if it made projections more accurate on seasons it wasn’t tuned on. Some weren’t:
             moving an absent receiver’s targets to his teammates (they spread to players too minor to project), the opponent’s
             sack or pressure rate, and starting offensive linemen ruled out. A player’s recent games already reflect his own line.
+          </p>
+          <p>
+            Fantasy points score the projected stat line: 0.04 per passing yard, 4 per passing touchdown, −2 per interception,
+            0.1 per rushing or receiving yard, 6 per rushing or receiving touchdown, and 1 (PPR), 0.5 (Half PPR) or 0 (Standard,
+            no points per catch) per reception. Fumbles, two-point conversions and receivers’ runs aren’t projected, so they aren’t counted. The range
+            comes from the player’s own week-to-week fantasy swings.
           </p>
           <p>
             Ranges come from the player’s game-to-game variation, widened or narrowed so that last season roughly 80% of outcomes

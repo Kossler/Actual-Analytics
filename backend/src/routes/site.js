@@ -791,7 +791,9 @@ router.get('/teams/:abbr', handle(async (req, res) => {
   const abbr = String(req.params.abbr).toUpperCase();
   const current = await currentSeasonAndWeek();
   const season = intParam(req.query.season, current.season);
-  const [teams, games, gameEpa, quarterbacks, leaders, depth, injuries] = await Promise.all([
+  // The depth chart and injury report describe the team now, so past seasons go without them.
+  const isCurrent = season === current.season;
+  const [teams, games, gameEpa, quarterbacks, leaders, depth, injuries, seasons] = await Promise.all([
     teamSeason(season, 'all'),
     query(`
       SELECT s.game_id, s.week::INT AS week, s.game_type, s.gameday,
@@ -838,15 +840,18 @@ router.get('/teams/:abbr', handle(async (req, res) => {
       )
       SELECT t.*, pbp.dropbacks, pbp.dropback_epa, pbp.pbp_carries, pbp.pbp_rush_epa, pbp.pbp_targets, pbp.target_epa
       FROM totals t LEFT JOIN pbp USING (player_id)`, season, abbr),
-    query(`SELECT gsis_id, player_name, pos_grp, pos_abb, pos_name, pos_slot, pos_rank, spot, injury_status, dt, source
-           FROM depth_chart WHERE team = $1 ORDER BY pos_grp, pos_slot, pos_rank`, abbr),
-    query(`SELECT i.gsis_id, i.full_name, i.position, i.week::INT AS week, i.report_status, i.report_primary_injury,
+    isCurrent ? query(`SELECT gsis_id, player_name, pos_grp, pos_abb, pos_name, pos_slot, pos_rank, spot, injury_status, dt, source
+           FROM depth_chart WHERE team = $1 ORDER BY pos_grp, pos_slot, pos_rank`, abbr) : [],
+    !isCurrent ? [] : query(`SELECT i.gsis_id, i.full_name, i.position, i.week::INT AS week, i.report_status, i.report_primary_injury,
                   i.practice_status
            FROM injuries i
            WHERE i.team = $1 AND i.season = $2
              AND i.week = (SELECT MAX(week) FROM injuries WHERE team = $1 AND season = $2)
              AND i.report_status IS NOT NULL
            ORDER BY CASE i.report_status WHEN 'Out' THEN 0 WHEN 'Doubtful' THEN 1 ELSE 2 END, i.full_name`, abbr, season),
+    // Seasons with play-by-play for the team (today's codes, so the Raiders' Oakland years are LV's).
+    query(`SELECT DISTINCT season::INT AS season FROM team_game_pbp
+           WHERE team = $1 AND season_type = 'REG' ORDER BY season DESC`, abbr),
   ]);
   const team = teams.find((t) => t.abbr === abbr);
   if (!team) return res.status(404).json({ error: 'Team not found' });
@@ -876,7 +881,9 @@ router.get('/teams/:abbr', handle(async (req, res) => {
   });
   const top = (key) => leaders.filter((l) => l[key] > 0).sort((a, b) => b[key] - a[key])[0] || null;
   res.json({
-    season, team, teams,
+    season, current_season: current.season,
+    seasons: [...new Set([current.season, ...seasons.map((x) => x.season)])].sort((a, b) => b - a),
+    team, teams,
     leaders: {
       passing: top('passing_yards'), rushing: top('rushing_yards'), receiving: top('receiving_yards'),
       tackles: top('tackles'), sacks: top('def_sacks'), interceptions: top('def_interceptions'),

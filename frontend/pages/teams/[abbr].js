@@ -1,8 +1,9 @@
 import Head from 'next/head';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
 import DataTable from '../../components/DataTable';
-import { Breadcrumbs, Card, RankTrack, Segmented } from '../../components/ui';
+import { Breadcrumbs, Card, Field, RankTrack, Segmented, Select } from '../../components/ui';
 import { loadProps, queryString } from '../../lib/api';
 import { fixed, formatValue, initials, int, ordinal, pctLabel, record, shortName, signed, signedInt, weekLabel } from '../../lib/format';
 import { rememberTeam } from '../../lib/storage';
@@ -87,6 +88,12 @@ const profileItem = (item) => {
 };
 
 export default function TeamPage({ data }) {
+  const router = useRouter();
+  const setSeason = (value) => {
+    const season = Number(value);
+    const query = season === data.current_season ? { abbr: data.team.abbr } : { abbr: data.team.abbr, season };
+    router.push({ pathname: '/teams/[abbr]', query });
+  };
   const teams = useMemo(() => data.teams.map(teamMetrics), [data.teams]);
   const team = teams.find((t) => t.abbr === data.team.abbr) || teamMetrics(data.team);
   const names = Object.fromEntries(teams.map((t) => [t.abbr, t.name]));
@@ -116,7 +123,14 @@ export default function TeamPage({ data }) {
       <Head>
         <title>{`${team.name} · Second Level Analytics`}</title>
       </Head>
-      <Breadcrumbs items={[{ label: 'Teams', href: '/teams' }, { label: team.name }]} />
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <Breadcrumbs items={[{ label: 'Teams', href: '/teams' }, { label: team.name }]} />
+        {data.seasons?.length > 1 && (
+          <Field label="Season" className="mb-3">
+            <Select value={data.season} onChange={setSeason} options={data.seasons.map((x) => ({ value: x, label: String(x) }))} className="h-9 w-28" />
+          </Field>
+        )}
+      </div>
 
       <section className="card mb-4 flex flex-col gap-5 p-5 md:flex-row md:items-center" style={{ borderTop: `3px solid ${team.color || UI.lineStrong}` }}>
         <div className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-xl font-display text-2xl font-extrabold text-ink" style={{ backgroundColor: team.color || UI.raised }}>
