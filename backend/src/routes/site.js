@@ -906,7 +906,8 @@ router.get('/games', handle(async (req, res) => {
   const latestPlayed = [...weeks].reverse().find((w) => w.completed > 0);
   const week = intParam(req.query.week, nextWeek ?? (latestPlayed ? latestPlayed.week : weeks[0]?.week || 1));
   const games = await query(`
-    SELECT s.game_id, s.week::INT AS week, s.game_type, s.gameday, s.gametime, s.home_team, s.away_team,
+    SELECT s.game_id, s.week::INT AS week, s.game_type, s.gameday, s.gametime,
+           ${currentTeam('s.home_team')} AS home_team, ${currentTeam('s.away_team')} AS away_team,
            s.home_score::FLOAT AS home_score, s.away_score::FLOAT AS away_score, s.location,
            gp.home_wp, gp.home_proj, gp.away_proj, gp.proj_margin
     FROM schedules s
@@ -921,7 +922,8 @@ router.get('/games/:gameId', handle(async (req, res) => {
   const [[game], plays, sides] = await Promise.all([
     query(`
       SELECT s.game_id, s.season::INT AS season, s.week::INT AS week, s.game_type, s.gameday,
-             s.home_team, s.away_team, s.home_score::FLOAT AS home_score, s.away_score::FLOAT AS away_score,
+             ${currentTeam('s.home_team')} AS home_team, ${currentTeam('s.away_team')} AS away_team,
+             s.home_score::FLOAT AS home_score, s.away_score::FLOAT AS away_score,
              gp.home_wp AS pregame_home_wp, gp.home_proj, gp.away_proj
       FROM schedules s LEFT JOIN game_predictions gp ON gp.game_id = s.game_id
       WHERE s.game_id = $1`, gameId),
@@ -942,6 +944,47 @@ router.get('/games/:gameId', handle(async (req, res) => {
   const step = Math.max(1, Math.ceil(plays.length / 240));
   const series = plays.filter((_, i) => i % step === 0 || i === plays.length - 1);
   res.json({ game, series, teams: sides });
+}));
+
+// Standout performances of a week: each player-game's score (player_week_standout: EPA for offense,
+// expected points taken away for defense) ranked against every game at the same position since
+// 2010, so a 99th-percentile tight end game and a 99th-percentile quarterback game rank alike.
+const STANDOUT_FIRST_SEASON = 2010;
+const STANDOUTS_SQL = `
+  WITH ranked AS (
+    SELECT *, PERCENT_RANK() OVER (PARTITION BY grp ORDER BY score) AS pct, COUNT(*) OVER (PARTITION BY grp) AS pool
+    FROM player_week_standout
+  )
+  SELECT r.player_id, r.grp, r.score, r.pct, r.pool, pl.display_name AS name, pl.headshot,
+         ${currentTeam('ps.team')} AS team, ${currentTeam('ps.opponent_team')} AS opponent, ps.position,
+         ps.completions::FLOAT AS completions, ps.attempts::FLOAT AS attempts, ps.passing_yards::FLOAT AS passing_yards,
+         ps.passing_tds::FLOAT AS passing_tds, ps.passing_interceptions::FLOAT AS interceptions,
+         ps.carries::FLOAT AS carries, ps.rushing_yards::FLOAT AS rushing_yards, ps.rushing_tds::FLOAT AS rushing_tds,
+         ps.targets::FLOAT AS targets, ps.receptions::FLOAT AS receptions, ps.receiving_yards::FLOAT AS receiving_yards,
+         ps.receiving_tds::FLOAT AS receiving_tds,
+         (COALESCE(ps.def_tackles_solo, 0) + COALESCE(ps.def_tackle_assists, 0))::FLOAT AS tackles,
+         ps.def_sacks::FLOAT AS sacks, ps.def_interceptions::FLOAT AS def_interceptions,
+         ps.def_pass_defended::FLOAT AS passes_defended, ps.def_fumbles_forced::FLOAT AS forced_fumbles,
+         ps.def_tackles_for_loss::FLOAT AS tackles_for_loss
+  FROM ranked r
+  JOIN player_stats ps ON ps.player_id = r.player_id AND ps.season = r.season AND ps.week = r.week AND ps.season_type = 'REG'
+  LEFT JOIN players pl ON pl.gsis_id = r.player_id
+  WHERE r.season = $1 AND r.week = $2 AND r.score > 0
+  ORDER BY r.pct DESC, r.score DESC
+  LIMIT 60`;
+
+router.get('/standouts', handle(async (req, res) => {
+  const current = await currentSeasonAndWeek();
+  const season = intParam(req.query.season, current.season);
+  // The requested week, or the latest regular-season week with a completed game before it
+  // (the games page opens on the upcoming week).
+  const [row] = await query(`
+    SELECT MAX(week)::INT AS week FROM schedules
+    WHERE season = $1 AND game_type = 'REG' AND result IS NOT NULL AND week <= $2`,
+    season, intParam(req.query.week, 99));
+  if (!row?.week || season < STANDOUT_FIRST_SEASON) return res.json({ season, week: null, players: [] });
+  const players = await query(STANDOUTS_SQL, season, row.week);
+  res.json({ season, week: row.week, since: STANDOUT_FIRST_SEASON, players });
 }));
 
 // "BUF 33" -> yards from the possessing team's goal line (0-100), the drive chart's x axis.

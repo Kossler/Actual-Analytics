@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useState } from 'react';
 import WinProbabilityChart from '../components/charts/WinProbabilityChart';
-import { EmptyState, MatchupBar, PageHeader } from '../components/ui';
+import { ButtonGroup, Card, EmptyState, MatchupBar, PageHeader } from '../components/ui';
 import { fetchJson, loadProps, queryString, useApi, usePolling } from '../lib/api';
 import { fixed, int, pctLabel, shortWeekLabel, signed, weekLabel } from '../lib/format';
 import { matchupColors } from '../lib/teams';
@@ -101,7 +101,98 @@ export default function GamesPage({ data, teamColors, detail }) {
       )}
 
       {detail && <GameDetail key={detail.game.game_id} detail={detail} live={liveById.get(detail.game.game_id)} colors={colorsFor(detail.game)} />}
+
+      {(!gameType || gameType === 'REG') && <Standouts season={season} week={week} />}
     </>
+  );
+}
+
+// ------------------------------------------------------------------------------------------------
+// Standout performances
+// ------------------------------------------------------------------------------------------------
+
+const STANDOUT_GROUPS = [
+  { value: 'all', label: 'All' }, { value: 'QB', label: 'QB' }, { value: 'RB', label: 'RB' }, { value: 'WR', label: 'WR' },
+  { value: 'TE', label: 'TE' }, { value: 'DL', label: 'DL' }, { value: 'LB', label: 'LB' }, { value: 'DB', label: 'DB' },
+];
+const GROUP_NAMES = { QB: 'QB', RB: 'RB', WR: 'WR', TE: 'TE', DL: 'defensive line', LB: 'linebacker', DB: 'defensive back' };
+const DEFENSE = new Set(['DL', 'LB', 'DB']);
+
+// The box-score line that goes with a standout game.
+function standoutLine(p) {
+  const n = (v) => Math.round(v || 0);
+  const td = (v) => (n(v) ? `, ${n(v)} TD` : '');
+  const rushing = n(p.carries) ? `${n(p.carries)}-${n(p.rushing_yards)} rushing${td(p.rushing_tds)}` : null;
+  const receiving = n(p.receptions) ? `${n(p.receptions)}-${n(p.receiving_yards)} receiving${td(p.receiving_tds)}` : null;
+  if (p.grp === 'QB') {
+    const passing = `${n(p.completions)}/${n(p.attempts)}, ${n(p.passing_yards)} yds, ${n(p.passing_tds)} TD, ${n(p.interceptions)} INT`;
+    return [passing, n(p.rushing_yards) >= 15 || n(p.rushing_tds) ? rushing : null].filter(Boolean).join(' · ');
+  }
+  if (p.grp === 'RB') return [rushing, receiving].filter(Boolean).join(' · ');
+  if (!DEFENSE.has(p.grp)) {
+    const catches = `${n(p.receptions)} of ${n(p.targets)} targets, ${n(p.receiving_yards)} yds${td(p.receiving_tds)}`;
+    return [catches, n(p.carries) ? rushing : null].filter(Boolean).join(' · ');
+  }
+  const half = (v) => (Number.isInteger(v) ? v : fixed(v, 1));
+  return [
+    p.tackles ? `${n(p.tackles)} tkl` : null,
+    p.sacks ? `${half(p.sacks)} sack${p.sacks === 1 ? '' : 's'}` : null,
+    p.def_interceptions ? `${n(p.def_interceptions)} INT` : null,
+    p.passes_defended ? `${n(p.passes_defended)} PD` : null,
+    p.forced_fumbles ? `${n(p.forced_fumbles)} FF` : null,
+    p.tackles_for_loss ? `${n(p.tackles_for_loss)} TFL` : null,
+  ].filter(Boolean).join(' · ');
+}
+
+function topShare(pct) {
+  const top = (1 - pct) * 100;
+  return top < 0.1 ? 'Top 0.1%' : `Top ${top < 10 ? fixed(top, 1) : Math.round(top)}%`;
+}
+
+function Standouts({ season, week }) {
+  const { data, loading } = useApi(`/api/standouts${queryString({ season, week })}`);
+  const [group, setGroup] = useState('all');
+  if (loading || !data?.week || !data.players.length) return null;
+  const rows = data.players.filter((p) => group === 'all' || p.grp === group).slice(0, 10);
+  const label = data.week === week ? `Week ${data.week}` : `Last week (week ${data.week})`;
+  return (
+    <Card
+      className="mt-5"
+      title="Standout performances"
+      subtitle={`${label} · each game ranked against every game at the position since ${data.since}`}
+      action={<div className="max-w-full overflow-x-auto"><ButtonGroup options={STANDOUT_GROUPS} value={group} onChange={setGroup} /></div>}
+      bodyClassName="px-5 pb-4 pt-2"
+    >
+      {rows.length === 0 ? (
+        <p className="py-3 text-sm text-muted">No standout games at this position this week.</p>
+      ) : (
+        <ol className="divide-y divide-line/70">
+          {rows.map((p, i) => (
+            <li key={p.player_id} className="flex items-center gap-4 py-3">
+              <span className="num w-5 shrink-0 text-right text-sm text-faint">{i + 1}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <Link href={`/players/${p.player_id}`} className="font-semibold hover:underline">{p.name}</Link>
+                  <span className="text-xs text-muted">{p.position} · {p.team} vs {p.opponent}</span>
+                </div>
+                <div className="mt-0.5 truncate text-sm text-muted">{standoutLine(p)}</div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="num text-sm font-bold" title={`Better than ${fixed(p.pct * 100, 1)}% of ${int(p.pool)} ${GROUP_NAMES[p.grp]} games since ${data.since}`}>
+                  {topShare(p.pct)}
+                </div>
+                <div className="num text-xs text-muted">{signed(p.score, 1)} {DEFENSE.has(p.grp) ? 'EPA taken away' : 'EPA'}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="mt-2 text-xs text-faint">
+        Offense: expected points added on the player’s dropbacks and runs (quarterbacks) or runs and targets. Defense: expected
+        points taken away on his sacks, interceptions, forced fumbles, passes defended and tackles for loss, shared when several
+        defenders are credited on a play. Regular season.
+      </p>
+    </Card>
   );
 }
 
@@ -253,9 +344,13 @@ function GameDetail({ detail, live, colors }) {
             {showDrives ? 'Hide play-by-play' : 'Play-by-play & drive chart →'}
           </button>
         )}
-        <Link href={`/teams/${game.home_team}`} className="link mt-2 inline-block text-sm">
-          {game.home_team} team page →
-        </Link>
+        <div className="mt-2 flex flex-col items-start gap-1 text-sm">
+          {[game.away_team, game.home_team].map((abbr) => (
+            <Link key={abbr} href={`/teams/${abbr}`} className="link">
+              {abbr} team page →
+            </Link>
+          ))}
+        </div>
       </div>
     </section>
     {showDrives && <Drives game={game} colors={colors} />}

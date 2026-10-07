@@ -534,6 +534,8 @@ MATERIALIZED_VIEWS = {
                        'participation'},
     'team_game_pbp': {'pbp'},
     'team_game_adv': {'pbp', 'ftn_charting'},
+    # Built on player_week_pbp, so it comes after it.
+    'player_week_standout': {'pbp', 'player_stats'},
 }
 
 
