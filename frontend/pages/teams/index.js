@@ -73,6 +73,17 @@ const VIEWS = {
     ],
     note: 'Style stats have no better or worse, so they are not shaded · FTN charting starts in 2022',
   },
+  tracking: {
+    label: 'Next Gen Stats',
+    sort: 'ngs_ryoe_per',
+    columns: [
+      col('ngs_time_to_throw', 'Offense'), col('ngs_air_yards_to_sticks', 'Offense'), col('ngs_ryoe_per', 'Offense'),
+      col('ngs_rush_beat_pct', 'Offense'), col('ngs_box_faced', 'Offense'), col('ngs_separation', 'Offense'),
+      col('ngs_def_time_to_throw', 'Defense'), col('ngs_def_ryoe_per', 'Defense'), col('ngs_def_rush_beat_pct', 'Defense'),
+      col('ngs_def_separation', 'Defense'), col('ngs_def_tight_window', 'Defense'), col('ngs_def_box', 'Defense'),
+    ],
+    note: "NFL player tracking for each team's main players (the NFL publishes weekly figures only above a volume threshold) · season totals over all plays",
+  },
   luck: {
     label: 'Luck & special teams',
     sort: 'wins_over_pythag',

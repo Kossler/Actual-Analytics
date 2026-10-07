@@ -117,6 +117,10 @@ const DEF_BOX_SUMS = ['def_tackles_solo', 'def_tackle_assists', 'def_tackles_for
   'def_interceptions', 'def_interception_yards', 'def_pass_defended', 'def_fumbles_forced', 'def_fumbles', 'def_tds',
   'def_safeties'].map((f) => `COALESCE(SUM(w.${f}), 0)::FLOAT AS ${f}`).join(',\n      ');
 // Columns of player_week_adv.
+// Schedules list relocated franchises under the code of the season (OAK, SD, STL); play-by-play
+// and the teams table use today's. Joins compare today's codes.
+const currentTeam = (col) => `CASE ${col} WHEN 'OAK' THEN 'LV' WHEN 'SD' THEN 'LAC' WHEN 'STL' THEN 'LA' ELSE ${col} END`;
+
 const ADV_FIELDS = ['pass_wpa', 'rush_wpa', 'rec_wpa', 'deep_att', 'deep_epa', 'deep_comp', 'scrambles', 'scramble_epa',
   'charted_dropbacks', 'int_worthy', 'explosive_runs', 'stuffed_runs', 'goal_line_carries', 'goal_line_tds',
   'explosive_catches', 'rz_targets', 'ez_targets', 'yac_tracked', 'xyac', 'xyac_n'];
@@ -222,7 +226,9 @@ const LEADERBOARD_SQL = `
     SELECT player_gsis_id AS player_id,
       SUM(avg_time_to_throw * attempts) / NULLIF(SUM(attempts), 0) AS time_to_throw,
       SUM(aggressiveness * attempts) / NULLIF(SUM(attempts), 0) AS aggressiveness,
-      SUM(avg_intended_air_yards * attempts) / NULLIF(SUM(attempts), 0) AS intended_air_yards
+      SUM(avg_intended_air_yards * attempts) / NULLIF(SUM(attempts), 0) AS intended_air_yards,
+      SUM(avg_air_yards_to_sticks * attempts) / NULLIF(SUM(attempts), 0) AS air_yards_to_sticks,
+      SUM(expected_completion_percentage * attempts) / NULLIF(SUM(attempts), 0) AS xcomp_pct
     FROM nextgen_stats
     WHERE season = $1 AND season_type = 'REG' AND week BETWEEN GREATEST($2, 1) AND $3
     GROUP BY player_gsis_id
@@ -230,7 +236,11 @@ const LEADERBOARD_SQL = `
   ngs_rush AS (
     SELECT player_gsis_id AS player_id,
       SUM(rush_yards_over_expected)::FLOAT AS ryoe, SUM(rush_attempts)::FLOAT AS ngs_rush_attempts,
-      SUM(percent_attempts_gte_eight_defenders * rush_attempts) / NULLIF(SUM(rush_attempts), 0) AS stacked_box_pct
+      SUM(percent_attempts_gte_eight_defenders * rush_attempts) / NULLIF(SUM(rush_attempts), 0) AS stacked_box_pct,
+      SUM(rush_pct_over_expected * rush_attempts) / NULLIF(SUM(rush_attempts), 0) AS rush_beat_pct,
+      SUM(efficiency * rush_attempts) / NULLIF(SUM(rush_attempts), 0) AS rush_efficiency,
+      SUM(avg_time_to_los * rush_attempts) / NULLIF(SUM(rush_attempts), 0) AS time_to_los,
+      SUM(expected_rush_yards) / NULLIF(SUM(rush_attempts), 0) AS expected_ypc
     FROM nextgen_rushing
     WHERE season = $1 AND season_type = 'REG' AND week BETWEEN GREATEST($2, 1) AND $3
     GROUP BY player_gsis_id
@@ -275,7 +285,9 @@ const LEADERBOARD_SQL = `
   SELECT p.*, pbp.dropbacks, pbp.dropback_epa, pbp.dropback_success, pbp.cpoe_sum, pbp.cpoe_n,
          pbp.pbp_carries, pbp.pbp_rush_epa, pbp.rush_success, pbp.pbp_targets, pbp.target_epa,
          pbp.target_success, np.time_to_throw, np.aggressiveness, np.intended_air_yards,
-         nr.ryoe, nr.ngs_rush_attempts, nr.stacked_box_pct,
+         np.air_yards_to_sticks, np.xcomp_pct,
+         nr.ryoe, nr.ngs_rush_attempts, nr.stacked_box_pct, nr.rush_beat_pct, nr.rush_efficiency, nr.time_to_los,
+         nr.expected_ypc,
          nc.separation, nc.cushion, nc.yac_over_expected,
          ${ADV_FIELDS.map((f) => `adv.${f}`).join(', ')},
          ${FFO_FIELDS.map((f) => `ffo.${f}`).join(', ')},
@@ -408,7 +420,8 @@ const PLAYER_GAMES_SQL = `
       AND NOT EXISTS (SELECT 1 FROM player_stats x WHERE x.player_id = $1 AND x.season = sc.season AND x.week = sc.week)
   )
   SELECT
-    g.season::INT AS season, g.week::INT AS week, g.season_type, g.team, g.opponent, g.position,
+    g.season::INT AS season, g.week::INT AS week, g.season_type,
+    ${currentTeam('g.team')} AS team, ${currentTeam('g.opponent')} AS opponent, g.position,
     ps.completions::FLOAT AS completions, ps.attempts::FLOAT AS attempts,
     ps.passing_yards::FLOAT AS passing_yards, ps.passing_tds::FLOAT AS passing_tds,
     ps.passing_interceptions::FLOAT AS interceptions, ps.sacks_suffered::FLOAT AS sacks,
@@ -443,7 +456,8 @@ const PLAYER_GAMES_SQL = `
     pw.dropbacks::FLOAT AS dropbacks, pw.dropback_epa, pw.dropback_success, pw.cpoe_sum,
     pw.cpoe_n::FLOAT AS cpoe_n, pw.carries::FLOAT AS pbp_carries, pw.rush_epa AS pbp_rush_epa,
     pw.rush_success, pw.targets::FLOAT AS pbp_targets, pw.target_epa, pw.target_success,
-    s.game_id, s.home_team, s.away_team, s.home_score::FLOAT AS home_score,
+    s.game_id, ${currentTeam('s.home_team')} AS home_team, ${currentTeam('s.away_team')} AS away_team,
+    s.home_score::FLOAT AS home_score,
     s.away_score::FLOAT AS away_score, s.gameday, s.roof, s.game_type,
     ${PFR_KINDS.map((k) => PFR_FIELDS[k].map((f) => (k === 'def' && PFR_DEF_COUNTS.includes(pfrAlias(f))
     ? `COALESCE(pfr_def.${pfrColumn(f)}, CASE WHEN g.season >= ${PFR_FIRST_SEASON} THEN ${ON_DEFENSE} END)::FLOAT AS ${pfrAlias(f)}`
@@ -457,7 +471,8 @@ const PLAYER_GAMES_SQL = `
   LEFT JOIN player_week_kicking pk ON pk.player_id = $1 AND pk.season = g.season AND pk.week = g.week
   LEFT JOIN player_week_ol ol ON ol.player_id = $1 AND ol.season = g.season AND ol.week = g.week
   LEFT JOIN schedules s
-    ON s.season = g.season AND s.week = g.week AND (s.home_team = g.team OR s.away_team = g.team)
+    ON s.season = g.season AND s.week = g.week
+       AND ${currentTeam('g.team')} IN (${currentTeam('s.home_team')}, ${currentTeam('s.away_team')})
   LEFT JOIN players pl ON pl.gsis_id = $1
   LEFT JOIN ff_opportunity fo ON fo.player_id = $1 AND fo.game_id = s.game_id
   LEFT JOIN player_week_def_pbp dw
@@ -472,17 +487,24 @@ const PLAYER_NGS_SQL = `
          avg_time_to_throw AS time_to_throw, aggressiveness, avg_intended_air_yards AS intended_air_yards,
          avg_completed_air_yards AS completed_air_yards,
          completion_percentage_above_expectation AS cpoe_ngs, attempts::FLOAT AS volume,
+         avg_air_yards_to_sticks AS air_yards_to_sticks, expected_completion_percentage AS xcomp_pct,
+         max_completed_air_distance AS max_completed_air,
          NULL::FLOAT AS ryoe, NULL::FLOAT AS ryoe_per_att, NULL::FLOAT AS stacked_box_pct,
+         NULL::FLOAT AS rush_beat_pct, NULL::FLOAT AS rush_efficiency, NULL::FLOAT AS time_to_los,
+         NULL::FLOAT AS expected_ypc,
          NULL::FLOAT AS separation, NULL::FLOAT AS cushion, NULL::FLOAT AS yac_over_expected
   FROM nextgen_stats WHERE player_gsis_id = $1
   UNION ALL
   SELECT 'rushing', season::INT, week::INT, NULL, NULL, NULL, NULL, NULL, rush_attempts::FLOAT,
+         NULL, NULL, NULL,
          rush_yards_over_expected, rush_yards_over_expected_per_att, percent_attempts_gte_eight_defenders,
+         rush_pct_over_expected, efficiency, avg_time_to_los, expected_rush_yards / NULLIF(rush_attempts, 0),
          NULL, NULL, NULL
   FROM nextgen_rushing WHERE player_gsis_id = $1
   UNION ALL
   SELECT 'receiving', season::INT, week::INT, NULL, NULL, avg_intended_air_yards, NULL, NULL,
-         targets::FLOAT, NULL, NULL, NULL, avg_separation, avg_cushion, avg_yac_above_expectation
+         targets::FLOAT, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+         avg_separation, avg_cushion, avg_yac_above_expectation
   FROM nextgen_receiving WHERE player_gsis_id = $1
   ORDER BY 2, 3
 `;
@@ -654,8 +676,52 @@ const TEAM_ADV_FIELDS = ['plays', 'explosive', 'rushes', 'stuffed', 'neutral_pla
   'fourth_conv', 'fourth_short', 'fourth_short_go', 'st_epa', 'st_plays', 'drives', 'drive_points', 'three_and_outs',
   'red_zone_trips', 'red_zone_tds', 'scoring_drives', 'turnover_drives', 'drive_seconds', 'drive_plays'];
 
+// Team Next Gen Stats by side: 'off' sums a team's own players, 'def' its opponents' players.
+// Weekly rows only exist for players above the NFL's thresholds (in practice the starting QB, the
+// main ball carriers and most targeted receivers), so these describe the main players.
+// Next Gen Stats uses today's codes too, except LAR for the Rams.
+const NGS_TEAM = `CASE team_abbr WHEN 'LAR' THEN 'LA' ELSE team_abbr END`;
+const TEAM_NGS_SQL = `
+  WITH games AS (
+    SELECT week, ${currentTeam('home_team')} AS team, ${currentTeam('away_team')} AS opp
+    FROM schedules WHERE season = $1 AND game_type = 'REG'
+    UNION ALL
+    SELECT week, ${currentTeam('away_team')}, ${currentTeam('home_team')}
+    FROM schedules WHERE season = $1 AND game_type = 'REG'
+  ),
+  pass AS (
+    SELECT ${NGS_TEAM} AS team, week, SUM(attempts)::FLOAT AS att,
+           SUM(avg_time_to_throw * attempts) AS ttt, SUM(aggressiveness * attempts) AS agg,
+           SUM(avg_air_yards_to_sticks * attempts) AS sticks
+    FROM nextgen_stats WHERE season = $1 AND season_type = 'REG' AND week > 0 GROUP BY 1, 2
+  ),
+  rush AS (
+    SELECT ${NGS_TEAM} AS team, week, SUM(rush_attempts)::FLOAT AS carries, SUM(rush_yards_over_expected) AS ryoe,
+           SUM(rush_pct_over_expected * rush_attempts) AS beat, SUM(percent_attempts_gte_eight_defenders * rush_attempts) AS box
+    FROM nextgen_rushing WHERE season = $1 AND season_type = 'REG' AND week > 0 GROUP BY 1, 2
+  ),
+  rec AS (
+    SELECT ${NGS_TEAM} AS team, week, SUM(targets)::FLOAT AS targets,
+           SUM(avg_separation * targets) AS sep, SUM(avg_cushion * targets) AS cushion
+    FROM nextgen_receiving WHERE season = $1 AND season_type = 'REG' AND week > 0 GROUP BY 1, 2
+  ),
+  weekly AS (
+    SELECT g.team, g.opp, p.att, p.ttt, p.agg, p.sticks, r.carries, r.ryoe, r.beat, r.box, c.targets, c.sep, c.cushion
+    FROM games g
+    LEFT JOIN pass p ON p.team = g.team AND p.week = g.week
+    LEFT JOIN rush r ON r.team = g.team AND r.week = g.week
+    LEFT JOIN rec c ON c.team = g.team AND c.week = g.week
+  )
+  SELECT side, team, SUM(att) AS att, SUM(ttt) AS ttt, SUM(agg) AS agg, SUM(sticks) AS sticks,
+         SUM(carries) AS carries, SUM(ryoe) AS ryoe, SUM(beat) AS beat, SUM(box) AS box,
+         SUM(targets) AS targets, SUM(sep) AS sep, SUM(cushion) AS cushion
+  FROM (SELECT 'off' AS side, team, att, ttt, agg, sticks, carries, ryoe, beat, box, targets, sep, cushion FROM weekly
+        UNION ALL
+        SELECT 'def', opp, att, ttt, agg, sticks, carries, ryoe, beat, box, targets, sep, cushion FROM weekly) x
+  GROUP BY side, team`;
+
 async function teamSeason(season, situation) {
-  const [epa, results, odds, teams, adv] = await Promise.all([
+  const [epa, results, odds, teams, adv, ngs] = await Promise.all([
     query(`
       SELECT team, side, SUM(plays)::FLOAT AS plays, SUM(epa) AS epa, SUM(success) AS success,
              SUM(pass_plays)::FLOAT AS pass_plays, SUM(pass_epa) AS pass_epa,
@@ -671,10 +737,10 @@ async function teamSeason(season, situation) {
              COUNT(*) FILTER (WHERE pf = pa)::INT AS ties,
              SUM(pf)::FLOAT AS points_for, SUM(pa)::FLOAT AS points_against
       FROM (
-        SELECT home_team AS team, home_score AS pf, away_score AS pa FROM schedules
+        SELECT ${currentTeam('home_team')} AS team, home_score AS pf, away_score AS pa FROM schedules
         WHERE season = $1 AND game_type = 'REG' AND result IS NOT NULL
         UNION ALL
-        SELECT away_team, away_score, home_score FROM schedules
+        SELECT ${currentTeam('away_team')}, away_score, home_score FROM schedules
         WHERE season = $1 AND game_type = 'REG' AND result IS NOT NULL
       ) g
       GROUP BY team`, season),
@@ -689,6 +755,7 @@ async function teamSeason(season, situation) {
       FROM team_game_adv
       WHERE season = $1 AND season_type = 'REG'
       GROUP BY team, side`, season),
+    query(TEAM_NGS_SQL, season),
   ]);
   const byTeam = new Map(teams.map((t) => [t.abbr, { ...t, wins: 0, losses: 0, ties: 0, points_for: 0, points_against: 0 }]));
   for (const r of results) if (byTeam.has(r.team)) Object.assign(byTeam.get(r.team), r);
@@ -701,6 +768,10 @@ async function teamSeason(season, situation) {
   for (const a of adv) {
     const t = byTeam.get(a.team);
     if (t) (t.adv ||= {})[a.side] = a;
+  }
+  for (const n of ngs) {
+    const t = byTeam.get(n.team);
+    if (t) (t.ngs ||= {})[n.side] = n;
   }
   return [...byTeam.values()];
 }
@@ -719,12 +790,13 @@ router.get('/teams/:abbr', handle(async (req, res) => {
   const [teams, games, gameEpa, quarterbacks, leaders, depth, injuries] = await Promise.all([
     teamSeason(season, 'all'),
     query(`
-      SELECT s.game_id, s.week::INT AS week, s.game_type, s.gameday, s.home_team, s.away_team,
+      SELECT s.game_id, s.week::INT AS week, s.game_type, s.gameday,
+             ${currentTeam('s.home_team')} AS home_team, ${currentTeam('s.away_team')} AS away_team,
              s.home_score::FLOAT AS home_score, s.away_score::FLOAT AS away_score,
              gp.home_wp, gp.home_proj, gp.away_proj
       FROM schedules s
       LEFT JOIN game_predictions gp ON gp.game_id = s.game_id
-      WHERE s.season = $1 AND (s.home_team = $2 OR s.away_team = $2)
+      WHERE s.season = $1 AND $2 IN (${currentTeam('s.home_team')}, ${currentTeam('s.away_team')})
       ORDER BY s.week`, season, abbr),
     query(`SELECT game_id, side, plays::FLOAT AS plays, epa FROM team_game_pbp
            WHERE season = $1 AND team = $2 AND situation = 'all'`, season, abbr),
@@ -1057,10 +1129,10 @@ router.get('/models/regression-lab', handle(async (req, res) => {
              COUNT(*)::INT AS games, SUM(pf - pa)::FLOAT AS point_diff,
              SUM(CASE WHEN pf > pa THEN 1 WHEN pf = pa THEN 0.5 ELSE 0 END)::FLOAT AS wins
       FROM (
-        SELECT season, week, home_team AS team, home_score AS pf, away_score AS pa FROM schedules
+        SELECT season, week, ${currentTeam('home_team')} AS team, home_score AS pf, away_score AS pa FROM schedules
         WHERE game_type = 'REG' AND result IS NOT NULL AND season >= 2006
         UNION ALL
-        SELECT season, week, away_team, away_score, home_score FROM schedules
+        SELECT season, week, ${currentTeam('away_team')}, away_score, home_score FROM schedules
         WHERE game_type = 'REG' AND result IS NOT NULL AND season >= 2006
       ) g
       GROUP BY 1, 2, 3`),

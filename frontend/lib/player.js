@@ -45,7 +45,9 @@ export function splitRows(games) {
 // Next Gen Stats per season: the NFL's season row (week 0) when present, else volume-weighted weeks.
 export function ngsBySeason(ngs) {
   const out = new Map();
-  const weighted = ['time_to_throw', 'aggressiveness', 'intended_air_yards', 'completed_air_yards', 'cpoe_ngs', 'stacked_box_pct', 'separation', 'cushion', 'yac_over_expected'];
+  const weighted = ['time_to_throw', 'aggressiveness', 'intended_air_yards', 'completed_air_yards', 'cpoe_ngs', 'air_yards_to_sticks',
+    'xcomp_pct', 'stacked_box_pct', 'rush_beat_pct', 'rush_efficiency', 'time_to_los', 'expected_ypc', 'separation', 'cushion',
+    'yac_over_expected'];
   const bySeasonKind = new Map();
   for (const r of ngs) {
     if (r.week > 18) continue; // postseason
@@ -66,6 +68,8 @@ export function ngsBySeason(ngs) {
         const valid = weekly.filter((r) => typeof r[f] === 'number');
         if (valid.length && volume) entry[f] = valid.reduce((s, r) => s + r[f] * (r.volume || 0), 0) / volume;
       }
+      const longest = weekly.filter((r) => typeof r.max_completed_air === 'number');
+      if (longest.length) entry.max_completed_air = Math.max(...longest.map((r) => r.max_completed_air));
       const ryoe = weekly.filter((r) => typeof r.ryoe === 'number');
       if (ryoe.length) {
         entry.ryoe = ryoe.reduce((s, r) => s + r.ryoe, 0);

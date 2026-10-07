@@ -25,6 +25,39 @@ export function teamMetrics(t) {
     turnover_diff: games ? ((def.turnovers || 0) - (off.turnovers || 0)) / games : null,
     win_pct: games ? ((t.wins || 0) + 0.5 * (t.ties || 0)) / games : null,
     ...advancedMetrics(t, games),
+    ...ngsMetrics(t),
+  };
+}
+
+// Next Gen Stats of the team's players (offense) and its opponents' (defense). Percentages arrive on
+// a 0-100 scale except carries beating expectation.
+function ngsMetrics(t) {
+  const o = t.ngs?.off;
+  const d = t.ngs?.def;
+  const side = (s) => s && {
+    time_to_throw: per(s.ttt, s.att),
+    air_yards_to_sticks: per(s.sticks, s.att),
+    tight_window: s.att ? s.agg / s.att / 100 : null,
+    ryoe_per: per(s.ryoe, s.carries),
+    rush_beat_pct: per(s.beat, s.carries),
+    box: s.carries ? s.box / s.carries / 100 : null,
+    separation: per(s.sep, s.targets),
+  };
+  const off = side(o) || {};
+  const def = side(d) || {};
+  return {
+    ngs_time_to_throw: off.time_to_throw ?? null,
+    ngs_air_yards_to_sticks: off.air_yards_to_sticks ?? null,
+    ngs_ryoe_per: off.ryoe_per ?? null,
+    ngs_rush_beat_pct: off.rush_beat_pct ?? null,
+    ngs_box_faced: off.box ?? null,
+    ngs_separation: off.separation ?? null,
+    ngs_def_time_to_throw: def.time_to_throw ?? null,
+    ngs_def_ryoe_per: def.ryoe_per ?? null,
+    ngs_def_rush_beat_pct: def.rush_beat_pct ?? null,
+    ngs_def_separation: def.separation ?? null,
+    ngs_def_tight_window: def.tight_window ?? null,
+    ngs_def_box: def.box ?? null,
   };
 }
 

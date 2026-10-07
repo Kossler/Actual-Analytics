@@ -59,6 +59,14 @@ const PROFILE = [
     ],
   },
   {
+    value: 'tracking',
+    label: 'Next Gen Stats',
+    items: [
+      'ngs_ryoe_per', 'ngs_rush_beat_pct', 'ngs_separation', { key: 'ngs_time_to_throw', most: 'slowest' },
+      'ngs_def_ryoe_per', 'ngs_def_separation', 'ngs_def_tight_window', 'ngs_def_time_to_throw',
+    ],
+  },
+  {
     value: 'luck',
     label: 'Luck & ST',
     items: [
