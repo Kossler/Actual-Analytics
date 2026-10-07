@@ -32,6 +32,8 @@ SOURCE_FILES = {
     'injuries': ['injuries/injuries_{season}.parquet'],
     'depth_charts_current': ['depth_charts/depth_charts_{season}.parquet'],
     'ftn_charting': ['ftn_charting/ftn_charting_{season}.parquet'],
+    # Published only after each season ends; until then the file doesn't exist and nothing loads.
+    'participation': ['pbp_participation/pbp_participation_{season}.parquet'],
     'nextgen_stats': ['nextgen_stats/ngs_passing.parquet'],
     'nextgen_rushing': ['nextgen_stats/ngs_rushing.parquet'],
     'nextgen_receiving': ['nextgen_stats/ngs_receiving.parquet'],

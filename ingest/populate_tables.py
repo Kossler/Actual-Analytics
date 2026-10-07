@@ -231,6 +231,10 @@ SEASON_FILE_START = {
 # Loaders that only make sense for the current season.
 CURRENT_SEASON_ONLY = {'load_depth_charts_current'}
 
+# Published only after each season ends: asking for a season nflverse hasn't released yet (the
+# current one, during the season) loads nothing rather than failing the run.
+AFTER_SEASON = {'load_participation'}
+
 # Upper bound on cells converted to Python objects per insert batch.
 MAX_CELLS_PER_BATCH = 2_000_000
 
@@ -376,6 +380,9 @@ def process_table(fname, creds, seasons=None):
             print(f"Retrying {label} (attempt {attempt} failed: {str(e)[:120]})")
             time.sleep(5 * attempt)
         except Exception as e:
+            if fname in AFTER_SEASON and 'Season must be between' in str(e):
+                print(f"{label}: not published yet; nothing to load.")
+                return True, 0
             print(f"Error loading {label}: {e}")
             return False, 0
     if df is None or len(df) == 0:
@@ -523,7 +530,8 @@ MATERIALIZED_VIEWS = {
     'player_week_def_pbp': {'pbp'},
     'player_week_adv': {'pbp', 'ftn_charting'},
     'player_week_kicking': {'pbp'},
-    'player_week_ol': {'pbp', 'snap_counts', 'players', 'pfr_advstats_pass', 'pfr_advstats_rush'},
+    'player_week_ol': {'pbp', 'snap_counts', 'players', 'pfr_advstats_pass', 'pfr_advstats_rush', 'ftn_charting',
+                       'participation'},
     'team_game_pbp': {'pbp'},
     'team_game_adv': {'pbp', 'ftn_charting'},
 }

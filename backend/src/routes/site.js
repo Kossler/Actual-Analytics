@@ -128,8 +128,12 @@ const ADV_FIELDS = ['pass_wpa', 'rush_wpa', 'rec_wpa', 'deep_att', 'deep_epa', '
 const FFO_FIELDS = ['total_fantasy_points', 'total_fantasy_points_exp', 'total_touchdown', 'total_touchdown_exp'];
 // Columns of player_week_ol (offensive linemen): snaps and penalties, plus the line's results
 // while the player was on the field. snaps / team_snaps are returned as off_snaps / team_off_snaps.
+// ex_* count the plays he was actually on the field for (participation, 2016-2025); on_charted_* and
+// on_qb_fault_sacks are FTN's charting (2023 on), credited by snap share.
 const OL_FIELDS = ['holding', 'false_starts', 'penalties', 'on_dropbacks', 'on_sacks', 'on_qb_hits', 'on_pass_epa',
   'on_pressures', 'on_pressure_dropbacks', 'on_rushes', 'on_rush_epa', 'on_rush_success', 'on_stuffed', 'on_ybc',
+  'on_charted_dropbacks', 'on_charted_sacks', 'on_qb_fault_sacks', 'ex_dropbacks', 'ex_sacks', 'ex_pressure_plays',
+  'ex_pressures', 'ex_std_plays', 'ex_std_pressures',
   'on_pfr_carries'];
 // Columns of player_week_kicking.
 const KICK_FIELDS = ['fg_attempts', 'fg_makes', 'fg_expected', 'fg_50_attempts', 'fg_50_makes'];
