@@ -11,6 +11,7 @@ touching GitHub's API rate limit), and a table is reloaded only when one of its 
 """
 import os
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -57,7 +58,9 @@ def source_urls(table, season):
 
 def file_version(url, attempts=3):
     """The file's ETag (falling back to Last-Modified and size), or None if it is not published
-    (e.g. a new season's file before its first game). Raises after repeated network errors."""
+    (e.g. a new season's file before its first game). GitHub's release downloads fail now and then
+    (500s, timeouts); after retrying, an unreachable file also returns None, so its table is skipped
+    this run and checked again on the next one instead of failing the whole check."""
     for attempt in range(attempts):
         try:
             res = requests.head(url, allow_redirects=True, timeout=30,
@@ -66,9 +69,11 @@ def file_version(url, attempts=3):
                 return None
             res.raise_for_status()
             return res.headers.get('ETag') or f"{res.headers.get('Last-Modified')}|{res.headers.get('Content-Length')}"
-        except requests.RequestException:
+        except requests.RequestException as e:
             if attempt == attempts - 1:
-                raise
+                print(f"WARNING: could not check {url} ({e}); skipping it this run", file=sys.stderr)
+                return None
+            time.sleep(3 * (attempt + 1))
 
 
 def current_versions(tables, season):
