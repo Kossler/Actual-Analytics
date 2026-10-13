@@ -19,8 +19,12 @@ function passerRating(cmp, att, yds, td, ints) {
   return ((a + b + c + d) / 6) * 100;
 }
 
-const passEpa = (r) => (has(r.dropback_epa) && r.dropbacks ? r.dropback_epa : r.passing_epa);
+// Dropbacks (play-by-play) include scrambles; nflverse's passing EPA, the fallback, does not.
+const hasDropbacks = (r) => has(r.dropback_epa) && r.dropbacks;
+const passEpa = (r) => (hasDropbacks(r) ? r.dropback_epa : r.passing_epa);
 const passPlays = (r) => (r.dropbacks ? r.dropbacks : n(r.attempts) + n(r.sacks));
+// nflverse's rushing EPA counts scrambles too; take them out when they're already in the dropbacks.
+const designedRushEpa = (r) => n(r.rushing_epa) - (hasDropbacks(r) ? n(r.scramble_epa) : 0);
 
 export const METRICS = {
   // ---- General
@@ -28,8 +32,8 @@ export const METRICS = {
   fantasy_points_ppr: { label: 'Fantasy points (PPR)', short: 'PPR', format: 'dec1', group: 'General', better: 'high', value: (r) => r.fantasy_points_ppr, description: 'Fantasy points in point-per-reception scoring.' },
   total_epa: {
     label: 'Total EPA', short: 'EPA', format: 'signed1', group: 'General', better: 'high',
-    value: (r) => n(passEpa(r)) + n(r.rushing_epa) + n(r.receiving_epa),
-    description: 'Expected points added across passing, rushing and receiving plays combined.',
+    value: (r) => n(passEpa(r)) + designedRushEpa(r) + n(r.receiving_epa),
+    description: 'Expected points added across dropbacks, runs and targets combined (each scramble counted once).',
   },
   scrimmage_yards: { label: 'Scrimmage yards', short: 'SCRIM YDS', format: 'int', group: 'General', better: 'high', value: (r) => n(r.rushing_yards) + n(r.receiving_yards), description: 'Rushing plus receiving yards.' },
   touches: { label: 'Touches', short: 'TCH', format: 'int', group: 'General', better: 'high', value: (r) => n(r.carries) + n(r.receptions), description: 'Carries plus receptions.' },
@@ -88,12 +92,12 @@ export const METRICS = {
 
   pressure_rate: { label: 'Pressure rate', short: 'PRSS%', format: 'pct', group: 'Passing', value: (r) => (has(r.pfr_pressured) ? div(r.pfr_pressured, n(r.attempts) + n(r.sacks)) : null), description: 'Share of dropbacks under pressure (hurried, hit or sacked), as charted by Pro Football Reference. Reflects the offensive line as much as the quarterback.' },
   bad_throw_pct: { label: 'Bad throw rate', short: 'BAD%', format: 'pct', group: 'Passing', better: 'low', shade: true, value: (r) => (has(r.pfr_bad_throws) ? div(r.pfr_bad_throws, r.attempts) : null), description: 'Share of pass attempts charted as poorly thrown by Pro Football Reference.' },
-  pass_wpa: { label: 'Passing win probability added', short: 'PASS WPA', format: 'signed2', group: 'Passing', better: 'high', value: (r) => (has(r.pass_wpa) ? r.pass_wpa : null), description: "Win probability added on dropbacks. +1.00 is a full win's worth." },
+  pass_wpa: { label: 'Passing win probability added', short: 'PASS WPA', format: 'signed2', group: 'Passing', better: 'high', value: (r) => (has(r.pass_wpa) ? r.pass_wpa : null), description: "Win probability added on passes and sacks (scrambles count as runs). +1.00 is a full win's worth." },
   deep_rate: { label: 'Deep throw rate', short: 'DEEP%', format: 'pct', group: 'Passing', value: (r) => (has(r.deep_att) ? div(r.deep_att, r.attempts) : null), description: 'Share of pass attempts thrown 20+ yards downfield.' },
   deep_cmp_pct: { label: 'Deep completion %', short: 'DEEP CMP%', format: 'pct', group: 'Passing', better: 'high', value: (r) => (r.deep_att ? n(r.deep_comp) / r.deep_att : null), description: 'Completions on throws 20+ yards downfield.' },
   deep_epa_per: { label: 'EPA per deep throw', short: 'DEEP EPA', format: 'signed2', group: 'Passing', better: 'high', shade: true, value: (r) => (r.deep_att ? n(r.deep_epa) / r.deep_att : null), description: 'Expected points added per throw 20+ yards downfield.' },
   iw_rate: { label: 'Interception-worthy throw rate', short: 'IW%', format: 'pct', group: 'Passing', better: 'low', shade: true, value: (r) => (r.charted_dropbacks ? n(r.int_worthy) / r.charted_dropbacks : null), description: 'Share of dropbacks with a throw FTN charted as interception-worthy, caught or not (2022 on). A steadier read on risk than interceptions.' },
-  scramble_rate: { label: 'Scramble rate', short: 'SCRM%', format: 'pct', group: 'Passing', value: (r) => (has(r.scrambles) && n(r.dropbacks) + n(r.scrambles) ? r.scrambles / (n(r.dropbacks) + n(r.scrambles)) : null), description: 'Share of dropbacks where the quarterback scrambled.' },
+  scramble_rate: { label: 'Scramble rate', short: 'SCRM%', format: 'pct', group: 'Passing', value: (r) => (has(r.scrambles) && r.dropbacks ? r.scrambles / r.dropbacks : null), description: 'Share of dropbacks where the quarterback scrambled.' },
   scramble_epa_per: { label: 'EPA per scramble', short: 'SCRM EPA', format: 'signed2', group: 'Passing', better: 'high', value: (r) => (r.scrambles ? n(r.scramble_epa) / r.scrambles : null), description: 'Expected points added per scramble.' },
   yac_share_pass: { label: 'YAC share of passing yards', short: 'YAC%', format: 'pct', group: 'Passing', value: (r) => (r.passing_yards ? div(n(r.passing_yac), r.passing_yards) : null), description: 'Share of passing yards gained after the catch. High means receivers did more of the work.' },
 
@@ -102,7 +106,8 @@ export const METRICS = {
   rushing_yards: { label: 'Rushing yards', short: 'YDS', format: 'int', group: 'Rushing', better: 'high', value: (r) => r.rushing_yards, description: 'Rushing yards.' },
   rushing_tds: { label: 'Rushing touchdowns', short: 'TD', format: 'int', group: 'Rushing', better: 'high', value: (r) => r.rushing_tds, description: 'Rushing touchdowns.' },
   ypc: { label: 'Yards per carry', short: 'Y/C', format: 'dec2', group: 'Rushing', better: 'high', value: (r) => div(n(r.rushing_yards), r.carries), description: 'Rushing yards divided by carries.' },
-  rushing_epa: { label: 'Rushing EPA', short: 'EPA', format: 'signed1', group: 'Rushing', better: 'high', value: (r) => r.rushing_epa, description: 'Expected points added on carries.' },
+  rushing_epa: { label: 'Rushing EPA', short: 'EPA', format: 'signed1', group: 'Rushing', better: 'high', value: (r) => r.rushing_epa, description: 'Expected points added on carries (quarterback scrambles included).' },
+  designed_rush_epa: { label: 'Designed-run EPA', short: 'RUN EPA', format: 'signed1', group: 'Rushing', better: 'high', value: designedRushEpa, description: 'Expected points added on designed runs, leaving out quarterback scrambles (which count as dropbacks).' },
   rush_epa_per: {
     label: 'EPA per carry', short: 'EPA/CAR', card: 'EPA / carry', format: 'signed2', group: 'Rushing', better: 'high', shade: true,
     value: (r) => div(n(r.rushing_epa), r.carries),
@@ -138,7 +143,7 @@ export const METRICS = {
   catch_pct: { label: 'Catch rate', short: 'CATCH%', format: 'pct', group: 'Receiving', better: 'high', value: (r) => div(n(r.receptions), r.targets), description: 'Receptions per target.' },
   ypr: { label: 'Yards per reception', short: 'Y/R', format: 'dec1', group: 'Receiving', better: 'high', value: (r) => div(n(r.receiving_yards), r.receptions), description: 'Receiving yards per catch.' },
   ypt: { label: 'Yards per target', short: 'Y/TGT', card: 'Yards / target', format: 'dec1', group: 'Receiving', better: 'high', shade: true, value: (r) => div(n(r.receiving_yards), r.targets), description: 'Receiving yards per target, including incompletions.' },
-  receiving_epa: { label: 'Receiving EPA', short: 'EPA', format: 'signed1', group: 'Receiving', better: 'high', value: (r) => r.receiving_epa, description: 'Expected points added on catches.' },
+  receiving_epa: { label: 'Receiving EPA', short: 'EPA', format: 'signed1', group: 'Receiving', better: 'high', value: (r) => r.receiving_epa, description: 'Expected points added on targets, including incompletions and interceptions.' },
   epa_per_target: {
     label: 'EPA per target', short: 'EPA/TGT', card: 'EPA / target', format: 'signed2', group: 'Receiving', better: 'high', shade: true,
     value: (r) => div(n(r.target_epa), r.pbp_targets),

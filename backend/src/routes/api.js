@@ -97,7 +97,7 @@ const HOME_LEADERS_SQL = (orderColumn) => `
     passing_cpoe AS passing_cpoe_avg,
     CASE WHEN attempts > 0 THEN passing_epa / attempts END AS passing_epa_per_play,
     CASE WHEN carries > 0 THEN rushing_epa / carries END AS rushing_epa_per_play,
-    CASE WHEN receptions > 0 THEN receiving_epa / receptions END AS receiving_epa_per_play
+    CASE WHEN targets > 0 THEN receiving_epa / targets END AS receiving_epa_per_play
   FROM player_season_stats
   WHERE season = $1 AND position = $2
   ORDER BY ${orderColumn} DESC NULLS LAST, player_id

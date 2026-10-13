@@ -9,8 +9,9 @@ player_stats, teams) and written to model tables the API reads:
 - game_predictions    Pregame win probability and projected score for every game since 2006, from
                       team ratings, starting-quarterback ratings (and changes at QB), snap share lost
                       to injuries and a drifting home-field estimate. Features only use games
-                      played before the one being predicted, and coefficients are fit on earlier
-                      seasons, so current-season numbers are genuinely pregame.
+                      played before the one being predicted, and each season's coefficients are
+                      fit on earlier seasons only, so every season's numbers are genuinely pregame
+                      (apart from completed games using the starting QB nflverse records).
 - playoff_odds        Monte Carlo simulation of the rest of the current regular season.
 - player_projections  Next-game stat lines with 10th-90th percentile ranges.
 - model_runs          Validation metrics for each of the above.
@@ -31,6 +32,7 @@ MODEL_VERSION = 'epa-qb-v3'
 FIRST_SEASON = 2006        # first season the game model is trained and scored on
 WARMUP_SEASON = 1999       # ratings start here so 2006 has history behind it
 HOLDOUT_FIRST = 2022       # seasons from here on are reported as an out-of-sample test
+MIN_TRAINING_SEASONS = 4   # fewest earlier seasons a past season's model is fitted on
 
 # Relocated franchises keep their rating history.
 TEAM_ALIASES = {'OAK': 'LV', 'SD': 'LAC', 'STL': 'LA'}
@@ -394,6 +396,13 @@ def fit_game_model(features, seasons):
     margins = np.array([f['game']['home_score'] - f['game']['away_score'] for f in played])
     sigma = float(np.dot(implied, margins) / np.dot(implied, implied))  # margin = sigma * probit(p)
     return {'win': win, 'total': total, 'sigma': sigma, 'n': len(win_rows)}
+
+
+def training_seasons(season):
+    """Seasons the model predicting `season` is fitted on: every one before it from FIRST_SEASON, or
+    for the first few seasons (too little behind them) from three years after the warm-up start."""
+    first = FIRST_SEASON if season - FIRST_SEASON >= MIN_TRAINING_SEASONS else WARMUP_SEASON + 3
+    return set(range(first, season))
 
 
 def predict_game(model, f):
@@ -969,7 +978,12 @@ def run(conn):
 
     scored = [f for f in features if f['game']['season'] >= FIRST_SEASON]
     games = [f['game'] for f in scored]
-    predictions = {f['game']['game_id']: predict_game(model, f) for f in scored}
+    # Each earlier season is predicted by a model fitted only on the seasons before it, so its record
+    # on the site is out of sample like the current season's.
+    season_models = {current_season: model}
+    for s in {g['season'] for g in games} - {current_season}:
+        season_models[s] = fit_game_model(features, training_seasons(s))
+    predictions = {f['game']['game_id']: predict_game(season_models[f['game']['season']], f) for f in scored}
     rng = np.random.default_rng(current_season * 1000 + len([g for g in games if g['completed']]))
     odds = simulate_season(cur, games, predictions, model, current_season, rng)
     projections, backtest = build_projections(cur, games, current_season)

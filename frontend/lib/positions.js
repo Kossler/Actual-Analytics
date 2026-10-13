@@ -162,7 +162,7 @@ export const POSITIONS = {
       cardDetail: { int_rate: (t) => `${Math.round(t.interceptions || 0)} INT / ${Math.round(t.attempts || 0)} att` },
       summary: { title: 'Rushing', main: 'rushing_yards', unit: 'yds', rate: 'rush_epa_per', detail: ['carries', 'ypc', 'rushing_tds'] },
       weekChart: ['epa_per_play', 'cpoe', 'ypa'],
-      valueSplit: [{ label: 'Passing', metric: 'pass_epa' }, { label: 'Rushing', metric: 'rushing_epa' }],
+      valueSplit: [{ label: 'Dropbacks', metric: 'pass_epa' }, { label: 'Designed runs', metric: 'designed_rush_epa' }],
       gameLog: [
         { group: 'Passing', columns: ['cmp_att', 'cmp_pct', 'passing_yards', 'ypa', 'passing_tds', 'interceptions', 'sacks', 'anya', 'pass_epa', 'epa_per_play', 'cpoe'] },
         { group: 'Rushing', columns: ['carries', 'rushing_yards', 'ypc', 'rushing_tds', 'rushing_epa', 'rush_epa_per'] },

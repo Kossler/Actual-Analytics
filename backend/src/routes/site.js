@@ -148,12 +148,33 @@ const PFR_DEF_COUNTS = ['pfr_def_targets', 'pfr_def_completions', 'pfr_def_ints'
 const pfrColumn = (f) => f.split(' AS ')[0];
 const pfrAlias = (f) => f.split(' AS ')[1];
 
+// Next Gen Stats rows for the leaderboard's week range. Weekly rows only exist for games over the
+// NFL's volume threshold (e.g. 10 carries), so summing them leaves out a committee back's light
+// games; for the whole season ($5) the NFL's season row (week 0) is used wherever a player has one.
+const ngsRows = (table) => `
+  SELECT * FROM ${table} n
+  WHERE n.season = $1 AND n.season_type = 'REG' AND CASE
+    WHEN $5::BOOLEAN AND EXISTS (SELECT 1 FROM ${table} s WHERE s.season = $1 AND s.season_type = 'REG'
+                                 AND s.week = 0 AND s.player_gsis_id = n.player_gsis_id)
+      THEN n.week = 0
+    ELSE n.week BETWEEN GREATEST($2, 1) AND $3 END`;
+
 // Per-player totals over a week range, with play-by-play and Next Gen Stats sums so the client
 // can compute any rate for any column set.
 const LEADERBOARD_SQL = `
   WITH weeks AS (
     SELECT * FROM player_stats
     WHERE season = $1 AND season_type = 'REG' AND week BETWEEN $2 AND $3
+  ),
+  -- Games played without a stat row (nflverse writes one only when a player records a stat), as
+  -- the player page counts them.
+  snap_games AS (
+    SELECT pl.gsis_id AS player_id, COUNT(DISTINCT sc.week)::INT AS games
+    FROM snap_counts sc JOIN public.players pl ON pl.pfr_id = sc.pfr_player_id
+    WHERE sc.season = $1 AND sc.game_type = 'REG' AND sc.week BETWEEN $2 AND $3
+      AND (sc.offense_snaps > 0 OR sc.defense_snaps > 0)
+      AND NOT EXISTS (SELECT 1 FROM weeks x WHERE x.player_id = pl.gsis_id AND x.week = sc.week)
+    GROUP BY pl.gsis_id
   ),
   players AS (
     SELECT
@@ -162,7 +183,7 @@ const LEADERBOARD_SQL = `
       (ARRAY_AGG(w.team ORDER BY w.week DESC))[1] AS team,
       (ARRAY_AGG(w.position ORDER BY w.week DESC))[1] AS position,
       (ARRAY_AGG(w.headshot_url ORDER BY w.week DESC))[1] AS headshot,
-      COUNT(*)::INT AS games,
+      COUNT(*)::INT + COALESCE(MAX(sg.games), 0) AS games,
       SUM(w.completions)::FLOAT AS completions,
       SUM(w.attempts)::FLOAT AS attempts,
       SUM(w.passing_yards)::FLOAT AS passing_yards,
@@ -195,6 +216,7 @@ const LEADERBOARD_SQL = `
       SUM(w.fg_made)::FLOAT AS fg_made, SUM(w.fg_att)::FLOAT AS fg_att, MAX(w.fg_long)::FLOAT AS fg_long,
       SUM(w.pat_made)::FLOAT AS pat_made, SUM(w.pat_att)::FLOAT AS pat_att
     FROM weeks w
+    LEFT JOIN snap_games sg ON sg.player_id = w.player_id
     GROUP BY w.player_id
   ),
   pbp AS (
@@ -233,8 +255,7 @@ const LEADERBOARD_SQL = `
       SUM(avg_intended_air_yards * attempts) / NULLIF(SUM(attempts), 0) AS intended_air_yards,
       SUM(avg_air_yards_to_sticks * attempts) / NULLIF(SUM(attempts), 0) AS air_yards_to_sticks,
       SUM(expected_completion_percentage * attempts) / NULLIF(SUM(attempts), 0) AS xcomp_pct
-    FROM nextgen_stats
-    WHERE season = $1 AND season_type = 'REG' AND week BETWEEN GREATEST($2, 1) AND $3
+    FROM (${ngsRows('nextgen_stats')}) n
     GROUP BY player_gsis_id
   ),
   ngs_rush AS (
@@ -245,8 +266,7 @@ const LEADERBOARD_SQL = `
       SUM(efficiency * rush_attempts) / NULLIF(SUM(rush_attempts), 0) AS rush_efficiency,
       SUM(avg_time_to_los * rush_attempts) / NULLIF(SUM(rush_attempts), 0) AS time_to_los,
       SUM(expected_rush_yards) / NULLIF(SUM(rush_attempts), 0) AS expected_ypc
-    FROM nextgen_rushing
-    WHERE season = $1 AND season_type = 'REG' AND week BETWEEN GREATEST($2, 1) AND $3
+    FROM (${ngsRows('nextgen_rushing')}) n
     GROUP BY player_gsis_id
   ),
   ngs_rec AS (
@@ -254,8 +274,7 @@ const LEADERBOARD_SQL = `
       SUM(avg_separation * targets) / NULLIF(SUM(targets), 0) AS separation,
       SUM(avg_cushion * targets) / NULLIF(SUM(targets), 0) AS cushion,
       SUM(avg_yac_above_expectation * receptions) / NULLIF(SUM(receptions), 0) AS yac_over_expected
-    FROM nextgen_receiving
-    WHERE season = $1 AND season_type = 'REG' AND week BETWEEN GREATEST($2, 1) AND $3
+    FROM (${ngsRows('nextgen_receiving')}) n
     GROUP BY player_gsis_id
   )
   ,
@@ -402,7 +421,7 @@ router.get('/leaderboard/:pos', handle(async (req, res) => {
     ? await query(LINE_LEADERBOARD_SQL, season, from, to)
     : defense
       ? await query(DEFENSE_LEADERBOARD_SQL, season, from, to, defense)
-      : await query(LEADERBOARD_SQL, season, from, to, POSITION_FILTER[pos]);
+      : await query(LEADERBOARD_SQL, season, from, to, POSITION_FILTER[pos], from === 1 && to >= maxWeek);
   res.json({ season, position: pos, from, to, maxWeek, players: rows });
 }));
 
@@ -541,6 +560,10 @@ router.get('/players/:id/page', handle(async (req, res) => {
   res.json({ player: players[0], games, ngs, contracts, injury: injuries[0] || null, depth });
 }));
 
+// A quarterback's dropbacks: nflverse leaves passer_player_id empty on scrambles, where the
+// scrambler is the rusher. (Written as an OR so both id indexes can be used.)
+const dropbackBy = (param) => `(p.passer_player_id = ${param} OR (p.qb_scramble = 1 AND p.rusher_player_id = ${param}))`;
+
 // FTN charting splits (2022+): play-action, blitzes, pocket, box counts, catchable/contested targets.
 const CHARTED_PLAYS = `
   FROM pbp p
@@ -560,7 +583,7 @@ router.get('/players/:id/charting', handle(async (req, res) => {
     ORDER BY 1 DESC`, id);
   if (!seasons.length) return res.json({ seasons: [], season: null, passing: [], receiving: null, rushing: [] });
   const season = intParam(req.query.season, seasons[0].season);
-  const where = `WHERE p.season = $2 AND p.season_type = 'REG' AND p.epa IS NOT NULL`;
+  const where = `WHERE p.season = $2 AND p.season_type = 'REG' AND p.epa IS NOT NULL AND COALESCE(p.two_point_attempt, 0) = 0`;
   const [passing, receiving, rushing] = await Promise.all([
     query(`
       SELECT s.split, s.ord, ${SPLIT_SUMS},
@@ -574,7 +597,7 @@ router.get('/players/:id/charting', handle(async (req, res) => {
         ('In pocket', 5, NOT f.is_qb_out_of_pocket), ('Out of pocket', 6, f.is_qb_out_of_pocket),
         ('Screens', 7, f.is_screen_pass), ('RPO', 8, f.is_rpo)
       ) AS s(split, ord, included)
-      ${where} AND p.passer_player_id = $1 AND p.qb_dropback = 1 AND s.included
+      ${where} AND ${dropbackBy("$1")} AND p.qb_dropback = 1 AND s.included
       GROUP BY s.split, s.ord ORDER BY s.ord`, id, season),
     query(`
       SELECT
@@ -643,7 +666,7 @@ router.get('/players/:id/situations', handle(async (req, res) => {
                  AND COALESCE(p.two_point_attempt, 0) = 0 AND s.included`;
   const [passing, rushing, receiving, directions] = await Promise.all([
     query(`SELECT s.split, s.ord, ${SITUATION_SUMS} FROM pbp p ${SITUATIONS_SQL}
-           ${where} AND p.passer_player_id = $1 AND p.qb_dropback = 1
+           ${where} AND ${dropbackBy("$1")} AND p.qb_dropback = 1
            GROUP BY s.split, s.ord ORDER BY s.ord`, id, season),
     query(`SELECT s.split, s.ord, ${SITUATION_SUMS} FROM pbp p ${SITUATIONS_SQL}
            ${where} AND p.rusher_player_id = $1 AND p.rush_attempt = 1 AND COALESCE(p.qb_scramble, 0) = 0
@@ -1198,7 +1221,8 @@ router.get('/models/regression-lab', handle(async (req, res) => {
         SELECT season::INT AS season, posteam, defteam, CASE WHEN week <= 9 THEN 1 ELSE 2 END AS half,
                COALESCE(yards_gained, 0) + 20 * COALESCE(pass_touchdown, 0) - 45 * COALESCE(interception, 0) AS adj
         FROM pbp
-        WHERE season_type = 'REG' AND season >= 2006 AND qb_dropback = 1 AND qb_scramble = 0 AND posteam IS NOT NULL
+        WHERE season_type = 'REG' AND season >= 2006 AND qb_dropback = 1 AND COALESCE(qb_scramble, 0) = 0
+          AND COALESCE(two_point_attempt, 0) = 0 AND posteam IS NOT NULL
       )
       SELECT season, team, half, side, SUM(adj)::FLOAT / COUNT(*) AS anya
       FROM (SELECT season, posteam AS team, half, 'off' AS side, adj FROM d
