@@ -543,19 +543,67 @@ def finalize_load(tables):
     """Refresh planner statistics after bulk loads so the API's queries get good plans, then
     bump app_meta.data_version so the API drops its cached responses. Returns False on any error."""
     creds = parse_database_url(get_database_url())
-    conn = psycopg2.connect(
-        dbname=creds['dbname'],
-        user=creds['user'],
-        password=creds['password'],
-        host=creds['host'],
-        port=creds['port']
-    )
-    conn.autocommit = True
-    cur = conn.cursor()
+
+    def connect():
+        c = psycopg2.connect(
+            dbname=creds['dbname'],
+            user=creds['user'],
+            password=creds['password'],
+            host=creds['host'],
+            port=creds['port']
+        )
+        c.autocommit = True
+        return c
+
+    conn = connect()
+
+    def run_step(fn):
+        """Run fn(conn); if the server drops the connection, reconnect and retry once so one
+        lost session doesn't cascade into every remaining step failing on a dead connection."""
+        nonlocal conn
+        try:
+            fn(conn)
+        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+            if not conn.closed:
+                raise
+            print("  connection lost; reconnecting and retrying")
+            conn = connect()
+            fn(conn)
+
+    def analyze(table_name):
+        def step(c):
+            with c.cursor() as cur:
+                cur.execute(f'ANALYZE "{table_name}"')
+        return step
+
+    def refresh(view):
+        def step(c):
+            with c.cursor() as cur:
+                try:
+                    cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {view}')
+                except psycopg2.OperationalError as e:
+                    # Parallel workers need shared memory; small Postgres containers can run out.
+                    if 'shared memory' not in str(e):
+                        raise
+                    print(f"  {view}: out of shared memory, retrying without parallel workers")
+                    cur.execute('SET max_parallel_workers_per_gather = 0')
+                    cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {view}')
+                    cur.execute('RESET max_parallel_workers_per_gather')
+                cur.execute(f'ANALYZE {view}')
+        return step
+
+    def bump_data_version(c):
+        with c.cursor() as cur:
+            cur.execute(
+                "INSERT INTO app_meta (key, value, updated_at) "
+                "VALUES ('data_version', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), now()) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at"
+            )
+
     ok = True
     for table_name in tables:
         try:
-            cur.execute(f'ANALYZE "{table_name}"')
+            run_step(analyze(table_name))
             print(f"Analyzed {table_name}")
         except Exception as e:
             print(f"Error analyzing {table_name}: {e}")
@@ -565,40 +613,25 @@ def finalize_load(tables):
         if not (sources & set(tables)):
             continue
         try:
-            try:
-                cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {view}')
-            except psycopg2.OperationalError as e:
-                # Parallel workers need shared memory; small Postgres containers can run out.
-                if 'shared memory' not in str(e):
-                    raise
-                print(f"  {view}: out of shared memory, retrying without parallel workers")
-                cur.execute('SET max_parallel_workers_per_gather = 0')
-                cur.execute(f'REFRESH MATERIALIZED VIEW CONCURRENTLY {view}')
-                cur.execute('RESET max_parallel_workers_per_gather')
-            cur.execute(f'ANALYZE {view}')
+            run_step(refresh(view))
             print(f"Refreshed {view}")
         except Exception as e:
             print(f"Error refreshing {view}: {e}")
             ok = False
     try:
         import models
-        models.run(conn)
+        run_step(models.run)
     except Exception as e:
         import traceback
         traceback.print_exc()
         print(f"Error running models: {e}")
         ok = False
     try:
-        cur.execute(
-            "INSERT INTO app_meta (key, value, updated_at) "
-            "VALUES ('data_version', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), now()) "
-            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at"
-        )
+        run_step(bump_data_version)
         print("Bumped data_version")
     except Exception as e:
         print(f"Error bumping data_version: {e}")
         ok = False
-    cur.close()
     conn.close()
     return ok
 
