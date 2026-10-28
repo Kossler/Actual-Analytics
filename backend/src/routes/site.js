@@ -19,6 +19,21 @@ function plain(value) {
 
 const query = async (sql, ...params) => plain(await prisma.$queryRawUnsafe(sql, ...params));
 
+// Shrinks wide stat rows: drops null fields and rounds fractions to 6 significant digits. Most of
+// a row's 100+ columns are null for any one position, and the frontend renders these pages on
+// Cloudflare's free Workers plan (10 ms of CPU per request), where parsing the JSON is much of the
+// cost. The frontend reads a missing field as null (see n() and has() in lib/metrics.js).
+function compact(rows) {
+  return rows.map((row) => {
+    const out = {};
+    for (const [k, v] of Object.entries(row)) {
+      if (v === null) continue;
+      out[k] = typeof v === 'number' && !Number.isInteger(v) && Math.abs(v) < 1e6 ? Number(v.toPrecision(6)) : v;
+    }
+    return out;
+  });
+}
+
 function intParam(value, fallback) {
   const n = parseInt(value, 10);
   return Number.isFinite(n) ? n : fallback;
@@ -422,7 +437,7 @@ router.get('/leaderboard/:pos', handle(async (req, res) => {
     : defense
       ? await query(DEFENSE_LEADERBOARD_SQL, season, from, to, defense)
       : await query(LEADERBOARD_SQL, season, from, to, POSITION_FILTER[pos], from === 1 && to >= maxWeek);
-  res.json({ season, position: pos, from, to, maxWeek, players: rows });
+  res.json({ season, position: pos, from, to, maxWeek, players: compact(rows) });
 }));
 
 // ---------------------------------------------------------------------------------------------
@@ -557,7 +572,7 @@ router.get('/players/:id/page', handle(async (req, res) => {
            WHERE gsis_id = $1 ORDER BY pos_rank, pos_slot`, id),
   ]);
   if (!players.length) return res.status(404).json({ error: 'Player not found' });
-  res.json({ player: players[0], games, ngs, contracts, injury: injuries[0] || null, depth });
+  res.json({ player: players[0], games: compact(games), ngs: compact(ngs), contracts, injury: injuries[0] || null, depth });
 }));
 
 // A quarterback's dropbacks: nflverse leaves passer_player_id empty on scrambles, where the
